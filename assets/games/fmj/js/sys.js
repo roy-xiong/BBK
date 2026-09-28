@@ -115,17 +115,19 @@
     };
 
     global.sysDrawScreen = function(buffer, wid, hgt) {
+        var canvas = document.getElementById('lcd');
+        if (global.FmjHdRenderer) {
+            global.FmjHdRenderer.draw(canvas, buffer, wid, hgt);
+            return;
+        }
+
+        // 高清脚本未加载时保留原始绘制路径，避免可选增强影响游戏启动。
         var lcd = getLCD();
-        var w = wid;
-        var h = hgt;
-
         var img = lcd.createImageData(wid, hgt);
-
-        for (var y = 0; y < h; y += 1) {
-            for (var x = 0; x < w; x += 1) {
-                var ind = w*y + x;
-                var pixel = buffer[ind];
-                imageDot(img, x, y, w, pixel);
+        for (var y = 0; y < hgt; y += 1) {
+            for (var x = 0; x < wid; x += 1) {
+                var ind = wid*y + x;
+                imageDot(img, x, y, wid, buffer[ind]);
             }
         }
         lcd.imageSmoothingEnabled = false;
@@ -207,4 +209,3 @@ function enableDebug() {
         }
     };
 }
-

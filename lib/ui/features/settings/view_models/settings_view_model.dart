@@ -46,6 +46,13 @@ class SettingsViewModel extends ChangeNotifier {
     _update(_settings.copyWith(sgbyEdition: value));
   }
 
+  /// 设置伏魔记显示画质并异步持久化。
+  ///
+  /// 当前值会先同步通知 UI；文件写入失败时仅记录错误，不撤销正在运行的游戏画面。
+  void setFmjHighDefinition(bool value) {
+    _update(_settings.copyWith(fmjHighDefinition: value));
+  }
+
   void _update(AppSettings value) {
     _settings = value;
     notifyListeners();

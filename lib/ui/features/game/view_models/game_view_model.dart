@@ -29,6 +29,7 @@ class GameViewModel extends ChangeNotifier {
     required LocalGameServer localGameServer,
     required VoidCallback onExitRequested,
   }) : _initialSettings = initialSettings,
+       _fmjHighDefinition = initialSettings.fmjHighDefinition,
        _saveRepository = saveRepository,
        _localGameServer = localGameServer,
        _onExitRequested = onExitRequested;
@@ -43,6 +44,7 @@ class GameViewModel extends ChangeNotifier {
   WebViewController? _webViewController;
   int _progress = 0;
   bool _isReady = false;
+  bool _fmjHighDefinition;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
@@ -128,6 +130,24 @@ class GameViewModel extends ChangeNotifier {
           )
           .catchError((_) {}),
     );
+  }
+
+  /// 切换伏魔记的显示画质。
+  ///
+  /// 画质命令只调用本地白名单 JS 接口。页面尚未就绪时先保存目标值，收到 ready
+  /// 消息后自动补发，避免初始化竞态导致设置失效。
+  Future<void> setFmjHighDefinition(bool enabled) async {
+    _fmjHighDefinition = enabled;
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null) return;
+    try {
+      await controller.runJavaScript(
+        'window.bbkSetHighDefinition && '
+        'window.bbkSetHighDefinition(${enabled ? 'true' : 'false'});',
+      );
+    } on Object {
+      // 高清显示属于可选增强；桥接失败时网页渲染器会保留自身的安全默认值。
+    }
   }
 
   /// 在当前游戏引擎内执行经过白名单限制的作弊操作。
@@ -236,6 +256,7 @@ class GameViewModel extends ChangeNotifier {
       _isReady = true;
       _error = null;
       notifyListeners();
+      unawaited(setFmjHighDefinition(_fmjHighDefinition));
     } else if (message.message == 'exit') {
       _onExitRequested();
     }

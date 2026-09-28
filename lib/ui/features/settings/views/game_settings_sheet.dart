@@ -8,6 +8,7 @@ Future<void> showGameSettingsSheet(
   BuildContext context, {
   required SettingsViewModel viewModel,
   required bool showEdition,
+  bool showFmjGraphics = false,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -36,6 +37,13 @@ Future<void> showGameSettingsSheet(
                     value: settings.hapticsEnabled,
                     onChanged: viewModel.setHapticsEnabled,
                   ),
+                  if (showFmjGraphics)
+                    SwitchListTile(
+                      secondary: const Icon(Icons.hd),
+                      title: const Text('伏魔记高清画质'),
+                      value: settings.fmjHighDefinition,
+                      onChanged: viewModel.setFmjHighDefinition,
+                    ),
                   if (showEdition)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),

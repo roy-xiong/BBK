@@ -12,7 +12,7 @@
     body { display: flex; align-items: center; justify-content: center; }
     #lcd {
       width: 100%; height: 100%; object-fit: contain;
-      image-rendering: pixelated; background: #b4b4b4;
+      image-rendering: pixelated; background: #d8d8cf;
     }
   </style>
   <script>
@@ -35,6 +35,7 @@
   <script src="js/jquery.min.js"></script>
   <script src="js/encoding-indexes.js"></script>
   <script src="js/encoding.js"></script>
+  <script src="js/hd-renderer.js"></script>
   <script src="js/sys.js"></script>
   <script src="js/kotlin.js"></script>
   <script src="js/keyboard.js"></script>
@@ -42,7 +43,7 @@
   <script src="rom/rom.js"></script>
 </head>
 <body>
-  <canvas id="lcd" width="160" height="96"></canvas>
+  <canvas id="lcd" width="480" height="288"></canvas>
   <script>
     (function configureFlutterHost() {
       window.bbkCheatState = {
@@ -51,6 +52,36 @@
         normalAttackAll: false,
         attackPatchInstalled: false,
         monitorStarted: false
+      };
+
+      /**
+       * 切换伏魔记显示画质。
+       *
+       * 该操作只替换最终帧的绘制方式，不改变游戏逻辑坐标、输入、作弊或存档数据。
+       *
+       * @param {boolean} enabled 是否启用三倍高清渲染。
+       * @return {string} 供 Flutter WebView 安全解析的结构化结果。
+       */
+      window.bbkSetHighDefinition = function (enabled) {
+        if (!window.FmjHdRenderer) {
+          return JSON.stringify({ok: false, enabled: false});
+        }
+        window.FmjHdRenderer.setEnabled(!!enabled);
+        return JSON.stringify({
+          ok: true,
+          enabled: window.FmjHdRenderer.isEnabled()
+        });
+      };
+
+      /**
+       * @return {string} 当前显示画质状态。
+       */
+      window.bbkGetGraphicsState = function () {
+        return JSON.stringify({
+          highDefinition: !!(
+            window.FmjHdRenderer && window.FmjHdRenderer.isEnabled()
+          )
+        });
       };
 
       function ensureCheatMonitor(core) {

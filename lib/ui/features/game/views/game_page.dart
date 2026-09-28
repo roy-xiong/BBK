@@ -38,6 +38,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _portraitRequested = true;
   bool _orientationChanging = false;
   bool _darkControls = true;
+  late bool _lastFmjHighDefinition;
   Offset _toolbarOffset = const Offset(8, 8);
 
   static const double _toolbarHeight = 44;
@@ -53,6 +54,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       localGameServer: widget.dependencies.localGameServer,
       onExitRequested: () => unawaited(_leaveGame()),
     );
+    _lastFmjHighDefinition =
+        widget.settingsViewModel.settings.fmjHighDefinition;
+    widget.settingsViewModel.addListener(_onSettingsChanged);
     unawaited(_enterGameMode());
     unawaited(_viewModel.initialize());
   }
@@ -68,9 +72,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    widget.settingsViewModel.removeListener(_onSettingsChanged);
     WidgetsBinding.instance.removeObserver(this);
     _viewModel.dispose();
     super.dispose();
+  }
+
+  /// 将设置页或工具栏中的画质变化同步给正在运行的伏魔记页面。
+  ///
+  /// 使用上次值去重，避免其他设置变化时重复跨平台调用 WebView。
+  void _onSettingsChanged() {
+    final enabled = widget.settingsViewModel.settings.fmjHighDefinition;
+    if (enabled == _lastFmjHighDefinition) return;
+    _lastFmjHighDefinition = enabled;
+    unawaited(_viewModel.setFmjHighDefinition(enabled));
   }
 
   Future<void> _enterGameMode() async {
@@ -139,7 +154,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 final usePortraitLayout =
                     constraints.maxHeight >= constraints.maxWidth;
                 final toolbarWidth = widget.game.id == GameId.fmj
-                    ? 264.0
+                    ? 308.0
                     : 220.0;
                 final toolbarLeft = _toolbarOffset.dx
                     .clamp(
@@ -217,10 +232,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                           onThemeChanged: () {
                             setState(() => _darkControls = !_darkControls);
                           },
+                          highDefinitionEnabled:
+                              settings.fmjHighDefinition,
+                          onHighDefinitionChanged:
+                              widget.game.id == GameId.fmj
+                              ? () => widget.settingsViewModel
+                                    .setFmjHighDefinition(
+                                      !settings.fmjHighDefinition,
+                                    )
+                              : null,
                           onSettings: () => showGameSettingsSheet(
                             context,
                             viewModel: widget.settingsViewModel,
                             showEdition: false,
+                            showFmjGraphics: widget.game.id == GameId.fmj,
                           ),
                         ),
                       ),
@@ -330,6 +355,8 @@ class _GameToolbar extends StatelessWidget {
     required this.onMap,
     required this.onOrientationChanged,
     required this.onThemeChanged,
+    required this.highDefinitionEnabled,
+    required this.onHighDefinitionChanged,
     required this.onSettings,
   });
 
@@ -339,10 +366,26 @@ class _GameToolbar extends StatelessWidget {
   final VoidCallback? onMap;
   final VoidCallback onOrientationChanged;
   final VoidCallback onThemeChanged;
+  final bool highDefinitionEnabled;
+  final VoidCallback? onHighDefinitionChanged;
   final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
+    Widget iconButton({
+      required String tooltip,
+      required VoidCallback onPressed,
+      required Widget icon,
+    }) {
+      return IconButton(
+        tooltip: tooltip,
+        constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        icon: icon,
+      );
+    }
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0x99000000),
@@ -351,33 +394,44 @@ class _GameToolbar extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
+          iconButton(
             tooltip: '返回游戏选择',
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back),
           ),
-          IconButton(
+          iconButton(
             tooltip: '控制设置',
             onPressed: onSettings,
             icon: const Icon(Icons.settings),
           ),
-          IconButton(
+          iconButton(
             tooltip: '作弊系统',
             onPressed: onCheat,
             icon: const Icon(Icons.auto_fix_high),
           ),
           if (onMap != null)
-            IconButton(
+            iconButton(
               tooltip: '探索地图',
-              onPressed: onMap,
+              onPressed: onMap!,
               icon: const Icon(Icons.map),
             ),
-          IconButton(
+          if (onHighDefinitionChanged != null)
+            iconButton(
+              tooltip: highDefinitionEnabled ? '切换经典画质' : '切换高清画质',
+              onPressed: onHighDefinitionChanged!,
+              icon: Icon(
+                Icons.hd,
+                color: highDefinitionEnabled
+                    ? const Color(0xFFFFD166)
+                    : null,
+              ),
+            ),
+          iconButton(
             tooltip: '切换控制区明暗主题',
             onPressed: onThemeChanged,
             icon: const Icon(Icons.brightness_6),
           ),
-          IconButton(
+          iconButton(
             tooltip: portraitRequested ? '切换横屏' : '切换竖屏',
             onPressed: onOrientationChanged,
             icon: Icon(
