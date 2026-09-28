@@ -35,6 +35,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   late final GameViewModel _viewModel;
   bool _allowPop = false;
   bool _leaving = false;
+  bool _leaveConfirmationVisible = false;
   bool _portraitRequested = true;
   bool _orientationChanging = false;
   bool _darkControls = true;
@@ -52,7 +53,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       initialSettings: widget.settingsViewModel.settings,
       saveRepository: widget.dependencies.gameSaveRepository,
       localGameServer: widget.dependencies.localGameServer,
-      onExitRequested: () => unawaited(_leaveGame()),
+      onExitRequested: () => unawaited(_requestLeaveGame()),
     );
     _lastFmjHighDefinition =
         widget.settingsViewModel.settings.fmjHighDefinition;
@@ -131,12 +132,59 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     if (mounted) Navigator.of(context).pop();
   }
 
+  /// 请求退出当前游戏，并统一展示二次确认。
+  ///
+  /// Android 系统返回键、工具栏返回按钮和游戏引擎主动退出都会进入这里。状态位防止
+  /// 快速重复点击叠加多个 Dialog；取消或系统返回关闭 Dialog 后继续保留游戏现场。
+  Future<void> _requestLeaveGame() async {
+    if (_leaving || _leaveConfirmationVisible || !mounted) return;
+    _leaveConfirmationVisible = true;
+    bool confirmed = false;
+    try {
+      confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: Text('退出${widget.game.title}？'),
+                content: const Text('请确认当前进度已经存档。'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('继续游戏'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    child: const Text('退出'),
+                  ),
+                ],
+              );
+            },
+          ) ??
+          false;
+    } finally {
+      _leaveConfirmationVisible = false;
+    }
+    if (confirmed && mounted) await _leaveGame();
+  }
+
+  /// 打开游戏原生存档界面，并反馈无法存档的具体原因。
+  Future<void> _openSaveMenu() async {
+    final result = await _viewModel.openSaveMenu();
+    if (!mounted) return;
+    if (!result.isSuccess || widget.game.id == GameId.sgby) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(result.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope<void>(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) unawaited(_leaveGame());
+        if (!didPop) unawaited(_requestLeaveGame());
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -154,8 +202,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 final usePortraitLayout =
                     constraints.maxHeight >= constraints.maxWidth;
                 final toolbarWidth = widget.game.id == GameId.fmj
-                    ? 308.0
-                    : 220.0;
+                    ? 352.0
+                    : 264.0;
                 final toolbarLeft = _toolbarOffset.dx
                     .clamp(
                       0.0,
@@ -213,7 +261,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         },
                         child: _GameToolbar(
                           portraitRequested: _portraitRequested,
-                          onBack: () => unawaited(_leaveGame()),
+                          onBack: () => unawaited(_requestLeaveGame()),
+                          onSave: () => unawaited(_openSaveMenu()),
                           onCheat: () => showGameCheatSheet(
                             context,
                             game: widget.game,
@@ -232,10 +281,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                           onThemeChanged: () {
                             setState(() => _darkControls = !_darkControls);
                           },
-                          highDefinitionEnabled:
-                              settings.fmjHighDefinition,
-                          onHighDefinitionChanged:
-                              widget.game.id == GameId.fmj
+                          highDefinitionEnabled: settings.fmjHighDefinition,
+                          onHighDefinitionChanged: widget.game.id == GameId.fmj
                               ? () => widget.settingsViewModel
                                     .setFmjHighDefinition(
                                       !settings.fmjHighDefinition,
@@ -351,6 +398,7 @@ class _GameToolbar extends StatelessWidget {
   const _GameToolbar({
     required this.portraitRequested,
     required this.onBack,
+    required this.onSave,
     required this.onCheat,
     required this.onMap,
     required this.onOrientationChanged,
@@ -362,6 +410,7 @@ class _GameToolbar extends StatelessWidget {
 
   final bool portraitRequested;
   final VoidCallback onBack;
+  final VoidCallback onSave;
   final VoidCallback onCheat;
   final VoidCallback? onMap;
   final VoidCallback onOrientationChanged;
@@ -400,6 +449,11 @@ class _GameToolbar extends StatelessWidget {
             icon: const Icon(Icons.arrow_back),
           ),
           iconButton(
+            tooltip: '打开存档界面',
+            onPressed: onSave,
+            icon: const Icon(Icons.save),
+          ),
+          iconButton(
             tooltip: '控制设置',
             onPressed: onSettings,
             icon: const Icon(Icons.settings),
@@ -421,9 +475,7 @@ class _GameToolbar extends StatelessWidget {
               onPressed: onHighDefinitionChanged!,
               icon: Icon(
                 Icons.hd,
-                color: highDefinitionEnabled
-                    ? const Color(0xFFFFD166)
-                    : null,
+                color: highDefinitionEnabled ? const Color(0xFFFFD166) : null,
               ),
             ),
           iconButton(

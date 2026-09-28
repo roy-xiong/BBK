@@ -84,6 +84,78 @@
         });
       };
 
+      /**
+       * 打开伏魔记原生存档档位界面。
+       *
+       * 快捷按钮只负责进入原有存档流程，不自动覆盖任何档位。引擎自身仍负责档位选择、
+       * 覆盖确认以及剧情、战斗等不可存档状态的限制。
+       *
+       * @return {string} 供 Flutter WebView 安全解析的结构化结果。
+       */
+      window.bbkOpenSaveMenu = function () {
+        function result(ok, message) {
+          return JSON.stringify({ok: ok, message: message});
+        }
+
+        try {
+          var core = window['fmj.core'] && window['fmj.core'].fmj;
+          if (!core || !core.game || !core.game.mainScene) {
+            return result(false, '请先开始或载入游戏');
+          }
+          if (core.Global.disableSave) {
+            return result(false, '当前剧情不能存档');
+          }
+          if (
+            core.game.mainScene.scriptProcess &&
+            core.game.mainScene.scriptProcess.prev != null
+          ) {
+            return result(false, '副本中不能存档');
+          }
+          if (
+            core.combat &&
+            core.combat.Combat &&
+            core.combat.Combat.Companion.IsActive()
+          ) {
+            return result(false, '战斗中不能存档');
+          }
+
+          var currentScreen = core.game.getCurScreen();
+          if (!currentScreen) {
+            return result(false, '当前界面不能存档');
+          }
+
+          var node = currentScreen;
+          var inMainScene = false;
+          var saveMenuOpened = false;
+          for (var depth = 0; node && depth < 12; depth++) {
+            if (node instanceof core.scene.ScreenMainGame) inMainScene = true;
+            if (node instanceof core.views.ScreenSaveLoadGame) {
+              saveMenuOpened = true;
+              break;
+            }
+            var parent = node.parent;
+            if (!parent || parent === node) break;
+            node = parent;
+          }
+          if (saveMenuOpened) {
+            return result(false, '存档界面已经打开');
+          }
+          if (!inMainScene) {
+            return result(false, '请先进入游戏主场景');
+          }
+
+          var saveScreen = new core.views.ScreenSaveLoadGame(
+            currentScreen,
+            core.views.ScreenSaveLoadGame.Operate.SAVE,
+            1
+          );
+          currentScreen.pushScreen_2o7n0o$(saveScreen);
+          return result(true, '请选择存档位置');
+        } catch (_) {
+          return result(false, '当前界面不能存档，请回到主场景后重试');
+        }
+      };
+
       function ensureCheatMonitor(core) {
         if (!window.bbkCheatState.attackPatchInstalled) {
           var prototype = core.characters.FightingCharacter.prototype;

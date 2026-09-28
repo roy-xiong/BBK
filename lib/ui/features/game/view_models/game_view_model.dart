@@ -20,6 +20,116 @@ class CheatResult {
   final String message;
 }
 
+/// 请求游戏引擎打开存档界面后的结构化结果。
+class SaveMenuResult {
+  const SaveMenuResult({required this.isSuccess, required this.message});
+
+  final bool isSuccess;
+  final String message;
+}
+
+/// 三国霸业单个我方武将的可编辑属性快照。
+class SgbyGeneralCheatInfo {
+  const SgbyGeneralCheatInfo({
+    required this.index,
+    required this.name,
+    required this.cityName,
+    required this.level,
+    required this.force,
+    required this.iq,
+    required this.devotion,
+    required this.thew,
+    required this.experience,
+    required this.arms,
+    required this.baseArmsType,
+    required this.effectiveArmsType,
+    required this.inBattle,
+    required this.battleMove,
+    required this.battleHp,
+    required this.battleMp,
+    required this.battleState,
+    required this.canAct,
+  });
+
+  factory SgbyGeneralCheatInfo.fromJson(Map<String, dynamic> json) {
+    int integer(String key) => (json[key] as num?)?.toInt() ?? 0;
+
+    return SgbyGeneralCheatInfo(
+      index: integer('index'),
+      name: json['name'] as String? ?? '未知武将',
+      cityName: json['cityName'] as String? ?? '未知城池',
+      level: integer('level'),
+      force: integer('force'),
+      iq: integer('iq'),
+      devotion: integer('devotion'),
+      thew: integer('thew'),
+      experience: integer('experience'),
+      arms: integer('arms'),
+      baseArmsType: integer('baseArmsType'),
+      effectiveArmsType: integer('effectiveArmsType'),
+      inBattle: json['inBattle'] == true,
+      battleMove: integer('battleMove'),
+      battleHp: integer('battleHp'),
+      battleMp: integer('battleMp'),
+      battleState: integer('battleState'),
+      canAct: json['canAct'] == true,
+    );
+  }
+
+  final int index;
+  final String name;
+  final String cityName;
+  final int level;
+  final int force;
+  final int iq;
+  final int devotion;
+  final int thew;
+  final int experience;
+  final int arms;
+  final int baseArmsType;
+  final int effectiveArmsType;
+  final bool inBattle;
+  final int battleMove;
+  final int battleHp;
+  final int battleMp;
+  final int battleState;
+  final bool canAct;
+}
+
+/// 三国霸业作弊面板所需的武将列表和版本级别上限。
+class SgbyCheatData {
+  const SgbyCheatData({
+    required this.isSuccess,
+    required this.message,
+    required this.maxLevel,
+    required this.generals,
+  });
+
+  factory SgbyCheatData.fromJson(Map<String, dynamic> json) {
+    final rawGenerals = json['generals'];
+    return SgbyCheatData(
+      isSuccess: json['ok'] == true,
+      message: json['message'] as String? ?? '',
+      maxLevel: (json['maxLevel'] as num?)?.toInt() ?? 20,
+      generals: rawGenerals is List
+          ? rawGenerals
+                .whereType<Map>()
+                .map(
+                  (value) => SgbyGeneralCheatInfo.fromJson(
+                    Map<String, dynamic>.from(value),
+                  ),
+                )
+                .toList(growable: false)
+          : const <SgbyGeneralCheatInfo>[],
+    );
+  }
+
+  final bool isSuccess;
+  final String message;
+  final int maxLevel;
+  final List<SgbyGeneralCheatInfo> generals;
+}
+
 /// 单个游戏页面的运行状态和桥接逻辑。
 class GameViewModel extends ChangeNotifier {
   GameViewModel({
@@ -150,11 +260,44 @@ class GameViewModel extends ChangeNotifier {
     }
   }
 
+  /// 打开当前游戏原生的存档档位界面。
+  ///
+  /// Flutter 只调用固定桥接函数，不拼接来自 UI 的任意脚本。真正的档位选择、覆盖确认
+  /// 和写入仍由游戏引擎完成，因此不会绕过原游戏的存档限制。
+  Future<SaveMenuResult> openSaveMenu() async {
+    final controller = _webViewController;
+    if (!_isReady || controller == null) {
+      return const SaveMenuResult(isSuccess: false, message: '游戏尚未加载完成');
+    }
+
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkOpenSaveMenu ? window.bbkOpenSaveMenu() : '
+        'JSON.stringify({ok:false,message:"当前游戏不支持快捷存档"});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is Map) {
+        return SaveMenuResult(
+          isSuccess: decoded['ok'] == true,
+          message: decoded['message'] is String
+              ? decoded['message'] as String
+              : '请选择存档位置',
+        );
+      }
+      return const SaveMenuResult(isSuccess: false, message: '游戏返回了无效结果');
+    } on Object {
+      return const SaveMenuResult(isSuccess: false, message: '无法打开存档界面');
+    }
+  }
+
   /// 在当前游戏引擎内执行经过白名单限制的作弊操作。
   ///
   /// 具体字段修改由各游戏的本地 JS 适配层完成；Flutter 只传递固定 action，避免
   /// 拼接任意脚本。页面未就绪、尚未开始游戏或脚本异常时返回失败结果而不抛到 UI。
-  Future<CheatResult> applyCheat(String action) async {
+  Future<CheatResult> applyCheat(
+    String action, {
+    Map<String, Object?> parameters = const <String, Object?>{},
+  }) async {
     final controller = _webViewController;
     if (!_isReady || controller == null) {
       return const CheatResult(isSuccess: false, message: '游戏尚未加载完成');
@@ -162,7 +305,8 @@ class GameViewModel extends ChangeNotifier {
 
     try {
       final result = await controller.runJavaScriptReturningResult(
-        'window.bbkApplyCheat ? window.bbkApplyCheat(${jsonEncode(action)}) : '
+        'window.bbkApplyCheat ? '
+        'window.bbkApplyCheat(${jsonEncode(action)}, ${jsonEncode(parameters)}) : '
         'JSON.stringify({ok:false,message:"当前游戏不支持此操作"});',
       );
       final decoded = _decodeJavaScriptResult(result);
@@ -178,6 +322,46 @@ class GameViewModel extends ChangeNotifier {
     } on Object {
       return const CheatResult(isSuccess: false, message: '操作失败，请稍后重试');
     }
+  }
+
+  /// 读取三国霸业当前我方武将列表和详细属性。
+  Future<SgbyCheatData> getSgbyCheatData() async {
+    if (game.id != GameId.sgby) {
+      return const SgbyCheatData(
+        isSuccess: false,
+        message: '当前游戏不是三国霸业',
+        maxLevel: 20,
+        generals: <SgbyGeneralCheatInfo>[],
+      );
+    }
+    final controller = _webViewController;
+    if (!_isReady || controller == null) {
+      return const SgbyCheatData(
+        isSuccess: false,
+        message: '游戏尚未加载完成',
+        maxLevel: 20,
+        generals: <SgbyGeneralCheatInfo>[],
+      );
+    }
+
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkGetSgbyCheatData ? window.bbkGetSgbyCheatData() : '
+        'JSON.stringify({ok:false,message:"当前版本不支持武将编辑"});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is Map) {
+        return SgbyCheatData.fromJson(Map<String, dynamic>.from(decoded));
+      }
+    } on Object {
+      // 下方统一返回可展示错误，避免 WebView 异常抛到 UI 线程。
+    }
+    return const SgbyCheatData(
+      isSuccess: false,
+      message: '读取武将数据失败，请回到主地图后重试',
+      maxLevel: 20,
+      generals: <SgbyGeneralCheatInfo>[],
+    );
   }
 
   /// 获取当前引擎内可持续生效的作弊状态。

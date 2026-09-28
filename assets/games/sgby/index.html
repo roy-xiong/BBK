@@ -47,6 +47,7 @@
   <script src="js/idbkvstore.min.js"></script>
   <script src="js/bridge.js"></script>
   <script src="js/lcd.js"></script>
+  <script src="js/bbk-enhancements.js"></script>
   <script>
     (function configureFlutterHost() {
       function postEntries(entries) {
@@ -58,6 +59,7 @@
       var originalSave = window.bayeSaveFileContent;
       window.bayeSaveFileContent = function (filename, content) {
         originalSave(filename, content);
+        if (window.BbkSgby) window.BbkSgby.onSaveCompleted();
         var entries = {};
         entries[filename] = content;
         entries[filename + '.lib'] = window.localStorage[filename + '.lib'] || '';
@@ -86,60 +88,26 @@
         if (keyMap[action] !== undefined) sendKey(keyMap[action]);
       };
 
-      window.bbkApplyCheat = function (action) {
-        function result(ok, message) {
-          return JSON.stringify({ok: ok, message: message});
-        }
-        try {
-          if (!window.baye || !baye.data || !baye.data.g_YearDate) {
-            return result(false, '请先开始或载入一局游戏');
-          }
-          var ruler = baye.data.g_PlayerKing + 1;
-          var cities = baye.data.g_Cities;
-          var people = baye.data.g_Persons;
-          var ownedCities = [];
-          var ownedPeople = [];
-          for (var cityIndex = 0; cityIndex < cities.length; cityIndex++) {
-            if (cities[cityIndex].Belong === ruler) ownedCities.push(cities[cityIndex]);
-          }
-          for (var personIndex = 0; personIndex < people.length; personIndex++) {
-            if (people[personIndex].Belong === ruler) ownedPeople.push(people[personIndex]);
-          }
-          if (!ownedCities.length) return result(false, '未找到我方城池');
+      window.bbkOpenSaveMenu = function () {
+        return window.BbkSgby
+          ? window.BbkSgby.openSaveMenu()
+          : JSON.stringify({ok: false, message: '游戏增强模块尚未加载'});
+      };
 
-          if (action === 'sgby_resources') {
-            ownedCities.forEach(function (city) {
-              city.Money = 65535;
-              city.Food = 65535;
-              city.MothballArms = 65535;
-            });
-            return result(true, '已将 ' + ownedCities.length + ' 座城池资源提升至上限');
-          }
-          if (action === 'sgby_development') {
-            ownedCities.forEach(function (city) {
-              city.State = 0;
-              city.Farming = city.FarmingLimit;
-              city.Commerce = city.CommerceLimit;
-              city.Population = city.PopulationLimit;
-              city.PeopleDevotion = 100;
-              city.AvoidCalamity = 100;
-            });
-            return result(true, '已将 ' + ownedCities.length + ' 座城池发展提升至上限');
-          }
-          if (action === 'sgby_generals') {
-            ownedPeople.forEach(function (person) {
-              person.Force = 100;
-              person.IQ = 100;
-              person.Devotion = 100;
-              person.Thew = 100;
-              person.Arms = Math.max(person.Arms, 10000);
-            });
-            return result(true, '已强化 ' + ownedPeople.length + ' 名我方武将');
-          }
-          return result(false, '未知的作弊操作');
-        } catch (_) {
-          return result(false, '修改失败，请回到主地图后重试');
-        }
+      window.bbkApplyCheat = function (action, parameters) {
+        return window.BbkSgby
+          ? window.BbkSgby.applyCheat(action, parameters)
+          : JSON.stringify({ok: false, message: '游戏增强模块尚未加载'});
+      };
+
+      window.bbkGetCheatState = function () {
+        return window.BbkSgby ? window.BbkSgby.getCheatState() : '{}';
+      };
+
+      window.bbkGetSgbyCheatData = function () {
+        return window.BbkSgby
+          ? window.BbkSgby.getCheatData()
+          : JSON.stringify({ok: false, message: '游戏增强模块尚未加载'});
       };
       document.addEventListener('keydown', onKeyDown);
 
@@ -152,10 +120,25 @@
         touchScreenInit('lcd');
         function startGame() {
           bayeMain();
-          window.setTimeout(function () {
+          var remainingEnhancementChecks = 40;
+          var prepareEnhancements = function () {
+            var resourceReady = typeof dynLib !== 'undefined' && dynLib && dynLib.length;
+            if (!baye.data && !resourceReady && remainingEnhancementChecks-- > 0) {
+              window.setTimeout(prepareEnhancements, 250);
+              return;
+            }
+            if (!baye.data && resourceReady && typeof _bayeScriptInit === 'function') {
+              try {
+                _bayeScriptInit();
+              } catch (_) {
+                // 数据桥属于增强能力，初始化失败时仍允许原游戏正常运行。
+              }
+            }
+            if (window.BbkSgby) window.BbkSgby.start();
             document.body.dataset.gameReady = 'true';
             if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('ready');
-          }, 500);
+          };
+          window.setTimeout(prepareEnhancements, 100);
         }
         var libPath = window.localStorage.getItem('baye/libpath') || '';
         if (window.localStorage.getItem('baye/cachedLibPath') !== libPath) {
