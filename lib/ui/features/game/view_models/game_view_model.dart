@@ -130,6 +130,75 @@ class SgbyCheatData {
   final List<SgbyGeneralCheatInfo> generals;
 }
 
+/// 三国霸业敌方城池内单个武将的只读信息。
+class SgbyEnemyCityGeneralInfo {
+  const SgbyEnemyCityGeneralInfo({
+    required this.name,
+    required this.level,
+    required this.force,
+    required this.iq,
+    required this.devotion,
+    required this.arms,
+    required this.armsType,
+    required this.isCaptive,
+  });
+
+  factory SgbyEnemyCityGeneralInfo.fromJson(Map<String, dynamic> json) {
+    int integer(String key) => (json[key] as num?)?.toInt() ?? 0;
+
+    return SgbyEnemyCityGeneralInfo(
+      name: json['name'] as String? ?? '未知武将',
+      level: integer('level'),
+      force: integer('force'),
+      iq: integer('iq'),
+      devotion: integer('devotion'),
+      arms: integer('arms'),
+      armsType: integer('armsType'),
+      isCaptive: json['captive'] == true,
+    );
+  }
+
+  final String name;
+  final int level;
+  final int force;
+  final int iq;
+  final int devotion;
+  final int arms;
+  final int armsType;
+  final bool isCaptive;
+}
+
+/// 三国霸业长按敌方城池时由本地游戏引擎返回的信息快照。
+class SgbyEnemyCityInfo {
+  const SgbyEnemyCityInfo({
+    required this.name,
+    required this.rulerName,
+    required this.generals,
+  });
+
+  factory SgbyEnemyCityInfo.fromJson(Map<String, dynamic> json) {
+    final rawGenerals = json['generals'];
+    return SgbyEnemyCityInfo(
+      name: json['name'] as String? ?? '未知城池',
+      rulerName: json['rulerName'] as String? ?? '未知势力',
+      generals: rawGenerals is List
+          ? rawGenerals
+                .whereType<Map>()
+                .map(
+                  (value) => SgbyEnemyCityGeneralInfo.fromJson(
+                    Map<String, dynamic>.from(value),
+                  ),
+                )
+                .toList(growable: false)
+          : const <SgbyEnemyCityGeneralInfo>[],
+    );
+  }
+
+  final String name;
+  final String rulerName;
+  final List<SgbyEnemyCityGeneralInfo> generals;
+}
+
 /// 单个游戏页面的运行状态和桥接逻辑。
 class GameViewModel extends ChangeNotifier {
   GameViewModel({
@@ -138,28 +207,36 @@ class GameViewModel extends ChangeNotifier {
     required GameSaveRepository saveRepository,
     required LocalGameServer localGameServer,
     required VoidCallback onExitRequested,
+    required ValueChanged<SgbyEnemyCityInfo> onEnemyCityRequested,
+    required ValueChanged<CheatResult> onNoticeRequested,
   }) : _initialSettings = initialSettings,
        _fmjHighDefinition = initialSettings.fmjHighDefinition,
        _saveRepository = saveRepository,
        _localGameServer = localGameServer,
-       _onExitRequested = onExitRequested;
+       _onExitRequested = onExitRequested,
+       _onEnemyCityRequested = onEnemyCityRequested,
+       _onNoticeRequested = onNoticeRequested;
 
   final GameDefinition game;
   final AppSettings _initialSettings;
   final GameSaveRepository _saveRepository;
   final LocalGameServer _localGameServer;
   final VoidCallback _onExitRequested;
+  final ValueChanged<SgbyEnemyCityInfo> _onEnemyCityRequested;
+  final ValueChanged<CheatResult> _onNoticeRequested;
   final GameControllerService _controllerService = GameControllerService();
 
   WebViewController? _webViewController;
   int _progress = 0;
   bool _isReady = false;
   bool _fmjHighDefinition;
+  bool _sgbyBattleSpeed2x = true;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
   int get progress => _progress;
   bool get isReady => _isReady;
+  bool get sgbyBattleSpeed2x => _sgbyBattleSpeed2x;
   Object? get error => _error;
 
   Future<void> initialize() async {
@@ -233,6 +310,10 @@ class GameViewModel extends ChangeNotifier {
     final controller = _webViewController;
     if (!_isReady || controller == null) return;
     final wireValue = jsonEncode(input.name);
+    if (input == GameInput.toggleBattleSpeed) {
+      _sgbyBattleSpeed2x = !_sgbyBattleSpeed2x;
+      notifyListeners();
+    }
     unawaited(
       controller
           .runJavaScript(
@@ -441,9 +522,43 @@ class GameViewModel extends ChangeNotifier {
       _error = null;
       notifyListeners();
       unawaited(setFmjHighDefinition(_fmjHighDefinition));
+      unawaited(_restoreSgbyControlState());
     } else if (message.message == 'exit') {
       _onExitRequested();
+    } else {
+      try {
+        final decoded = jsonDecode(message.message);
+        if (decoded is! Map) return;
+        final type = decoded['type'];
+        final data = decoded['data'];
+        if (type == 'sgby_enemy_city' && data is Map) {
+          _onEnemyCityRequested(
+            SgbyEnemyCityInfo.fromJson(Map<String, dynamic>.from(data)),
+          );
+        } else if (type == 'sgby_notice' && data is Map) {
+          _onNoticeRequested(
+            CheatResult(
+              isSuccess: data['ok'] == true,
+              message: data['message'] as String? ?? '自动处理已完成',
+            ),
+          );
+        }
+      } on FormatException {
+        // 游戏可能发送未来版本的普通文本消息；无法识别时静默忽略。
+      } on Object {
+        // 敌城详情属于辅助展示，解析失败不影响游戏主循环。
+      }
     }
+  }
+
+  /// 页面就绪后同步三国霸业持久化的速度状态，避免按钮文字与引擎状态不一致。
+  Future<void> _restoreSgbyControlState() async {
+    if (game.id != GameId.sgby) return;
+    final state = await getCheatState();
+    final restoredSpeed = state['battleSpeed2x'];
+    if (restoredSpeed == null || restoredSpeed == _sgbyBattleSpeed2x) return;
+    _sgbyBattleSpeed2x = restoredSpeed;
+    notifyListeners();
   }
 
   Map<String, String> _decodeEntries(Object result) {

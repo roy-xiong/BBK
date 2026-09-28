@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../../domain/models/game_definition.dart';
@@ -20,6 +22,63 @@ class _CheatOption {
   final String? stateKey;
 }
 
+OverlayEntry? _activeCheatToast;
+Timer? _activeCheatToastTimer;
+
+/// 在根 Overlay 顶部显示作弊结果，避免被底部作弊面板遮挡。
+void showCheatToast(BuildContext context, CheatResult result) {
+  _activeCheatToastTimer?.cancel();
+  final previousEntry = _activeCheatToast;
+  if (previousEntry?.mounted ?? false) previousEntry?.remove();
+
+  final overlay = Overlay.of(context, rootOverlay: true);
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (overlayContext) => Positioned(
+      top: 10,
+      left: 16,
+      right: 16,
+      child: SafeArea(
+        bottom: false,
+        child: IgnorePointer(
+          child: Material(
+            color: result.isSuccess
+                ? const Color(0xFF2E6E4F)
+                : Theme.of(overlayContext).colorScheme.error,
+            elevation: 8,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              child: Row(
+                children: [
+                  Icon(
+                    result.isSuccess ? Icons.check_circle : Icons.error,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      result.message,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  _activeCheatToast = entry;
+  overlay.insert(entry);
+  _activeCheatToastTimer = Timer(const Duration(milliseconds: 2600), () {
+    if (entry.mounted) entry.remove();
+    if (identical(_activeCheatToast, entry)) _activeCheatToast = null;
+  });
+}
+
 /// 展示当前游戏专属的作弊选项。
 Future<void> showGameCheatSheet(
   BuildContext context, {
@@ -29,22 +88,56 @@ Future<void> showGameCheatSheet(
   final options = switch (game.id) {
     GameId.sgby => const <_CheatOption>[
       _CheatOption(
-        action: 'sgby_resources',
-        title: '城池资源拉满',
-        description: '我方全部城池金钱、粮草、后备兵力提升至上限',
-        icon: Icons.savings,
-      ),
-      _CheatOption(
-        action: 'sgby_development',
-        title: '城池发展拉满',
-        description: '农业、商业、人口、民忠和防灾提升至上限',
-        icon: Icons.location_city,
+        action: 'sgby_max_all',
+        title: '一键拉满全部城池',
+        description: '我方全部城池的资源、发展、人口、民忠和防灾同时提升至上限',
+        icon: Icons.auto_graph,
       ),
       _CheatOption(
         action: 'sgby_generals',
-        title: '我方全体属性拉满',
-        description: '等级、武力、智力、忠诚、体力和兵力全部提升至上限',
+        title: '武将自动满属性',
+        description: '开启时拉满现有武将，之后一键搜出或招降的武将也自动拉满',
         icon: Icons.shield,
+        stateKey: 'autoMaxGenerals',
+      ),
+      _CheatOption(
+        action: 'sgby_free_movement',
+        title: '全员移动 8 步',
+        description: '战斗中我方固定移动 8 步，不受地形、兵种和装备限制',
+        icon: Icons.directions_run,
+        stateKey: 'freeMovement',
+      ),
+      _CheatOption(
+        action: 'sgby_food_protection',
+        title: '粮草保护',
+        description: '战斗回合不消耗我方粮草，城池缺粮时不再导致士兵减半',
+        icon: Icons.rice_bowl,
+        stateKey: 'foodProtection',
+      ),
+      _CheatOption(
+        action: 'sgby_post_battle_automation',
+        title: '战后自动处理',
+        description: '每次战斗结算后自动拉满全部城池、招降全部俘虏并搜索全部隐藏内容',
+        icon: Icons.auto_mode,
+        stateKey: 'postBattleAutomation',
+      ),
+      _CheatOption(
+        action: 'sgby_search_city',
+        title: '搜出我方全部隐藏内容',
+        description: '立即发现我方所有城池内已经存在的隐藏人物和隐藏物品',
+        icon: Icons.travel_explore,
+      ),
+      _CheatOption(
+        action: 'sgby_recruit_captives',
+        title: '一键招降全部俘虏',
+        description: '招降当前我方城池全部俘虏，忠诚设为 100',
+        icon: Icons.group_add,
+      ),
+      _CheatOption(
+        action: 'sgby_execute_captives',
+        title: '一键处斩全部俘虏',
+        description: '处斩当前我方城池全部俘虏，并回收其装备',
+        icon: Icons.gavel,
       ),
       _CheatOption(
         action: 'sgby_edit_general',
@@ -195,6 +288,34 @@ Future<void> showGameCheatSheet(
                             }
                             return;
                           }
+                          if (option.action == 'sgby_execute_captives') {
+                            final confirmed =
+                                await showDialog<bool>(
+                                  context: hostContext,
+                                  builder: (dialogContext) => AlertDialog(
+                                    title: const Text('处斩全部俘虏？'),
+                                    content: const Text(
+                                      '将处斩当前选中我方城池内的所有俘虏。该操作不可撤销，请先确认存档。',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(
+                                          dialogContext,
+                                        ).pop(false),
+                                        child: const Text('取消'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.of(
+                                          dialogContext,
+                                        ).pop(true),
+                                        child: const Text('确认处斩'),
+                                      ),
+                                    ],
+                                  ),
+                                ) ??
+                                false;
+                            if (!confirmed || !sheetContext.mounted) return;
+                          }
                           setSheetState(() => runningAction = option.action);
                           final result = await viewModel.applyCheat(
                             option.action,
@@ -206,14 +327,7 @@ Future<void> showGameCheatSheet(
                             runningAction = null;
                             cheatState = latestState;
                           });
-                          ScaffoldMessenger.of(hostContext).showSnackBar(
-                            SnackBar(
-                              content: Text(result.message),
-                              backgroundColor: result.isSuccess
-                                  ? const Color(0xFF2E6E4F)
-                                  : Theme.of(hostContext).colorScheme.error,
-                            ),
-                          );
+                          showCheatToast(hostContext, result);
                         }
 
                         return ListTile(
@@ -350,14 +464,7 @@ class _SgbyGeneralEditorSheetState extends State<_SgbyGeneralEditorSheet> {
     await _loadData(preferredGeneralIndex: selectedIndex);
     if (!mounted) return;
     setState(() => _runningAction = null);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.message),
-        backgroundColor: result.isSuccess
-            ? const Color(0xFF2E6E4F)
-            : Theme.of(context).colorScheme.error,
-      ),
-    );
+    showCheatToast(context, result);
   }
 
   @override
@@ -701,6 +808,10 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['factionColors'] == true) '阵营城池着色',
       if (state['invincible'] == true) '我方无敌',
       if (state['oneHitKill'] == true) '一击必杀',
+      if (state['freeMovement'] == true) '全员移动 8 步',
+      if (state['autoMaxGenerals'] == true) '武将自动满属性',
+      if (state['foodProtection'] == true) '粮草保护',
+      if (state['postBattleAutomation'] == true) '战后自动处理',
     ];
     return DecoratedBox(
       decoration: const BoxDecoration(

@@ -79,6 +79,12 @@
       };
 
       window.bbkSendInput = function (action) {
+        if (
+          (action === 'endTurn' || action === 'battleInfo' || action === 'toggleBattleSpeed') &&
+          window.BbkSgby
+        ) {
+          return window.BbkSgby.handleControl(action);
+        }
         var keyMap = {
           up: VK_UP, down: VK_DOWN, left: VK_LEFT, right: VK_RIGHT,
           confirm: VK_ENTER, cancel: VK_EXIT,
@@ -86,6 +92,7 @@
           search: VK_SEARCH, help: VK_HELP
         };
         if (keyMap[action] !== undefined) sendKey(keyMap[action]);
+        return null;
       };
 
       window.bbkOpenSaveMenu = function () {

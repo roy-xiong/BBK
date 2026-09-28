@@ -11,10 +11,14 @@ class GameControlsOverlay extends StatelessWidget {
     super.key,
     required this.hapticsEnabled,
     required this.onInput,
+    this.showSgbyUtilityButtons = false,
+    this.battleSpeed2x = true,
   });
 
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
+  final bool showSgbyUtilityButtons;
+  final bool battleSpeed2x;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +39,17 @@ class GameControlsOverlay extends StatelessWidget {
                 onInput: onInput,
               ),
             ),
+            if (showSgbyUtilityButtons)
+              Positioned(
+                right: 18,
+                bottom: buttonSize * 2.5 + gap * 2,
+                child: _SgbyUtilityButtons(
+                  isDarkTheme: true,
+                  hapticsEnabled: hapticsEnabled,
+                  battleSpeed2x: battleSpeed2x,
+                  onInput: onInput,
+                ),
+              ),
             Positioned(
               right: 18,
               bottom: 18,
@@ -62,11 +77,15 @@ class PortraitGameControlsPanel extends StatelessWidget {
     required this.isDarkTheme,
     required this.hapticsEnabled,
     required this.onInput,
+    this.showSgbyUtilityButtons = false,
+    this.battleSpeed2x = true,
   });
 
   final bool isDarkTheme;
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
+  final bool showSgbyUtilityButtons;
+  final bool battleSpeed2x;
 
   @override
   Widget build(BuildContext context) {
@@ -92,24 +111,38 @@ class PortraitGameControlsPanel extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 560),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            _NesDirectionPad(
-                              buttonSize: directionButtonSize,
-                              hapticsEnabled: hapticsEnabled,
-                              onInput: onInput,
-                            ),
-                            _NesSystemButtons(
-                              isDarkTheme: isDarkTheme,
-                              hapticsEnabled: hapticsEnabled,
-                              onInput: onInput,
-                            ),
-                            _NesActionButtons(
-                              buttonSize: actionButtonSize,
-                              hapticsEnabled: hapticsEnabled,
-                              onInput: onInput,
+                            if (showSgbyUtilityButtons) ...[
+                              _SgbyUtilityButtons(
+                                isDarkTheme: isDarkTheme,
+                                hapticsEnabled: hapticsEnabled,
+                                battleSpeed2x: battleSpeed2x,
+                                onInput: onInput,
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                _NesDirectionPad(
+                                  buttonSize: directionButtonSize,
+                                  hapticsEnabled: hapticsEnabled,
+                                  onInput: onInput,
+                                ),
+                                _NesSystemButtons(
+                                  isDarkTheme: isDarkTheme,
+                                  hapticsEnabled: hapticsEnabled,
+                                  onInput: onInput,
+                                ),
+                                _NesActionButtons(
+                                  buttonSize: actionButtonSize,
+                                  hapticsEnabled: hapticsEnabled,
+                                  onInput: onInput,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -123,6 +156,112 @@ class PortraitGameControlsPanel extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// 三国霸业专属的回合、战场信息和速度控制。
+class _SgbyUtilityButtons extends StatelessWidget {
+  const _SgbyUtilityButtons({
+    required this.isDarkTheme,
+    required this.hapticsEnabled,
+    required this.battleSpeed2x,
+    required this.onInput,
+  });
+
+  final bool isDarkTheme;
+  final bool hapticsEnabled;
+  final bool battleSpeed2x;
+  final ValueChanged<GameInput> onInput;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button({
+      required String tooltip,
+      required GameInput input,
+      required Widget child,
+      double width = 62,
+    }) {
+      return Tooltip(
+        message: tooltip,
+        child: _NesInputButton(
+          width: width,
+          height: 52,
+          color: isDarkTheme
+              ? const Color(0xFF4A4D52)
+              : const Color(0xFF343539),
+          pressedColor: const Color(0xFF111214),
+          borderRadius: BorderRadius.circular(6),
+          hapticsEnabled: hapticsEnabled,
+          label: tooltip,
+          onPressed: () => onInput(input),
+          child: child,
+        ),
+      );
+    }
+
+    const iconColor = Color(0xFFF0EEE8);
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          button(
+            tooltip: battleSpeed2x ? '切换为 1x 战斗速度' : '切换为 2x 战斗速度',
+            input: GameInput.toggleBattleSpeed,
+            child: Text(
+              battleSpeed2x ? '2x' : '1x',
+              style: const TextStyle(
+                color: iconColor,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          button(
+            tooltip: '查看战场形势',
+            input: GameInput.battleInfo,
+            width: 100,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.assessment, color: iconColor, size: 22),
+                SizedBox(width: 5),
+                Text(
+                  '战场信息',
+                  style: TextStyle(
+                    color: iconColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          button(
+            tooltip: '结束当前回合',
+            input: GameInput.endTurn,
+            width: 110,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.skip_next, color: iconColor, size: 24),
+                SizedBox(width: 5),
+                Text(
+                  '结束回合',
+                  style: TextStyle(
+                    color: iconColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

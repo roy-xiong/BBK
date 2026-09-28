@@ -12,6 +12,7 @@ import '../../settings/views/game_settings_sheet.dart';
 import '../view_models/game_view_model.dart';
 import 'game_cheat_sheet.dart';
 import 'game_controls_overlay.dart';
+import 'game_enemy_city_sheet.dart';
 import 'game_map_sheet.dart';
 
 /// 游戏承载页面。
@@ -38,6 +39,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _leaveConfirmationVisible = false;
   bool _portraitRequested = true;
   bool _orientationChanging = false;
+  bool _enemyCitySheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
   Offset _toolbarOffset = const Offset(8, 8);
@@ -54,6 +56,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       saveRepository: widget.dependencies.gameSaveRepository,
       localGameServer: widget.dependencies.localGameServer,
       onExitRequested: () => unawaited(_requestLeaveGame()),
+      onEnemyCityRequested: (city) => unawaited(_showEnemyCity(city)),
+      onNoticeRequested: _showGameNotice,
     );
     _lastFmjHighDefinition =
         widget.settingsViewModel.settings.fmjHighDefinition;
@@ -177,6 +181,31 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       messenger.hideCurrentSnackBar();
       messenger.showSnackBar(SnackBar(content: Text(result.message)));
     }
+  }
+
+  /// 展示长按敌方城池得到的武将信息，并防止连续长按叠加多个面板。
+  Future<void> _showEnemyCity(SgbyEnemyCityInfo city) async {
+    if (!mounted || _enemyCitySheetVisible || widget.game.id != GameId.sgby) {
+      return;
+    }
+    _enemyCitySheetVisible = true;
+    try {
+      await showSgbyEnemyCitySheet(context, city: city);
+    } finally {
+      _enemyCitySheetVisible = false;
+    }
+  }
+
+  /// 展示游戏脚本后台自动处理产生的顶部提示。
+  void _showGameNotice(CheatResult result) {
+    if (!mounted) return;
+    showCheatToast(context, result);
+  }
+
+  /// 分发屏幕按钮输入。
+  void _sendGameInput(GameInput input) {
+    if (!_viewModel.isReady) return;
+    _viewModel.sendInput(input);
   }
 
   @override
@@ -362,7 +391,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 ? PortraitGameControlsPanel(
                     isDarkTheme: darkControls,
                     hapticsEnabled: hapticsEnabled,
-                    onInput: _viewModel.sendInput,
+                    showSgbyUtilityButtons: widget.game.id == GameId.sgby,
+                    battleSpeed2x: _viewModel.sgbyBattleSpeed2x,
+                    onInput: _sendGameInput,
                   )
                 : ColoredBox(
                     color: darkControls
@@ -387,7 +418,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
         if (_viewModel.isReady && controlsVisible)
           GameControlsOverlay(
             hapticsEnabled: hapticsEnabled,
-            onInput: _viewModel.sendInput,
+            showSgbyUtilityButtons: widget.game.id == GameId.sgby,
+            battleSpeed2x: _viewModel.sgbyBattleSpeed2x,
+            onInput: _sendGameInput,
           ),
       ],
     );
