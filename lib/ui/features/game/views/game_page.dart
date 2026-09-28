@@ -14,6 +14,7 @@ import 'game_cheat_sheet.dart';
 import 'game_controls_overlay.dart';
 import 'game_enemy_city_sheet.dart';
 import 'game_map_sheet.dart';
+import 'game_search_history_sheet.dart';
 
 /// 游戏承载页面。
 class GamePage extends StatefulWidget {
@@ -40,6 +41,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _portraitRequested = true;
   bool _orientationChanging = false;
   bool _enemyCitySheetVisible = false;
+  bool _searchHistorySheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
   Offset _toolbarOffset = const Offset(8, 8);
@@ -196,15 +198,35 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
   }
 
-  /// 展示游戏脚本后台自动处理产生的顶部提示。
+  /// 展示游戏脚本后台自动处理产生的底部提示，并延长阅读时间。
   void _showGameNotice(CheatResult result) {
     if (!mounted) return;
-    showCheatToast(context, result);
+    showCheatToast(
+      context,
+      result,
+      atBottom: true,
+      duration: const Duration(seconds: 8),
+    );
+  }
+
+  /// 打开本地搜索历史，并防止快速重复点击叠加多个面板。
+  Future<void> _showSearchHistory() async {
+    if (!mounted || _searchHistorySheetVisible) return;
+    _searchHistorySheetVisible = true;
+    try {
+      await showSgbySearchHistorySheet(context, viewModel: _viewModel);
+    } finally {
+      _searchHistorySheetVisible = false;
+    }
   }
 
   /// 分发屏幕按钮输入。
   void _sendGameInput(GameInput input) {
     if (!_viewModel.isReady) return;
+    if (input == GameInput.searchHistory) {
+      unawaited(_showSearchHistory());
+      return;
+    }
     _viewModel.sendInput(input);
   }
 
@@ -392,7 +414,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     isDarkTheme: darkControls,
                     hapticsEnabled: hapticsEnabled,
                     showSgbyUtilityButtons: widget.game.id == GameId.sgby,
-                    battleSpeed2x: _viewModel.sgbyBattleSpeed2x,
+                    battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
                     onInput: _sendGameInput,
                   )
                 : ColoredBox(
@@ -419,7 +441,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
           GameControlsOverlay(
             hapticsEnabled: hapticsEnabled,
             showSgbyUtilityButtons: widget.game.id == GameId.sgby,
-            battleSpeed2x: _viewModel.sgbyBattleSpeed2x,
+            battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
             onInput: _sendGameInput,
           ),
       ],

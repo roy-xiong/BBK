@@ -30,6 +30,8 @@ function createHarness(storage = new Map()) {
   ];
   const data = {
     g_PlayerKing: 0,
+    g_YearDate: 190,
+    g_MonthDate: 9,
     g_Persons: people,
     g_Cities: [
       {
@@ -118,6 +120,7 @@ function createHarness(storage = new Map()) {
     hooks,
     getPersonName: (index) => `武将${index}`,
     getCityName: (index) => `城池${index}`,
+    getToolName: (index) => `物品${index}`,
     getArmType: (index) => people[index]?.ArmsType ?? 0,
     drawImage: (x, y, resid, resitem, picIndex, scr) => {
       drawnImages.push({
@@ -273,6 +276,8 @@ function apply(api, action) {
   assert.equal(restoredState.autoMaxGenerals, true);
   assert.equal(restoredState.postBattleAutomation, true);
   assert.equal(restoredState.battleSpeed2x, false);
+  assert.equal(restoredState.battleSpeed3x, true);
+  assert.equal(restoredState.battleSpeed4x, false);
   assert.equal(second.people[0].Force, 100);
   assert.equal(second.people[0].Arms, 65535);
 }
@@ -298,6 +303,7 @@ function apply(api, action) {
   assert.equal(data.g_GoodsQueue[2], 0x8007);
   assert.equal(systemMessages.at(-1).type, 'sgby_notice');
   assert.match(systemMessages.at(-1).data.message, /自动处理完成/);
+  assert.match(systemMessages.at(-1).data.message, /搜索记录/);
 }
 
 {
@@ -327,7 +333,19 @@ function apply(api, action) {
   controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
   assert.equal(controlResult.ok, true, controlResult.message);
   context.safeSetTimeout(() => {}, 100);
+  assert.ok(Math.abs(scheduledDelays.at(-1) - 100 / 3) < 0.001);
+  controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  context.safeSetTimeout(() => {}, 100);
+  assert.equal(scheduledDelays.at(-1), 25);
+  controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  context.safeSetTimeout(() => {}, 100);
   assert.equal(scheduledDelays.at(-1), 100);
+  controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  context.safeSetTimeout(() => {}, 100);
+  assert.equal(scheduledDelays.at(-1), 50);
 
   data.g_paintColor = 0xff;
   hooks.drawOneGeneral({index: 0, pic: 3, x: 0, y: 0, frame: 0});
@@ -353,7 +371,8 @@ function apply(api, action) {
 }
 
 {
-  const {api, data, people} = createHarness();
+  const sharedStorage = new Map();
+  const {api, data, people} = createHarness(sharedStorage);
   apply(api, 'sgby_search_city');
   assert.equal(people[2].Belong, 1);
   assert.equal(people[2].Devotion, 100);
@@ -362,6 +381,27 @@ function apply(api, action) {
   assert.equal(data.g_GoodsQueue[0], 0x8003);
   assert.equal(data.g_GoodsQueue[1], 0x8004);
   assert.equal(data.g_GoodsQueue[2], 0x8007);
+
+  const firstHistory = JSON.parse(api.getSearchHistory());
+  assert.equal(firstHistory.ok, true);
+  assert.equal(firstHistory.records.length, 1);
+  assert.equal(firstHistory.records[0].gameTime, '190年9月');
+  assert.equal(firstHistory.records[0].source, '手动搜索');
+  assert.deepEqual(firstHistory.records[0].cities[0], {
+    cityName: '城池0',
+    people: ['武将2'],
+    tools: ['物品3'],
+  });
+  assert.deepEqual(firstHistory.records[0].cities[1], {
+    cityName: '城池2',
+    people: ['武将6'],
+    tools: ['物品7'],
+  });
+
+  const restoredHarness = createHarness(sharedStorage);
+  const restoredHistory = JSON.parse(restoredHarness.api.getSearchHistory());
+  assert.equal(restoredHistory.records.length, 1);
+  assert.equal(restoredHistory.records[0].cities[0].people[0], '武将2');
 
   apply(api, 'sgby_generals');
   apply(api, 'sgby_recruit_captives');

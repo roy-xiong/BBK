@@ -22,7 +22,10 @@
     var PLAYER_UNIT_RED = [211, 47, 47];
     var FACTION_COLOR_STORAGE_KEY = 'bbk/sgbyFactionColors';
     var CHEAT_STATE_STORAGE_KEY = 'baye/bbkSgbyCheatState';
+    var SEARCH_HISTORY_STORAGE_KEY = 'baye/bbkSgbySearchHistory';
+    var SEARCH_HISTORY_LIMIT = 50;
     var persistedCheatState = loadPersistentCheatState();
+    var persistedBattleSpeed = resolvePersistedBattleSpeed(persistedCheatState);
 
     var cheatState = {
         invincible: persistedCheatState.invincible === true,
@@ -30,7 +33,7 @@
         freeMovement: persistedCheatState.freeMovement === true,
         autoMaxGenerals: persistedCheatState.autoMaxGenerals === true,
         foodProtection: persistedCheatState.foodProtection === true,
-        battleSpeed2x: persistedCheatState.battleSpeed2x !== false,
+        battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
         factionColors: typeof persistedCheatState.factionColors === 'boolean'
             ? persistedCheatState.factionColors
@@ -71,6 +74,20 @@
         }
     }
 
+    /**
+     * 兼容读取新版倍率和旧版 battleSpeed2x 布尔字段。
+     *
+     * @param {Object} state 本地持久状态。
+     * @return {number} 1、2、3、4 倍战斗速度。
+     */
+    function resolvePersistedBattleSpeed(state) {
+        var multiplier = Number(state.battleSpeedMultiplier);
+        if (Number.isInteger(multiplier) && multiplier >= 1 && multiplier <= 4) {
+            return multiplier;
+        }
+        return state.battleSpeed2x === false ? 1 : 2;
+    }
+
     /** 将持续作弊开关写入本地存储，不保存临时锁和 Hook 运行状态。 */
     function savePersistentCheatState() {
         try {
@@ -81,12 +98,39 @@
                 freeMovement: cheatState.freeMovement,
                 autoMaxGenerals: cheatState.autoMaxGenerals,
                 foodProtection: cheatState.foodProtection,
-                battleSpeed2x: cheatState.battleSpeed2x,
+                battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
+                battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
                 factionColors: cheatState.factionColors
             }));
         } catch (_) {
             // localStorage 不可用时仍保留当前运行周期内的状态。
+        }
+    }
+
+    /** @return {Array<Object>} 本地保存的搜索历史，异常数据按空列表处理。 */
+    function loadSearchHistory() {
+        try {
+            var decoded = JSON.parse(global.localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY) || '[]');
+            return Array.isArray(decoded) ? decoded : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    /**
+     * 保存搜索历史并限制最大条数。
+     *
+     * @param {Array<Object>} records 搜索记录。
+     */
+    function saveSearchHistory(records) {
+        try {
+            global.localStorage.setItem(
+                SEARCH_HISTORY_STORAGE_KEY,
+                JSON.stringify(records.slice(0, SEARCH_HISTORY_LIMIT))
+            );
+        } catch (_) {
+            // 搜索历史属于辅助信息，写入失败不影响游戏数据修改。
         }
     }
 
@@ -331,16 +375,23 @@
      * 搜出全部我方城池中当前已经存在的隐藏人物和物品。
      *
      * @param {Object} context 当前游戏上下文。
-     * @return {{people:number, tools:number}} 搜索结果统计。
+     * @param {string} source 触发来源。
+     * @return {{people:number, tools:number, cities:Array<Object>}} 搜索结果统计。
      */
-    function searchAllOwnedCities(context) {
+    function searchAllOwnedCities(context, source) {
         var foundPeople = 0;
         var foundTools = 0;
+        var cityResults = [];
         var goodsQueue = context.data.g_GoodsQueue;
         context.ownedCities.forEach(function (cityEntry) {
+            var personNames = [];
+            var toolNames = [];
             cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
                 var hiddenPerson = context.people[personIndex];
                 if (!hiddenPerson || hiddenPerson.Belong !== 0) return;
+                personNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
                 hiddenPerson.Belong = context.ruler;
                 hiddenPerson.Devotion = 100;
                 if (cheatState.autoMaxGenerals) maximizeGeneral(hiddenPerson, context.data);
@@ -351,12 +402,51 @@
                 var queueIndex = cityEntry.value.ToolQueue + toolOffset;
                 var queuedTool = goodsQueue[queueIndex];
                 if ((queuedTool & FOUND_GOODS_MASK) === 0) {
+                    var toolIndex = queuedTool & 0x7fff;
+                    toolNames.push(baye.getToolName(toolIndex) || ('物品 ' + (toolIndex + 1)));
                     goodsQueue[queueIndex] = queuedTool | FOUND_GOODS_MASK;
                     foundTools++;
                 }
             }
+            if (personNames.length || toolNames.length) {
+                cityResults.push({
+                    cityName: baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1)),
+                    people: personNames,
+                    tools: toolNames
+                });
+            }
         });
-        return {people: foundPeople, tools: foundTools};
+        var now = new Date();
+        var records = loadSearchHistory();
+        records.unshift({
+            id: String(now.getTime()),
+            timestamp: now.toISOString(),
+            realTime: now.toLocaleString('zh-CN', {hour12: false}),
+            gameTime: String(context.data.g_YearDate || 0) + '年' +
+                String(context.data.g_MonthDate || 0) + '月',
+            source: source || '手动搜索',
+            peopleCount: foundPeople,
+            toolCount: foundTools,
+            cities: cityResults
+        });
+        saveSearchHistory(records);
+        return {people: foundPeople, tools: foundTools, cities: cityResults};
+    }
+
+    /**
+     * 生成可直接展示的逐城搜索摘要。
+     *
+     * @param {Array<Object>} cityResults 逐城搜索结果。
+     * @return {string} 中文摘要。
+     */
+    function formatSearchDetails(cityResults) {
+        if (!cityResults.length) return '未发现新的隐藏人物或物品';
+        return cityResults.map(function (city) {
+            var details = [];
+            if (city.people.length) details.push('人物 ' + city.people.join('、'));
+            if (city.tools.length) details.push('物品 ' + city.tools.join('、'));
+            return city.cityName + '：' + details.join('；');
+        }).join(' | ');
     }
 
     /**
@@ -415,11 +505,12 @@
         }
         var cityCount = maximizeOwnedCities(context);
         var recruited = recruitCaptives(context, context.ownedCities);
-        var searched = searchAllOwnedCities(context);
+        var searched = searchAllOwnedCities(context, '战后自动');
         postSystemNotice(
             true,
             '战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' + recruited +
-            ' 人，搜出隐藏人物 ' + searched.people + ' 名、隐藏物品 ' + searched.tools + ' 件'
+            ' 人，搜出隐藏人物 ' + searched.people + ' 名、隐藏物品 ' + searched.tools +
+            ' 件；详细人物和物品请查看搜索记录'
         );
     }
 
@@ -1020,7 +1111,7 @@
      *
      * 原版关闭战斗动画后仍有伤害数字、状态闪烁和敌军移动等固定等待，这些等待最终都
      * 经过 Emscripten 的 safeSetTimeout。这里只在有效战斗中缩短等待，主地图、内政、
-     * 存档和菜单操作保持原速度；切回 1x 后立即恢复原超时值。
+     * 存档和菜单操作保持原速度；倍率可在 1x、2x、3x、4x 之间循环切换。
      */
     function installBattleSpeedPipeline() {
         if (cheatState.battleSpeedPipelineInstalled) return;
@@ -1030,10 +1121,11 @@
             var adjustedDelay = delay;
             try {
                 if (
-                    cheatState.battleSpeed2x && typeof delay === 'number' && delay > 0 &&
+                    cheatState.battleSpeedMultiplier > 1 &&
+                    typeof delay === 'number' && delay > 0 &&
                     global.baye && baye.data && isBattleActive(baye.data)
                 ) {
-                    adjustedDelay = delay / 2;
+                    adjustedDelay = delay / cheatState.battleSpeedMultiplier;
                 }
             } catch (_) {
                 adjustedDelay = delay;
@@ -1260,9 +1352,11 @@
     function handleControl(action) {
         start();
         if (action === 'toggleBattleSpeed') {
-            cheatState.battleSpeed2x = !cheatState.battleSpeed2x;
+            cheatState.battleSpeedMultiplier = cheatState.battleSpeedMultiplier >= 4
+                ? 1
+                : cheatState.battleSpeedMultiplier + 1;
             savePersistentCheatState();
-            return result(true, cheatState.battleSpeed2x ? '战斗速度已切换为 2x' : '战斗速度已切换为 1x');
+            return result(true, '战斗速度已切换为 ' + cheatState.battleSpeedMultiplier + 'x');
         }
 
         var context = gameContext();
@@ -1361,11 +1455,10 @@
                 );
             }
             if (action === 'sgby_search_city') {
-                var searchResult = searchAllOwnedCities(context);
+                var searchResult = searchAllOwnedCities(context, '手动搜索');
                 return result(
                     true,
-                    '已搜索全部 ' + context.ownedCities.length + ' 座我方城池，搜出隐藏人物 ' +
-                    searchResult.people + ' 名、隐藏物品 ' + searchResult.tools + ' 件'
+                    '搜索完成：' + formatSearchDetails(searchResult.cities)
                 );
             }
             if (action === 'sgby_recruit_captives') {
@@ -1517,10 +1610,17 @@
             freeMovement: cheatState.freeMovement,
             autoMaxGenerals: cheatState.autoMaxGenerals,
             foodProtection: cheatState.foodProtection,
-            battleSpeed2x: cheatState.battleSpeed2x,
+            battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
+            battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
+            battleSpeed4x: cheatState.battleSpeedMultiplier === 4,
             postBattleAutomation: cheatState.postBattleAutomation,
             factionColors: cheatState.factionColors
         });
+    }
+
+    /** @return {string} 本地搜索历史。 */
+    function getSearchHistory() {
+        return JSON.stringify({ok: true, records: loadSearchHistory()});
     }
 
     global.BbkSgby = {
@@ -1530,6 +1630,7 @@
         handleControl: handleControl,
         applyCheat: applyCheat,
         getCheatState: getCheatState,
+        getSearchHistory: getSearchHistory,
         getCheatData: getCheatData
     };
 

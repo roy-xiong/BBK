@@ -199,6 +199,99 @@ class SgbyEnemyCityInfo {
   final List<SgbyEnemyCityGeneralInfo> generals;
 }
 
+/// 单座城池一次搜索中发现的人物和物品。
+class SgbySearchCityRecord {
+  const SgbySearchCityRecord({
+    required this.cityName,
+    required this.people,
+    required this.tools,
+  });
+
+  factory SgbySearchCityRecord.fromJson(Map<String, dynamic> json) {
+    List<String> strings(String key) {
+      final value = json[key];
+      return value is List
+          ? value.whereType<String>().toList(growable: false)
+          : const <String>[];
+    }
+
+    return SgbySearchCityRecord(
+      cityName: json['cityName'] as String? ?? '未知城池',
+      people: strings('people'),
+      tools: strings('tools'),
+    );
+  }
+
+  final String cityName;
+  final List<String> people;
+  final List<String> tools;
+}
+
+/// 三国霸业单次搜索历史记录。
+class SgbySearchHistoryRecord {
+  const SgbySearchHistoryRecord({
+    required this.realTime,
+    required this.gameTime,
+    required this.source,
+    required this.peopleCount,
+    required this.toolCount,
+    required this.cities,
+  });
+
+  factory SgbySearchHistoryRecord.fromJson(Map<String, dynamic> json) {
+    final rawCities = json['cities'];
+    return SgbySearchHistoryRecord(
+      realTime: json['realTime'] as String? ?? '未知时间',
+      gameTime: json['gameTime'] as String? ?? '未知年月',
+      source: json['source'] as String? ?? '搜索',
+      peopleCount: (json['peopleCount'] as num?)?.toInt() ?? 0,
+      toolCount: (json['toolCount'] as num?)?.toInt() ?? 0,
+      cities: rawCities is List
+          ? rawCities
+                .whereType<Map>()
+                .map(
+                  (value) => SgbySearchCityRecord.fromJson(
+                    Map<String, dynamic>.from(value),
+                  ),
+                )
+                .toList(growable: false)
+          : const <SgbySearchCityRecord>[],
+    );
+  }
+
+  final String realTime;
+  final String gameTime;
+  final String source;
+  final int peopleCount;
+  final int toolCount;
+  final List<SgbySearchCityRecord> cities;
+}
+
+/// 搜索历史查询结果。
+class SgbySearchHistoryData {
+  const SgbySearchHistoryData({required this.isSuccess, required this.records});
+
+  factory SgbySearchHistoryData.fromJson(Map<String, dynamic> json) {
+    final rawRecords = json['records'];
+    return SgbySearchHistoryData(
+      isSuccess: json['ok'] == true,
+      records: rawRecords is List
+          ? rawRecords
+                .whereType<Map>()
+                .map(
+                  (value) => SgbySearchHistoryRecord.fromJson(
+                    Map<String, dynamic>.from(value),
+                  ),
+                )
+                .toList(growable: false)
+          : const <SgbySearchHistoryRecord>[],
+    );
+  }
+
+  final bool isSuccess;
+  final List<SgbySearchHistoryRecord> records;
+}
+
 /// 单个游戏页面的运行状态和桥接逻辑。
 class GameViewModel extends ChangeNotifier {
   GameViewModel({
@@ -230,13 +323,13 @@ class GameViewModel extends ChangeNotifier {
   int _progress = 0;
   bool _isReady = false;
   bool _fmjHighDefinition;
-  bool _sgbyBattleSpeed2x = true;
+  int _sgbyBattleSpeedMultiplier = 2;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
   int get progress => _progress;
   bool get isReady => _isReady;
-  bool get sgbyBattleSpeed2x => _sgbyBattleSpeed2x;
+  int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
   Object? get error => _error;
 
   Future<void> initialize() async {
@@ -311,7 +404,9 @@ class GameViewModel extends ChangeNotifier {
     if (!_isReady || controller == null) return;
     final wireValue = jsonEncode(input.name);
     if (input == GameInput.toggleBattleSpeed) {
-      _sgbyBattleSpeed2x = !_sgbyBattleSpeed2x;
+      _sgbyBattleSpeedMultiplier = _sgbyBattleSpeedMultiplier >= 4
+          ? 1
+          : _sgbyBattleSpeedMultiplier + 1;
       notifyListeners();
     }
     unawaited(
@@ -445,6 +540,36 @@ class GameViewModel extends ChangeNotifier {
     );
   }
 
+  /// 读取三国霸业本地保存的逐城搜索历史。
+  Future<SgbySearchHistoryData> getSgbySearchHistory() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || !_isReady || controller == null) {
+      return const SgbySearchHistoryData(
+        isSuccess: false,
+        records: <SgbySearchHistoryRecord>[],
+      );
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkGetSgbySearchHistory ? '
+        'window.bbkGetSgbySearchHistory() : '
+        'JSON.stringify({ok:false,records:[]});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is Map) {
+        return SgbySearchHistoryData.fromJson(
+          Map<String, dynamic>.from(decoded),
+        );
+      }
+    } on Object {
+      // WebView 页面切换时返回空结果，历史面板可通过刷新重试。
+    }
+    return const SgbySearchHistoryData(
+      isSuccess: false,
+      records: <SgbySearchHistoryRecord>[],
+    );
+  }
+
   /// 获取当前引擎内可持续生效的作弊状态。
   Future<Map<String, bool>> getCheatState() async {
     final controller = _webViewController;
@@ -551,13 +676,19 @@ class GameViewModel extends ChangeNotifier {
     }
   }
 
-  /// 页面就绪后同步三国霸业持久化的速度状态，避免按钮文字与引擎状态不一致。
+  /// 页面就绪后同步三国霸业持久化的速度倍率，避免按钮文字与引擎状态不一致。
   Future<void> _restoreSgbyControlState() async {
     if (game.id != GameId.sgby) return;
     final state = await getCheatState();
-    final restoredSpeed = state['battleSpeed2x'];
-    if (restoredSpeed == null || restoredSpeed == _sgbyBattleSpeed2x) return;
-    _sgbyBattleSpeed2x = restoredSpeed;
+    final restoredSpeed = state['battleSpeed4x'] == true
+        ? 4
+        : state['battleSpeed3x'] == true
+        ? 3
+        : state['battleSpeed2x'] == true
+        ? 2
+        : 1;
+    if (restoredSpeed == _sgbyBattleSpeedMultiplier) return;
+    _sgbyBattleSpeedMultiplier = restoredSpeed;
     notifyListeners();
   }
 

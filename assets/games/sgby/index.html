@@ -116,6 +116,12 @@
           ? window.BbkSgby.getCheatData()
           : JSON.stringify({ok: false, message: '游戏增强模块尚未加载'});
       };
+
+      window.bbkGetSgbySearchHistory = function () {
+        return window.BbkSgby
+          ? window.BbkSgby.getSearchHistory()
+          : JSON.stringify({ok: false, records: []});
+      };
       document.addEventListener('keydown', onKeyDown);
 
       window.goHome = function () {

@@ -25,8 +25,13 @@ class _CheatOption {
 OverlayEntry? _activeCheatToast;
 Timer? _activeCheatToastTimer;
 
-/// 在根 Overlay 顶部显示作弊结果，避免被底部作弊面板遮挡。
-void showCheatToast(BuildContext context, CheatResult result) {
+/// 在根 Overlay 显示游戏结果；普通作弊位于顶部，战后通知可单独放到底部。
+void showCheatToast(
+  BuildContext context,
+  CheatResult result, {
+  bool atBottom = false,
+  Duration duration = const Duration(milliseconds: 2600),
+}) {
   _activeCheatToastTimer?.cancel();
   final previousEntry = _activeCheatToast;
   if (previousEntry?.mounted ?? false) previousEntry?.remove();
@@ -35,11 +40,13 @@ void showCheatToast(BuildContext context, CheatResult result) {
   late final OverlayEntry entry;
   entry = OverlayEntry(
     builder: (overlayContext) => Positioned(
-      top: 10,
+      top: atBottom ? null : 10,
+      bottom: atBottom ? 10 : null,
       left: 16,
       right: 16,
       child: SafeArea(
-        bottom: false,
+        top: !atBottom,
+        bottom: atBottom,
         child: IgnorePointer(
           child: Material(
             color: result.isSuccess
@@ -73,7 +80,7 @@ void showCheatToast(BuildContext context, CheatResult result) {
   );
   _activeCheatToast = entry;
   overlay.insert(entry);
-  _activeCheatToastTimer = Timer(const Duration(milliseconds: 2600), () {
+  _activeCheatToastTimer = Timer(duration, () {
     if (entry.mounted) entry.remove();
     if (identical(_activeCheatToast, entry)) _activeCheatToast = null;
   });
@@ -327,7 +334,13 @@ Future<void> showGameCheatSheet(
                             runningAction = null;
                             cheatState = latestState;
                           });
-                          showCheatToast(hostContext, result);
+                          showCheatToast(
+                            hostContext,
+                            result,
+                            duration: option.action == 'sgby_search_city'
+                                ? const Duration(seconds: 6)
+                                : const Duration(milliseconds: 2600),
+                          );
                         }
 
                         return ListTile(

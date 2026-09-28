@@ -12,13 +12,13 @@ class GameControlsOverlay extends StatelessWidget {
     required this.hapticsEnabled,
     required this.onInput,
     this.showSgbyUtilityButtons = false,
-    this.battleSpeed2x = true,
+    this.battleSpeedMultiplier = 2,
   });
 
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
-  final bool battleSpeed2x;
+  final int battleSpeedMultiplier;
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +46,7 @@ class GameControlsOverlay extends StatelessWidget {
                 child: _SgbyUtilityButtons(
                   isDarkTheme: true,
                   hapticsEnabled: hapticsEnabled,
-                  battleSpeed2x: battleSpeed2x,
+                  battleSpeedMultiplier: battleSpeedMultiplier,
                   onInput: onInput,
                 ),
               ),
@@ -78,14 +78,14 @@ class PortraitGameControlsPanel extends StatelessWidget {
     required this.hapticsEnabled,
     required this.onInput,
     this.showSgbyUtilityButtons = false,
-    this.battleSpeed2x = true,
+    this.battleSpeedMultiplier = 2,
   });
 
   final bool isDarkTheme;
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
-  final bool battleSpeed2x;
+  final int battleSpeedMultiplier;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +118,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
                               _SgbyUtilityButtons(
                                 isDarkTheme: isDarkTheme,
                                 hapticsEnabled: hapticsEnabled,
-                                battleSpeed2x: battleSpeed2x,
+                                battleSpeedMultiplier: battleSpeedMultiplier,
                                 onInput: onInput,
                               ),
                               const SizedBox(height: 14),
@@ -166,13 +166,13 @@ class _SgbyUtilityButtons extends StatelessWidget {
   const _SgbyUtilityButtons({
     required this.isDarkTheme,
     required this.hapticsEnabled,
-    required this.battleSpeed2x,
+    required this.battleSpeedMultiplier,
     required this.onInput,
   });
 
   final bool isDarkTheme;
   final bool hapticsEnabled;
-  final bool battleSpeed2x;
+  final int battleSpeedMultiplier;
   final ValueChanged<GameInput> onInput;
 
   @override
@@ -202,16 +202,40 @@ class _SgbyUtilityButtons extends StatelessWidget {
     }
 
     const iconColor = Color(0xFFF0EEE8);
+    final nextSpeed = battleSpeedMultiplier >= 4
+        ? 1
+        : battleSpeedMultiplier + 1;
     return FittedBox(
       fit: BoxFit.scaleDown,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           button(
-            tooltip: battleSpeed2x ? '切换为 1x 战斗速度' : '切换为 2x 战斗速度',
+            tooltip: '查看搜索记录',
+            input: GameInput.searchHistory,
+            width: 72,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, color: iconColor, size: 21),
+                SizedBox(width: 4),
+                Text(
+                  '记录',
+                  style: TextStyle(
+                    color: iconColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          button(
+            tooltip: '切换为 ${nextSpeed}x 战斗速度',
             input: GameInput.toggleBattleSpeed,
             child: Text(
-              battleSpeed2x ? '2x' : '1x',
+              '${battleSpeedMultiplier}x',
               style: const TextStyle(
                 color: iconColor,
                 fontSize: 16,

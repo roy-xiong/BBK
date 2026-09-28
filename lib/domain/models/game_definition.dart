@@ -27,7 +27,8 @@ enum GameInput {
   help,
   endTurn,
   battleInfo,
-  toggleBattleSpeed;
+  toggleBattleSpeed,
+  searchHistory;
 
   static GameInput? fromWireValue(String? value) {
     for (final input in values) {
