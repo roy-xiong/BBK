@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>三国霸业</title>
+  <style>
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: #000; touch-action: none;
+    }
+    body { display: flex; align-items: center; justify-content: center; }
+    #lcd {
+      width: 100%; height: 100%; object-fit: contain;
+      image-rendering: pixelated; background: #b4b4b4;
+    }
+  </style>
+  <script>
+    (function restoreFlutterBackup() {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/__state__/sgby', false);
+        xhr.send(null);
+        if (xhr.status === 200) {
+          var state = JSON.parse(xhr.responseText);
+          Object.keys(state.entries || {}).forEach(function (key) {
+            window.localStorage.setItem(key, state.entries[key]);
+          });
+        }
+      } catch (_) {
+        // WebView 自身的 localStorage 仍可继续使用。
+      }
+      if (!window.localStorage.getItem('baye/libpath')) {
+        window.localStorage.setItem('baye/libpath', 'libs/dat-mod.lib');
+        window.localStorage.setItem('baye/libname', '词典原版');
+        window.localStorage.setItem('baye/resolution', '0');
+      }
+    })();
+  </script>
+  <script src="js/jquery.min.js"></script>
+  <script src="js/encoding-indexes.js"></script>
+  <script src="js/encoding.js"></script>
+  <script src="js/sprintf.js"></script>
+</head>
+<body>
+  <canvas id="lcd" width="640" height="384"></canvas>
+  <script src="js/idbkvstore.min.js"></script>
+  <script src="js/bridge.js"></script>
+  <script src="js/lcd.js"></script>
+  <script>
+    (function configureFlutterHost() {
+      function postEntries(entries) {
+        if (window.BbkSaveChannel) {
+          window.BbkSaveChannel.postMessage(JSON.stringify({entries: entries}));
+        }
+      }
+
+      var originalSave = window.bayeSaveFileContent;
+      window.bayeSaveFileContent = function (filename, content) {
+        originalSave(filename, content);
+        var entries = {};
+        entries[filename] = content;
+        entries[filename + '.lib'] = window.localStorage[filename + '.lib'] || '';
+        entries[filename + '.name'] = window.localStorage[filename + '.name'] || '';
+        postEntries(entries);
+      };
+
+      window.bbkExportState = function () {
+        var entries = {};
+        for (var index = 0; index < window.localStorage.length; index++) {
+          var key = window.localStorage.key(index);
+          if (key && (key.indexOf('baye/') === 0 || key.indexOf('baye.') === 0)) {
+            entries[key] = window.localStorage.getItem(key) || '';
+          }
+        }
+        return JSON.stringify(entries);
+      };
+
+      window.bbkSendInput = function (action) {
+        var keyMap = {
+          up: VK_UP, down: VK_DOWN, left: VK_LEFT, right: VK_RIGHT,
+          confirm: VK_ENTER, cancel: VK_EXIT,
+          pageUp: VK_PGUP, pageDown: VK_PGDN,
+          search: VK_SEARCH, help: VK_HELP
+        };
+        if (keyMap[action] !== undefined) sendKey(keyMap[action]);
+      };
+
+      window.bbkApplyCheat = function (action) {
+        function result(ok, message) {
+          return JSON.stringify({ok: ok, message: message});
+        }
+        try {
+          if (!window.baye || !baye.data || !baye.data.g_YearDate) {
+            return result(false, '请先开始或载入一局游戏');
+          }
+          var ruler = baye.data.g_PlayerKing + 1;
+          var cities = baye.data.g_Cities;
+          var people = baye.data.g_Persons;
+          var ownedCities = [];
+          var ownedPeople = [];
+          for (var cityIndex = 0; cityIndex < cities.length; cityIndex++) {
+            if (cities[cityIndex].Belong === ruler) ownedCities.push(cities[cityIndex]);
+          }
+          for (var personIndex = 0; personIndex < people.length; personIndex++) {
+            if (people[personIndex].Belong === ruler) ownedPeople.push(people[personIndex]);
+          }
+          if (!ownedCities.length) return result(false, '未找到我方城池');
+
+          if (action === 'sgby_resources') {
+            ownedCities.forEach(function (city) {
+              city.Money = 65535;
+              city.Food = 65535;
+              city.MothballArms = 65535;
+            });
+            return result(true, '已将 ' + ownedCities.length + ' 座城池资源提升至上限');
+          }
+          if (action === 'sgby_development') {
+            ownedCities.forEach(function (city) {
+              city.State = 0;
+              city.Farming = city.FarmingLimit;
+              city.Commerce = city.CommerceLimit;
+              city.Population = city.PopulationLimit;
+              city.PeopleDevotion = 100;
+              city.AvoidCalamity = 100;
+            });
+            return result(true, '已将 ' + ownedCities.length + ' 座城池发展提升至上限');
+          }
+          if (action === 'sgby_generals') {
+            ownedPeople.forEach(function (person) {
+              person.Force = 100;
+              person.IQ = 100;
+              person.Devotion = 100;
+              person.Thew = 100;
+              person.Arms = Math.max(person.Arms, 10000);
+            });
+            return result(true, '已强化 ' + ownedPeople.length + ' 名我方武将');
+          }
+          return result(false, '未知的作弊操作');
+        } catch (_) {
+          return result(false, '修改失败，请回到主地图后重试');
+        }
+      };
+      document.addEventListener('keydown', onKeyDown);
+
+      window.goHome = function () {
+        if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('exit');
+      };
+
+      Module.postRun = function () {
+        lcdInit();
+        touchScreenInit('lcd');
+        function startGame() {
+          bayeMain();
+          window.setTimeout(function () {
+            document.body.dataset.gameReady = 'true';
+            if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('ready');
+          }, 500);
+        }
+        var libPath = window.localStorage.getItem('baye/libpath') || '';
+        if (window.localStorage.getItem('baye/cachedLibPath') !== libPath) {
+          libCacheClear(function () {
+            window.localStorage.setItem('baye/cachedLibPath', libPath);
+            startGame();
+          });
+        } else {
+          startGame();
+        }
+      };
+    })();
+  </script>
+  <script src="js/baye.js"></script>
+</body>
+</html>

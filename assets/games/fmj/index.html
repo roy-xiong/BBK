@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>伏魔记</title>
+  <style>
+    html, body {
+      width: 100%; height: 100%; margin: 0; overflow: hidden;
+      background: #000; touch-action: none;
+    }
+    body { display: flex; align-items: center; justify-content: center; }
+    #lcd {
+      width: 100%; height: 100%; object-fit: contain;
+      image-rendering: pixelated; background: #b4b4b4;
+    }
+  </style>
+  <script>
+    (function restoreFlutterBackup() {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/__state__/fmj', false);
+        xhr.send(null);
+        if (xhr.status === 200) {
+          var state = JSON.parse(xhr.responseText);
+          Object.keys(state.entries || {}).forEach(function (key) {
+            window.localStorage.setItem(key, state.entries[key]);
+          });
+        }
+      } catch (_) {
+        // WebView 自身的 localStorage 仍可继续使用。
+      }
+    })();
+  </script>
+  <script src="js/jquery.min.js"></script>
+  <script src="js/encoding-indexes.js"></script>
+  <script src="js/encoding.js"></script>
+  <script src="js/sys.js"></script>
+  <script src="js/kotlin.js"></script>
+  <script src="js/keyboard.js"></script>
+  <script src="js/font.js"></script>
+  <script src="rom/rom.js"></script>
+</head>
+<body>
+  <canvas id="lcd" width="160" height="96"></canvas>
+  <script>
+    (function configureFlutterHost() {
+      window.bbkCheatState = {
+        invincible: false,
+        oneHitKill: false,
+        normalAttackAll: false,
+        attackPatchInstalled: false,
+        monitorStarted: false
+      };
+
+      function ensureCheatMonitor(core) {
+        if (!window.bbkCheatState.attackPatchInstalled) {
+          var prototype = core.characters.FightingCharacter.prototype;
+          var originalHasAtbuff = prototype.hasAtbuff_za3lpa$;
+          prototype.hasAtbuff_za3lpa$ = function (mask) {
+            if (
+              window.bbkCheatState.normalAttackAll &&
+              mask === core.characters.FightingCharacter.Companion.BUFF_MASK_ALL &&
+              this instanceof core.characters.Player
+            ) {
+              return true;
+            }
+            return originalHasAtbuff.call(this, mask);
+          };
+          window.bbkCheatState.attackPatchInstalled = true;
+        }
+        if (window.bbkCheatState.monitorStarted) return;
+        window.bbkCheatState.monitorStarted = true;
+        window.setInterval(function () {
+          try {
+            var players = core.game.playerList.toArray();
+            if (window.bbkCheatState.invincible) {
+              players.forEach(function (player) {
+                if (player.hp < player.maxHP) player.hp = player.maxHP;
+              });
+            }
+            if (window.bbkCheatState.oneHitKill) {
+              var combat = core.combat.Combat.Companion;
+              var instance = combat.sInstance_0;
+              if (combat.IsActive() && instance && instance.mMonsterList_0) {
+                instance.mMonsterList_0.toArray().forEach(function (monster) {
+                  if (monster.hp > 0 && monster.hp < monster.maxHP) monster.hp = 0;
+                });
+              }
+            }
+          } catch (_) {
+            // 场景切换时列表可能短暂不可用，下一轮继续检查。
+          }
+        }, 20);
+      }
+
+      var originalStorageSet = window.sysStorageSet;
+      window.sysStorageSet = function (path, value) {
+        var result = originalStorageSet(path, value);
+        if (path.indexOf('sav/') === 0 && window.BbkSaveChannel) {
+          var entries = {};
+          entries[path] = value || '';
+          window.BbkSaveChannel.postMessage(JSON.stringify({entries: entries}));
+        }
+        return result;
+      };
+
+      window.bbkExportState = function () {
+        var entries = {};
+        for (var index = 0; index < window.localStorage.length; index++) {
+          var key = window.localStorage.key(index);
+          if (key && key.indexOf('sav/') === 0) {
+            entries[key] = window.localStorage.getItem(key) || '';
+          }
+        }
+        return JSON.stringify(entries);
+      };
+
+      window.bbkSendInput = function (action) {
+        var keyMap = {
+          up: 1, down: 2, left: 3, right: 4,
+          pageUp: 5, pageDown: 6, confirm: 7, cancel: 8,
+          search: 5, help: 6
+        };
+        if (keyMap[action] !== undefined) onKeyDown(keyMap[action]);
+      };
+
+      window.bbkApplyCheat = function (action) {
+        function result(ok, message) {
+          return JSON.stringify({ok: ok, message: message});
+        }
+        try {
+          var core = window['fmj.core'] && window['fmj.core'].fmj;
+          if (!core || !core.game) return result(false, '游戏引擎尚未就绪');
+          ensureCheatMonitor(core);
+          var players = core.game.playerList.toArray();
+          if (!players.length) return result(false, '请先开始或载入一局游戏');
+
+          if (action === 'fmj_invincible') {
+            window.bbkCheatState.invincible = !window.bbkCheatState.invincible;
+            return result(
+              true,
+              window.bbkCheatState.invincible ? '我方无敌已开启' : '我方无敌已关闭'
+            );
+          }
+          if (action === 'fmj_one_hit_kill') {
+            window.bbkCheatState.oneHitKill = !window.bbkCheatState.oneHitKill;
+            return result(
+              true,
+              window.bbkCheatState.oneHitKill ? '一击必杀已开启' : '一击必杀已关闭'
+            );
+          }
+          if (action === 'fmj_normal_attack_all') {
+            window.bbkCheatState.normalAttackAll = !window.bbkCheatState.normalAttackAll;
+            return result(
+              true,
+              window.bbkCheatState.normalAttackAll ? '普通攻击群攻已开启' : '普通攻击群攻已关闭'
+            );
+          }
+
+          if (action === 'fmj_restore') {
+            players.forEach(function (player) {
+              player.hp = player.maxHP;
+              player.mp = player.maxMP;
+              player.debuff.reset();
+            });
+            return result(true, '全队生命、真气和状态已恢复');
+          }
+          if (action === 'fmj_money') {
+            core.characters.Player.Companion.sMoney = Math.min(
+              2147483647,
+              core.characters.Player.Companion.sMoney + 100000
+            );
+            return result(true, '已增加 100000 金钱');
+          }
+          if (action === 'fmj_stats') {
+            players.forEach(function (player) {
+              player.maxHP = 999;
+              player.maxMP = 999;
+              player.hp = 999;
+              player.mp = 999;
+              player.attack = 999;
+              player.defend = 999;
+              player.speed = 99;
+              player.lingli = 99;
+              player.luck = 99;
+            });
+            return result(true, '全队主要属性已提升至上限');
+          }
+          if (action === 'fmj_level') {
+            players.forEach(function (player) {
+              player.levelUp_za3lpa$(player.levelupChain.maxLevel);
+              player.currentExp = 0;
+            });
+            return result(true, '全队已提升至各自等级上限');
+          }
+          if (action === 'fmj_force_win') {
+            core.combat.Combat.Companion.ForceWin();
+            return result(true, '已提交当前战斗胜利指令');
+          }
+          if (action === 'fmj_random_battle') {
+            var combat = core.combat.Combat.Companion;
+            combat.globalDisableFighting_0 = !combat.globalDisableFighting_0;
+            return result(
+              true,
+              combat.globalDisableFighting_0 ? '随机战斗已关闭' : '随机战斗已开启'
+            );
+          }
+          return result(false, '未知的作弊操作');
+        } catch (_) {
+          return result(false, '修改失败，请回到主场景后重试');
+        }
+      };
+
+      window.bbkGetCheatState = function () {
+        var core = window['fmj.core'] && window['fmj.core'].fmj;
+        if (core && core.game) ensureCheatMonitor(core);
+        var randomBattleDisabled = !!(
+          core && core.combat && core.combat.Combat.Companion.globalDisableFighting_0
+        );
+        return JSON.stringify({
+          invincible: !!window.bbkCheatState.invincible,
+          oneHitKill: !!window.bbkCheatState.oneHitKill,
+          normalAttackAll: !!window.bbkCheatState.normalAttackAll,
+          randomBattleDisabled: randomBattleDisabled
+        });
+      };
+
+      window.bbkGetExplorationState = function () {
+        try {
+          var core = window['fmj.core'] && window['fmj.core'].fmj;
+          var lamps = [];
+          for (var eventId = 11; eventId <= 18; eventId++) {
+            lamps.push(!!core.script.ScriptResources.globalEvents[eventId]);
+          }
+          var scene = core.game && core.game.mainScene;
+          var map = scene && scene.currentMap;
+          var player = scene && scene.player;
+          if (!map || !player) {
+            return JSON.stringify({lamps: lamps, map: null});
+          }
+          var cells = [];
+          for (var y = 0; y < map.mapHeight; y++) {
+            for (var x = 0; x < map.mapWidth; x++) {
+              var offset = (y * map.mapWidth + x) * 2;
+              var tile = map.mData_0[offset] & 255;
+              var event = map.mData_0[offset + 1] & 255;
+              cells.push(tile | (event << 8));
+            }
+          }
+          return JSON.stringify({
+            lamps: lamps,
+            map: {
+              id: map.type + ':' + map.index,
+              type: map.type,
+              index: map.index,
+              name: map.mapName || '',
+              sceneName: scene.sceneName || '',
+              width: map.mapWidth,
+              height: map.mapHeight,
+              playerX: player.posInMap.x,
+              playerY: player.posInMap.y,
+              cells: cells
+            }
+          });
+        } catch (_) {
+          return JSON.stringify({lamps: [], map: null});
+        }
+      };
+      document.addEventListener('keydown', function (event) {
+        var browserKeyMap = {
+          ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+          Enter: 'confirm', ' ': 'confirm', Escape: 'cancel',
+          PageUp: 'pageUp', PageDown: 'pageDown'
+        };
+        var action = browserKeyMap[event.key];
+        if (action) {
+          event.preventDefault();
+          window.bbkSendInput(action);
+        }
+      });
+
+      window.sysExit = function () {
+        if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('exit');
+      };
+    })();
+  </script>
+  <script src="js/fmj.core.js"></script>
+  <script>
+    document.body.dataset.gameReady = 'true';
+    if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('ready');
+  </script>
+</body>
+</html>
