@@ -107,14 +107,15 @@ class _SgbySearchHistorySheetState extends State<_SgbySearchHistorySheet> {
           leading: const Icon(Icons.manage_search),
           title: Text('${record.source} · ${record.gameTime}'),
           subtitle: Text(
-            '${record.realTime} · 人物 ${record.peopleCount} · 物品 ${record.toolCount}',
+            '${record.realTime} · 人物 ${record.peopleCount} · '
+            '物品 ${record.toolCount} · 招降 ${record.recruitedCount}',
           ),
           children: record.cities.isEmpty
               ? const <Widget>[
                   ListTile(
                     dense: true,
                     leading: Icon(Icons.info_outline),
-                    title: Text('本次未发现新的隐藏人物或物品'),
+                    title: Text('本次未发现新人物、物品或可招降武将'),
                   ),
                 ]
               : record.cities
@@ -139,6 +140,11 @@ class _SgbySearchHistorySheetState extends State<_SgbySearchHistorySheet> {
                               city.tools.isEmpty
                                   ? '物品：无'
                                   : '物品：${city.tools.join('、')}',
+                            ),
+                            Text(
+                              city.recruited.isEmpty
+                                  ? '招降：无'
+                                  : '招降：${city.recruited.join('、')}',
                             ),
                           ],
                         ),

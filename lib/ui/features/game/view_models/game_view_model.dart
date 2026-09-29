@@ -33,6 +33,7 @@ class SgbyGeneralCheatInfo {
   const SgbyGeneralCheatInfo({
     required this.index,
     required this.name,
+    required this.cityIndex,
     required this.cityName,
     required this.level,
     required this.force,
@@ -57,6 +58,7 @@ class SgbyGeneralCheatInfo {
     return SgbyGeneralCheatInfo(
       index: integer('index'),
       name: json['name'] as String? ?? '未知武将',
+      cityIndex: integer('cityIndex'),
       cityName: json['cityName'] as String? ?? '未知城池',
       level: integer('level'),
       force: integer('force'),
@@ -78,6 +80,7 @@ class SgbyGeneralCheatInfo {
 
   final int index;
   final String name;
+  final int cityIndex;
   final String cityName;
   final int level;
   final int force;
@@ -205,6 +208,7 @@ class SgbySearchCityRecord {
     required this.cityName,
     required this.people,
     required this.tools,
+    required this.recruited,
   });
 
   factory SgbySearchCityRecord.fromJson(Map<String, dynamic> json) {
@@ -219,12 +223,14 @@ class SgbySearchCityRecord {
       cityName: json['cityName'] as String? ?? '未知城池',
       people: strings('people'),
       tools: strings('tools'),
+      recruited: strings('recruited'),
     );
   }
 
   final String cityName;
   final List<String> people;
   final List<String> tools;
+  final List<String> recruited;
 }
 
 /// 三国霸业单次搜索历史记录。
@@ -235,6 +241,7 @@ class SgbySearchHistoryRecord {
     required this.source,
     required this.peopleCount,
     required this.toolCount,
+    required this.recruitedCount,
     required this.cities,
   });
 
@@ -246,6 +253,7 @@ class SgbySearchHistoryRecord {
       source: json['source'] as String? ?? '搜索',
       peopleCount: (json['peopleCount'] as num?)?.toInt() ?? 0,
       toolCount: (json['toolCount'] as num?)?.toInt() ?? 0,
+      recruitedCount: (json['recruitedCount'] as num?)?.toInt() ?? 0,
       cities: rawCities is List
           ? rawCities
                 .whereType<Map>()
@@ -264,6 +272,7 @@ class SgbySearchHistoryRecord {
   final String source;
   final int peopleCount;
   final int toolCount;
+  final int recruitedCount;
   final List<SgbySearchCityRecord> cities;
 }
 

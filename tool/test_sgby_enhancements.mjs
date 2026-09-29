@@ -27,6 +27,7 @@ function createHarness(storage = new Map()) {
     person({Belong: 5, Force: 95, IQ: 90, Arms: 500}),
     person({Belong: 5, Force: 80, IQ: 85, Arms: 600}),
     person({Belong: 0, Force: 70, IQ: 96, Arms: 700}),
+    person({Belong: 5, Force: 78, IQ: 82, Arms: 550}),
   ];
   const data = {
     g_PlayerKing: 0,
@@ -42,6 +43,24 @@ function createHarness(storage = new Map()) {
         Tools: 2,
         Food: 0,
         MothballArms: 10,
+        State: 0,
+        Farming: 10,
+        FarmingLimit: 900,
+        Commerce: 20,
+        CommerceLimit: 800,
+        Population: 30,
+        PopulationLimit: 700,
+        PeopleDevotion: 40,
+        AvoidCalamity: 50,
+      },
+      {
+        Belong: 5,
+        PersonQueue: 7,
+        Persons: 0,
+        ToolQueue: 3,
+        Tools: 0,
+        Food: 100,
+        MothballArms: 0,
         State: 0,
         Farming: 10,
         FarmingLimit: 900,
@@ -91,7 +110,12 @@ function createHarness(storage = new Map()) {
     ],
     g_PersonsQueue: [0, 1, 2, 3, 4, 5, 6],
     g_GoodsQueue: [3, 0x8004, 7],
-    g_CityPositions: [{x: 0, y: 0}, {x: 1, y: 0}, {x: 2, y: 0}],
+    g_CityPositions: [
+      {x: 0, y: 0},
+      {x: 1, y: 0},
+      {x: 2, y: 0},
+      {x: 3, y: 0},
+    ],
     g_CityPos: {x: 0, y: 0, setx: 0, sety: 0},
     g_engineConfig: {
       maxLevel: 20,
@@ -100,7 +124,7 @@ function createHarness(storage = new Map()) {
     g_FgtParam: {
       MProvender: 100,
       EProvender: 100,
-      GenArray: [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 5],
+      GenArray: [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 5, 6, 8],
     },
     g_GenPos: Array.from({length: 20}, () => ({
       x: 0,
@@ -111,9 +135,20 @@ function createHarness(storage = new Map()) {
       state: 0,
       active: 0,
     })),
-    g_GenAtt: [{generalIndex: 0}, {generalIndex: 10}],
+    g_GenAtt: [
+      {generalIndex: 0, at: 100, df: 100, armsType: 0},
+      {generalIndex: 10, at: 100, df: 100, armsType: 1},
+    ],
     g_FgtOver: 0,
   };
+  data.g_GenPos[0].x = 4;
+  data.g_GenPos[0].y = 4;
+  data.g_GenPos[10].x = 4;
+  data.g_GenPos[10].y = 6;
+  data.g_GenPos[11].x = 7;
+  data.g_GenPos[11].y = 4;
+  data.g_GenPos[12].x = 6;
+  data.g_GenPos[12].y = 6;
   const hooks = {};
   const baye = {
     data,
@@ -180,6 +215,7 @@ function createHarness(storage = new Map()) {
     VK_LEFT: 0x24,
     VK_RIGHT: 0x25,
     VK_SEARCH: 0x33,
+    VK_ENTER: 0x27,
     VK_EXIT: 0x28,
     lcdWidth: 160,
     lcdHeight: 96,
@@ -203,6 +239,100 @@ function createHarness(storage = new Map()) {
     systemMessages,
     wasmMemory,
   };
+}
+
+{
+  const {api, data, hooks, people} = createHarness();
+  const rangeContext = {
+    type: 0,
+    personIndex: 0,
+    rangeSize: 5,
+    range: new Array(225).fill(9),
+  };
+  assert.equal(hooks.calcAttackRange(rangeContext), 1);
+  assert.equal(rangeContext.rangeSize, 5);
+
+  apply(api, 'sgby_wide_group_attack');
+  rangeContext.range.fill(9);
+  assert.equal(hooks.calcAttackRange(rangeContext), 0);
+  assert.equal(rangeContext.rangeSize, 7);
+  for (let y = 0; y < 7; y++) {
+    for (let x = 0; x < 7; x++) {
+      const expected = 1;
+      assert.equal(rangeContext.range[y * 7 + x], expected);
+    }
+  }
+
+  const hurtContext = {hurt: 0};
+  assert.equal(hooks.countAttackHurt(hurtContext), 0);
+  assert.equal(hurtContext.hurt, 24);
+  assert.equal(people[4].Arms, 500);
+  assert.equal(people[5].Arms, 576);
+  assert.equal(people[7].Arms, 526);
+  assert.equal(data.g_GenPos[11].state, 0);
+}
+
+{
+  const {api, context, data, hooks, people, sentKeys} = createHarness();
+  apply(api, 'sgby_wide_group_attack');
+  apply(api, 'sgby_one_hit_kill');
+  const rangeContext = {
+    type: 0,
+    personIndex: 0,
+    rangeSize: 5,
+    range: new Array(225).fill(0),
+  };
+  hooks.calcAttackRange(rangeContext);
+  data.g_FoucsX = data.g_GenPos[0].x;
+  data.g_FoucsY = data.g_GenPos[0].y;
+  const ownArms = people[0].Arms;
+  context.sendKey(0x27);
+  assert.equal(sentKeys.at(-1), 0x27);
+  assert.equal(data.g_FoucsX, data.g_GenPos[10].x);
+  assert.equal(data.g_FoucsY, data.g_GenPos[10].y);
+  assert.equal(people[0].Arms, ownArms);
+  assert.equal(people[4].Arms, 500);
+
+  const hurtContext = {hurt: 0};
+  assert.equal(hooks.countAttackHurt(hurtContext), 0);
+  assert.equal(hurtContext.hurt, 65535);
+  assert.equal(people[5].Arms, 0);
+  assert.equal(people[7].Arms, 0);
+  assert.equal(data.g_GenPos[11].state, 0);
+  assert.equal(data.g_GenPos[12].state, 0);
+}
+
+{
+  const {context, hooks, wasmMemory} = createHarness();
+  const pixels = new Uint8ClampedArray(wasmMemory.buffer);
+  for (let index = 3; index < pixels.length; index += 4) {
+    pixels[index] = 255;
+  }
+  hooks.didShowMainMap({});
+  context.bayeFlushLcdBuffer(0);
+  const cityOffset = (4 * 160 + 4) * 4;
+  assert.deepEqual(
+    Array.from(pixels.slice(cityOffset, cityOffset + 4)),
+    [211, 47, 47, 255],
+  );
+  const roadOffset = (8 * 160 + 32) * 4;
+  assert.deepEqual(
+    Array.from(pixels.slice(roadOffset, roadOffset + 4)),
+    [126, 132, 138, 255],
+  );
+  const roadOutlineOffset = (7 * 160 + 32) * 4;
+  assert.deepEqual(
+    Array.from(pixels.slice(roadOutlineOffset, roadOutlineOffset + 4)),
+    [0, 0, 0, 255],
+  );
+
+  pixels.set([0, 0, 0, 255], cityOffset);
+  context.sendKey(0x27);
+  context.bayeFlushLcdBuffer(0);
+  assert.deepEqual(
+    Array.from(pixels.slice(cityOffset, cityOffset + 4)),
+    [211, 47, 47, 255],
+  );
 }
 
 function person(overrides) {
@@ -244,8 +374,9 @@ function apply(api, action) {
 }
 
 {
-  const {api, data} = createHarness();
+  const {api, data, hooks, people} = createHarness();
   apply(api, 'sgby_max_all');
+  assert.equal(JSON.parse(api.getCheatState()).autoMaxCities, true);
   assert.equal(data.g_Cities[0].Money, 65535);
   assert.equal(data.g_Cities[0].Food, 65535);
   assert.equal(data.g_Cities[0].MothballArms, 65535);
@@ -254,6 +385,19 @@ function apply(api, action) {
   assert.equal(data.g_Cities[0].Population, data.g_Cities[0].PopulationLimit);
   assert.equal(data.g_Cities[0].PeopleDevotion, 100);
   assert.equal(data.g_Cities[0].AvoidCalamity, 100);
+  assert.equal(people[2].Belong, 1);
+
+  data.g_Cities[0].Money = 1;
+  data.g_Cities[0].Farming = 1;
+  data.g_GoodsQueue[0] = 3;
+  people[2].Belong = 0;
+  hooks.tacticStage2({});
+  assert.equal(data.g_Cities[0].Money, 65535);
+  assert.equal(data.g_Cities[0].Farming, data.g_Cities[0].FarmingLimit);
+  assert.equal(data.g_GoodsQueue[0], 0x8003);
+  assert.equal(people[2].Belong, 1);
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].source, '策略结束自动');
 }
 
 {
@@ -264,6 +408,8 @@ function apply(api, action) {
   apply(first.api, 'sgby_free_movement');
   apply(first.api, 'sgby_food_protection');
   apply(first.api, 'sgby_generals');
+  apply(first.api, 'sgby_wide_group_attack');
+  apply(first.api, 'sgby_max_all');
   apply(first.api, 'sgby_post_battle_automation');
   first.api.handleControl('toggleBattleSpeed');
 
@@ -274,6 +420,8 @@ function apply(api, action) {
   assert.equal(restoredState.freeMovement, true);
   assert.equal(restoredState.foodProtection, true);
   assert.equal(restoredState.autoMaxGenerals, true);
+  assert.equal(restoredState.wideGroupAttack, true);
+  assert.equal(restoredState.autoMaxCities, true);
   assert.equal(restoredState.postBattleAutomation, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
@@ -292,7 +440,7 @@ function apply(api, action) {
 
   assert.equal(data.g_Cities[0].Money, 65535);
   assert.equal(data.g_Cities[0].Farming, data.g_Cities[0].FarmingLimit);
-  assert.equal(data.g_Cities[2].Money, 65535);
+  assert.equal(data.g_Cities[3].Money, 65535);
   assert.equal(people[2].Belong, 1);
   assert.equal(people[3].Belong, 1);
   assert.equal(people[6].Belong, 1);
@@ -304,6 +452,9 @@ function apply(api, action) {
   assert.equal(systemMessages.at(-1).type, 'sgby_notice');
   assert.match(systemMessages.at(-1).data.message, /自动处理完成/);
   assert.match(systemMessages.at(-1).data.message, /搜索记录/);
+  const battleHistory = JSON.parse(api.getSearchHistory());
+  assert.equal(battleHistory.records[0].recruitedCount, 1);
+  assert.deepEqual(battleHistory.records[0].cities[0].recruited, ['武将3']);
 }
 
 {
@@ -391,11 +542,13 @@ function apply(api, action) {
     cityName: '城池0',
     people: ['武将2'],
     tools: ['物品3'],
+    recruited: [],
   });
   assert.deepEqual(firstHistory.records[0].cities[1], {
-    cityName: '城池2',
+    cityName: '城池3',
     people: ['武将6'],
     tools: ['物品7'],
+    recruited: [],
   });
 
   const restoredHarness = createHarness(sharedStorage);
@@ -410,6 +563,21 @@ function apply(api, action) {
   assert.equal(people[3].Level, 20);
   assert.equal(people[3].Force, 100);
   assert.equal(people[3].Arms, 65535);
+  const recruitHistory = JSON.parse(api.getSearchHistory());
+  assert.equal(recruitHistory.records[0].source, '手动招降');
+  assert.equal(recruitHistory.records[0].recruitedCount, 1);
+  assert.deepEqual(recruitHistory.records[0].cities[0].recruited, ['武将3']);
+}
+
+{
+  const {api, people} = createHarness();
+  people[6].Belong = 1;
+  const cheatData = JSON.parse(api.getCheatData());
+  assert.equal(cheatData.ok, true);
+  assert.deepEqual(
+    cheatData.generals.map((general) => general.cityIndex),
+    [0, 0, 3],
+  );
 }
 
 {
@@ -433,6 +601,51 @@ function apply(api, action) {
   hooks.tacticStage4({});
   assert.equal(data.g_Cities[0].Food, 7);
   assert.equal(data.g_Cities[1].Food, 100);
+}
+
+{
+  const {api, data, hooks} = createHarness();
+  apply(api, 'sgby_max_all');
+  hooks.tacticStage4({});
+  data.g_Cities[0].Food -= 11;
+  data.g_Cities[3].Food -= 13;
+  hooks.tacticStage5({});
+  assert.equal(data.g_Cities[0].Food, 65535);
+  assert.equal(data.g_Cities[3].Food, 65535);
+
+  apply(api, 'sgby_max_all');
+  hooks.tacticStage4({});
+  data.g_Cities[0].Food = 65000;
+  hooks.tacticStage5({});
+  assert.equal(data.g_Cities[0].Food, 65000);
+}
+
+{
+  const {context, data, hooks, sentKeys} = createHarness();
+  data.g_Cities[0].Food = 8000;
+  assert.equal(hooks.cityMakeCommand({cityIndex: 0, commandIndex: 27}), 2);
+  context.sendKey(0x27);
+  context.sendKey(0x28);
+  assert.deepEqual(sentKeys.slice(-8), [
+    0x28,
+    0x24,
+    0x24,
+    0x24,
+    0x23,
+    0x23,
+    0x23,
+    0x27,
+  ]);
+  assert.equal(sentKeys.at(-1), 0x27);
+}
+
+{
+  const {context, data, hooks, sentKeys} = createHarness();
+  data.g_Cities[0].Food = 3000;
+  assert.equal(hooks.cityMakeCommand({cityIndex: 0, commandIndex: 27}), 2);
+  context.sendKey(0x27);
+  context.sendKey(0x28);
+  assert.deepEqual(sentKeys.slice(-2), [0x28, 0x27]);
 }
 
 console.log('三国霸业增强回归测试通过');

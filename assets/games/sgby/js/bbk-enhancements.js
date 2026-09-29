@@ -14,12 +14,38 @@
     var CAPTIVE_BELONG = 0xffff;
     var FOUND_GOODS_MASK = 0x8000;
     var MOVEMENT_TERRAIN_COST = 0x81;
+    var BATTLE_COMMAND = 27;
+    var AUTO_EXPEDITION_FOOD = 5000;
+    var NORMAL_ATTACK_COMMAND = 0;
+    var NORMAL_ATTACK_RANGE_SIZE = 7;
+    var NORMAL_ATTACK_DISTANCE = 3;
     var LONG_PRESS_DELAY_MS = 600;
     var LONG_PRESS_CANCEL_DISTANCE = 12;
     var PLAYER_UNIT_MARKER_COLOR = 0x80;
     var PLAYER_UNIT_MARKER_CHANNEL = 0x7f;
     var PLAYER_UNIT_MARKER_ALPHA = 0x80;
     var PLAYER_UNIT_RED = [211, 47, 47];
+    var CITY_ROAD_COLOR = [126, 132, 138];
+    var ATTACK_SUBDUE_MODIFIERS = [
+        [1.0, 1.2, 0.8, 1.0, 0.7, 1.3],
+        [0.8, 1.0, 1.2, 1.0, 0.6, 1.2],
+        [1.2, 0.8, 1.0, 1.0, 1.1, 1.2],
+        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        [1.1, 1.3, 0.9, 1.0, 1.0, 1.5],
+        [0.6, 0.6, 0.6, 0.6, 0.6, 0.6]
+    ];
+    // 三个内置资源版本的 CITY_LINKR 数据一致；每对编号表示一条实际可行军连接。
+    var CITY_CONNECTIONS = [
+        [0, 3], [1, 2], [1, 7], [1, 6], [3, 8], [4, 5], [4, 10],
+        [5, 6], [5, 11], [6, 12], [7, 13], [8, 9], [8, 14], [9, 10],
+        [10, 15], [10, 20], [10, 14], [11, 12], [11, 15], [12, 13],
+        [12, 16], [13, 18], [13, 17], [14, 20], [14, 19], [15, 16],
+        [15, 21], [16, 22], [17, 18], [17, 22], [19, 24], [20, 21],
+        [20, 26], [21, 22], [22, 23], [22, 29], [22, 28], [24, 25],
+        [24, 31], [24, 30], [26, 27], [26, 33], [26, 32], [27, 28],
+        [27, 33], [28, 34], [29, 34], [31, 32], [32, 35], [33, 34],
+        [33, 36], [34, 37], [35, 36], [36, 37]
+    ];
     var FACTION_COLOR_STORAGE_KEY = 'bbk/sgbyFactionColors';
     var CHEAT_STATE_STORAGE_KEY = 'baye/bbkSgbyCheatState';
     var SEARCH_HISTORY_STORAGE_KEY = 'baye/bbkSgbySearchHistory';
@@ -30,8 +56,10 @@
     var cheatState = {
         invincible: persistedCheatState.invincible === true,
         oneHitKill: persistedCheatState.oneHitKill === true,
+        wideGroupAttack: persistedCheatState.wideGroupAttack === true,
         freeMovement: persistedCheatState.freeMovement === true,
         autoMaxGenerals: persistedCheatState.autoMaxGenerals === true,
+        autoMaxCities: persistedCheatState.autoMaxCities === true,
         foodProtection: persistedCheatState.foodProtection === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
@@ -44,9 +72,14 @@
         endTurnPending: false,
         quickSavePending: false,
         battleFoodSnapshot: null,
+        cityFoodConsumptionSnapshot: null,
         postBattleAutomationPending: false,
         initializationTimer: null,
-        mainMapVisible: false
+        mainMapVisible: false,
+        mainMapRoadsVisible: false,
+        groupAttackTargeting: null,
+        selfGroupTouchInstalled: false,
+        expeditionFoodSelection: null
     };
 
     /**
@@ -95,8 +128,10 @@
                 version: 1,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
+                wideGroupAttack: cheatState.wideGroupAttack,
                 freeMovement: cheatState.freeMovement,
                 autoMaxGenerals: cheatState.autoMaxGenerals,
+                autoMaxCities: cheatState.autoMaxCities,
                 foodProtection: cheatState.foodProtection,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
@@ -289,6 +324,7 @@
                 return {
                     index: entry.index,
                     name: baye.getPersonName(entry.index) || ('武将 ' + (entry.index + 1)),
+                    cityIndex: cityIndex == null ? 65535 : cityIndex,
                     cityName: cityIndex == null ? '城外' : (baye.getCityName(cityIndex) || '未知城池'),
                     level: person.Level,
                     force: person.Force,
@@ -308,6 +344,7 @@
                 };
             });
             generals.sort(function (left, right) {
+                if (left.cityIndex !== right.cityIndex) return left.cityIndex - right.cityIndex;
                 return left.name.localeCompare(right.name, 'zh-CN');
             });
             return JSON.stringify({ok: true, maxLevel: maxLevel, generals: generals});
@@ -376,14 +413,29 @@
      *
      * @param {Object} context 当前游戏上下文。
      * @param {string} source 触发来源。
+     * @param {Array<Object>} recruitedCities 本次招降的逐城结果。
      * @return {{people:number, tools:number, cities:Array<Object>}} 搜索结果统计。
      */
-    function searchAllOwnedCities(context, source) {
+    function searchAllOwnedCities(context, source, recruitedCities) {
         var foundPeople = 0;
         var foundTools = 0;
         var cityResults = [];
+        var cityResultByName = {};
         var goodsQueue = context.data.g_GoodsQueue;
+        function cityResult(cityName) {
+            var existing = cityResultByName[cityName];
+            if (existing) return existing;
+            var created = {cityName: cityName, people: [], tools: [], recruited: []};
+            cityResultByName[cityName] = created;
+            cityResults.push(created);
+            return created;
+        }
+        (recruitedCities || []).forEach(function (entry) {
+            var resultEntry = cityResult(entry.cityName);
+            resultEntry.recruited = entry.recruited.slice();
+        });
         context.ownedCities.forEach(function (cityEntry) {
+            var cityName = baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1));
             var personNames = [];
             var toolNames = [];
             cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
@@ -397,27 +449,46 @@
                 if (cheatState.autoMaxGenerals) maximizeGeneral(hiddenPerson, context.data);
                 foundPeople++;
             });
-            if (!goodsQueue) return;
-            for (var toolOffset = 0; toolOffset < cityEntry.value.Tools; toolOffset++) {
-                var queueIndex = cityEntry.value.ToolQueue + toolOffset;
-                var queuedTool = goodsQueue[queueIndex];
-                if ((queuedTool & FOUND_GOODS_MASK) === 0) {
-                    var toolIndex = queuedTool & 0x7fff;
-                    toolNames.push(baye.getToolName(toolIndex) || ('物品 ' + (toolIndex + 1)));
-                    goodsQueue[queueIndex] = queuedTool | FOUND_GOODS_MASK;
-                    foundTools++;
+            if (goodsQueue) {
+                for (var toolOffset = 0; toolOffset < cityEntry.value.Tools; toolOffset++) {
+                    var queueIndex = cityEntry.value.ToolQueue + toolOffset;
+                    var queuedTool = goodsQueue[queueIndex];
+                    if ((queuedTool & FOUND_GOODS_MASK) === 0) {
+                        var toolIndex = queuedTool & 0x7fff;
+                        toolNames.push(baye.getToolName(toolIndex) || ('物品 ' + (toolIndex + 1)));
+                        goodsQueue[queueIndex] = queuedTool | FOUND_GOODS_MASK;
+                        foundTools++;
+                    }
                 }
             }
             if (personNames.length || toolNames.length) {
-                cityResults.push({
-                    cityName: baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1)),
-                    people: personNames,
-                    tools: toolNames
-                });
+                var resultEntry = cityResult(cityName);
+                resultEntry.people = personNames;
+                resultEntry.tools = toolNames;
             }
         });
+        appendSearchHistory(context, source, cityResults);
+        return {people: foundPeople, tools: foundTools, cities: cityResults};
+    }
+
+    /**
+     * 追加一次搜索或招降记录。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @param {string} source 触发来源。
+     * @param {Array<Object>} cityResults 逐城结果。
+     */
+    function appendSearchHistory(context, source, cityResults) {
         var now = new Date();
         var records = loadSearchHistory();
+        var peopleCount = 0;
+        var toolCount = 0;
+        var recruitedCount = 0;
+        cityResults.forEach(function (city) {
+            peopleCount += (city.people || []).length;
+            toolCount += (city.tools || []).length;
+            recruitedCount += (city.recruited || []).length;
+        });
         records.unshift({
             id: String(now.getTime()),
             timestamp: now.toISOString(),
@@ -425,12 +496,12 @@
             gameTime: String(context.data.g_YearDate || 0) + '年' +
                 String(context.data.g_MonthDate || 0) + '月',
             source: source || '手动搜索',
-            peopleCount: foundPeople,
-            toolCount: foundTools,
+            peopleCount: peopleCount,
+            toolCount: toolCount,
+            recruitedCount: recruitedCount,
             cities: cityResults
         });
         saveSearchHistory(records);
-        return {people: foundPeople, tools: foundTools, cities: cityResults};
     }
 
     /**
@@ -454,21 +525,55 @@
      *
      * @param {Object} context 当前游戏上下文。
      * @param {Array<{index:number,value:Object}>} cityEntries 需要处理的我方城池。
-     * @return {number} 招降人数。
+     * @return {{count:number,cities:Array<Object>}} 招降统计和逐城名单。
      */
     function recruitCaptives(context, cityEntries) {
         var recruited = 0;
+        var cityResults = [];
         cityEntries.forEach(function (cityEntry) {
+            var recruitedNames = [];
             cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
                 var captive = context.people[personIndex];
                 if (!captive || captive.Belong !== CAPTIVE_BELONG) return;
+                recruitedNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
                 captive.Belong = context.ruler;
                 captive.Devotion = 100;
                 if (cheatState.autoMaxGenerals) maximizeGeneral(captive, context.data);
                 recruited++;
             });
+            if (recruitedNames.length) {
+                cityResults.push({
+                    cityName: baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1)),
+                    people: [],
+                    tools: [],
+                    recruited: recruitedNames
+                });
+            }
         });
-        return recruited;
+        return {count: recruited, cities: cityResults};
+    }
+
+    /**
+     * 自动拉满开关开启后，在策略结束时执行城池拉满和全城搜索。
+     *
+     * @param {string} source 搜索记录来源。
+     * @param {boolean} showNotice 是否向 Flutter 显示底部提示。
+     */
+    function runAutoCityMaintenance(source, showNotice) {
+        if (!cheatState.autoMaxCities) return;
+        var context = gameContext();
+        if (!context) return;
+        var cityCount = maximizeOwnedCities(context);
+        var searched = searchAllOwnedCities(context, source, []);
+        if (showNotice) {
+            postSystemNotice(
+                true,
+                source + '：已拉满 ' + cityCount + ' 座城池，搜出隐藏人物 ' +
+                searched.people + ' 名、隐藏物品 ' + searched.tools + ' 件；详情见搜索记录'
+            );
+        }
     }
 
     /** 在新开局、载入存档或脚本初始化后重新应用需要写入人物数据的持续作弊。 */
@@ -505,10 +610,10 @@
         }
         var cityCount = maximizeOwnedCities(context);
         var recruited = recruitCaptives(context, context.ownedCities);
-        var searched = searchAllOwnedCities(context, '战后自动');
+        var searched = searchAllOwnedCities(context, '战后自动', recruited.cities);
         postSystemNotice(
             true,
-            '战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' + recruited +
+            '战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' + recruited.count +
             ' 人，搜出隐藏人物 ' + searched.people + ' 名、隐藏物品 ' + searched.tools +
             ' 件；详细人物和物品请查看搜索记录'
         );
@@ -604,37 +709,135 @@
     }
 
     /**
+     * 安装出征粮草自动选择跟踪，只标记玩家发起的“出征”命令。
+     *
+     * @param {Object} hooks Hook 集合。
+     */
+    function installExpeditionFoodHook(hooks) {
+        var original = hooks.cityMakeCommand;
+        hooks.cityMakeCommand = function (context) {
+            var hookResult = original ? original(context) : 2;
+            if (hookResult === 0 || hookResult === 1) {
+                cheatState.expeditionFoodSelection = null;
+                return hookResult;
+            }
+            if (Number(context.commandIndex) !== BATTLE_COMMAND) {
+                cheatState.expeditionFoodSelection = null;
+                return hookResult == null ? 2 : hookResult;
+            }
+
+            var game = gameContext();
+            var cityIndex = Number(context.cityIndex);
+            var city = game && game.cities[cityIndex];
+            if (!game || !city || city.Food <= 0) {
+                cheatState.expeditionFoodSelection = null;
+                return hookResult == null ? 2 : hookResult;
+            }
+            var availablePeople = 0;
+            cityPersonIndexes(game, {index: cityIndex, value: city}).forEach(function (personIndex) {
+                var person = game.people[personIndex];
+                if (person && person.Belong === city.Belong) availablePeople++;
+            });
+            cheatState.expeditionFoodSelection = availablePeople > 0 ? {
+                cityIndex: cityIndex,
+                selectedCount: 0,
+                maxSelections: Math.min(10, availablePeople)
+            } : null;
+            return hookResult == null ? 2 : hookResult;
+        };
+    }
+
+    /**
+     * 从数字框默认最大值自动减到 5000，并确认；不足 5000 时直接确认最大值。
+     *
+     * @param {function(number): *} originalSendKey 原始按键发送函数。
+     * @param {Object} selection 当前出征选择状态。
+     */
+    function submitExpeditionFood(originalSendKey, selection) {
+        var city = baye.data.g_Cities[selection.cityIndex];
+        var maximum = city ? Number(city.Food) : 0;
+        if (!Number.isInteger(maximum) || maximum <= 0) return;
+        var target = Math.min(AUTO_EXPEDITION_FOOD, maximum);
+        var difference = maximum - target;
+        if (!difference) {
+            originalSendKey(VK_ENTER);
+            return;
+        }
+        var digits = String(maximum).length;
+        var unit = 1;
+        for (var position = 0; position < digits; position++) {
+            var decreases = Math.floor(difference / unit) % 10;
+            for (var count = 0; count < decreases; count++) {
+                originalSendKey(VK_DOWN);
+            }
+            if (position < digits - 1) originalSendKey(VK_LEFT);
+            unit *= 10;
+        }
+        originalSendKey(VK_ENTER);
+    }
+
+    /**
      * 计算城市本回合需要的粮草，并在不足时仅补到可正常扣除的最小值。
      *
      * 这样可以避免原版“粮草不足则全员兵力减半”的分支，同时保留旱灾、水灾、暴动
      * 对兵力的独立影响，也不会每回合把城市粮草永久拉满。
      */
+    function calculateCityFoodConsumption(context, city) {
+        var ratio = context.data.g_engineConfig.ratioOfFoodToArmsPerMouth || 50;
+        var queue = context.data.g_PersonsQueue;
+        if (!queue || ratio <= 0) return 0;
+        var totalArms = city.MothballArms;
+        for (var offset = 0; offset < city.Persons; offset++) {
+            var person = context.people[queue[city.PersonQueue + offset]];
+            if (!person || person.Belong !== city.Belong) continue;
+            var arms = person.Arms;
+            if (city.State === 2 || city.State === 3) {
+                arms -= Math.floor(arms / 4);
+            } else if (city.State === 4) {
+                arms = Math.floor(arms / 2);
+            }
+            totalArms = (totalArms + arms) & 0xffff;
+        }
+        return Math.floor(totalArms / ratio);
+    }
+
     function protectCityFoodShortage() {
         if (!cheatState.foodProtection) return;
         var context = gameContext();
         if (!context) return;
-        var ratio = context.data.g_engineConfig.ratioOfFoodToArmsPerMouth || 50;
-        var queue = context.data.g_PersonsQueue;
-        if (!queue || ratio <= 0) return;
-
         context.ownedCities.forEach(function (entry) {
             var city = entry.value;
-            var totalArms = city.MothballArms;
-            for (var offset = 0; offset < city.Persons; offset++) {
-                var person = context.people[queue[city.PersonQueue + offset]];
-                if (!person || person.Belong !== city.Belong) continue;
-                var arms = person.Arms;
-                if (city.State === 2 || city.State === 3) {
-                    arms -= Math.floor(arms / 4);
-                } else if (city.State === 4) {
-                    arms = Math.floor(arms / 2);
-                }
-                totalArms = (totalArms + arms) & 0xffff;
-            }
-            var requiredFood = Math.floor(totalArms / ratio);
+            var requiredFood = calculateCityFoodConsumption(context, city);
             if (city.Food <= requiredFood && requiredFood < 65535) {
                 city.Food = requiredFood + 1;
             }
+        });
+    }
+
+    /** 自动拉满开启时，记录环境更新即将产生的我方驻军粮耗。 */
+    function snapshotCityFoodConsumption() {
+        cheatState.cityFoodConsumptionSnapshot = null;
+        if (!cheatState.autoMaxCities) return;
+        var context = gameContext();
+        if (!context) return;
+        cheatState.cityFoodConsumptionSnapshot = context.ownedCities.map(function (entry) {
+            return {
+                cityIndex: entry.index,
+                consumption: calculateCityFoodConsumption(context, entry.value)
+            };
+        });
+    }
+
+    /** 环境更新完成后仅补回驻军粮耗，保留灾害和随机事件造成的其他粮草变化。 */
+    function restoreCityFoodConsumption() {
+        var snapshot = cheatState.cityFoodConsumptionSnapshot;
+        cheatState.cityFoodConsumptionSnapshot = null;
+        if (!cheatState.autoMaxCities || !snapshot || !global.baye || !baye.data) return;
+        var ruler = baye.data.g_PlayerKing + 1;
+        snapshot.forEach(function (entry) {
+            var city = baye.data.g_Cities[entry.cityIndex];
+            if (!city || city.Belong !== ruler) return;
+            city.Food = Math.min(65535, city.Food + entry.consumption);
         });
     }
 
@@ -672,6 +875,151 @@
             return true;
         }
         return false;
+    }
+
+    /**
+     * 判断战场单位是否处于攻击者周围三格的正方形范围内。
+     *
+     * @param {Object} attackerPosition 攻击者坐标。
+     * @param {Object} targetPosition 目标坐标。
+     * @return {boolean} 横纵坐标差均不超过 3 格，且不是攻击者自身。
+     */
+    function isInNormalAttackSquare(attackerPosition, targetPosition) {
+        var deltaX = Math.abs(targetPosition.x - attackerPosition.x);
+        var deltaY = Math.abs(targetPosition.y - attackerPosition.y);
+        return (
+            (deltaX > 0 || deltaY > 0) &&
+            deltaX <= NORMAL_ATTACK_DISTANCE && deltaY <= NORMAL_ATTACK_DISTANCE
+        );
+    }
+
+    /**
+     * 使用原版公式计算普通攻击伤害。
+     *
+     * @return {number|null} 伤害值；战斗数据不完整时返回 null 并交回原版逻辑。
+     */
+    function calculateNormalAttackHurt() {
+        var data = baye.data;
+        var attack = data.g_GenAtt[0];
+        var defence = data.g_GenAtt[1];
+        var attackerId = data.g_FgtParam.GenArray[attack.generalIndex];
+        var attacker = attackerId ? data.g_Persons[attackerId - 1] : null;
+        if (!attacker || !defence.df) return null;
+        var attackType = Number(attack.armsType);
+        var defenceType = Number(defence.armsType);
+        var modifierRow = ATTACK_SUBDUE_MODIFIERS[attackType];
+        var modifier = modifierRow ? modifierRow[defenceType] : null;
+        if (typeof modifier !== 'number') return null;
+        var baseHurt = Math.floor(attack.at / defence.df * (attacker.Arms >> 3));
+        var hurt = Math.floor(baseHurt * modifier) + 10;
+        return Math.max(0, Math.min(65535, hurt));
+    }
+
+    /**
+     * 将“选择自己”重定向到范围内第一名存活敌军。
+     *
+     * 后续仍进入原版普通攻击流程，因此主目标攻击动画、行动消耗、死亡检查和多个阵亡
+     * 单位的逐个死亡动画全部由原引擎负责。
+     *
+     * @param {number} mapX 目标地图横坐标。
+     * @param {number} mapY 目标地图纵坐标。
+     * @return {boolean} 是否已重定向本次确认。
+     */
+    function redirectSelfGroupAttack(mapX, mapY) {
+        var targeting = cheatState.groupAttackTargeting;
+        if (!cheatState.wideGroupAttack || !targeting) return false;
+        var data = baye.data;
+        var attackerPosition = data.g_GenPos[targeting.generalIndex];
+        if (!attackerPosition || attackerPosition.x !== mapX || attackerPosition.y !== mapY) {
+            return false;
+        }
+        for (var index = PLAYER_GENERAL_LIMIT; index < TOTAL_GENERAL_LIMIT; index++) {
+            var personId = data.g_FgtParam.GenArray[index];
+            var targetPosition = data.g_GenPos[index];
+            if (!personId || !targetPosition || targetPosition.state === STATE_DEAD) continue;
+            if (!isInNormalAttackSquare(attackerPosition, targetPosition)) continue;
+            data.g_FoucsX = targetPosition.x;
+            data.g_FoucsY = targetPosition.y;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 将当前普通攻击伤害同步应用到 7×7 正方形范围内的其他敌军。
+     *
+     * 主目标仍由原引擎扣兵；这里只处理次要目标，之后原版 FgtChkAtkEnd 会统一刷新死亡
+     * 状态，避免重复结算主目标或绕过战斗胜负流程。
+     *
+     * @param {number} hurt 本次普通攻击伤害。
+     * @param {number} attackerIndex 攻击者战场序号。
+     * @param {number} primaryDefenderIndex 主目标战场序号。
+     */
+    function applyNormalAttackGroupDamage(hurt, attackerIndex, primaryDefenderIndex) {
+        var data = baye.data;
+        var attackerPosition = data.g_GenPos[attackerIndex];
+        if (!attackerPosition) return;
+        for (var index = PLAYER_GENERAL_LIMIT; index < TOTAL_GENERAL_LIMIT; index++) {
+            if (index === primaryDefenderIndex) continue;
+            var personId = data.g_FgtParam.GenArray[index];
+            var position = data.g_GenPos[index];
+            if (!personId || !position || position.state === STATE_DEAD) continue;
+            if (!isInNormalAttackSquare(attackerPosition, position)) continue;
+            var person = data.g_Persons[personId - 1];
+            if (!person) continue;
+            person.Arms = hurt >= person.Arms ? 0 : person.Arms - hurt;
+        }
+    }
+
+    /**
+     * 安装普通攻击伤害 Hook，保留敌方原版计算和已有模组 Hook。
+     *
+     * @param {Object} hooks Hook 集合。
+     */
+    function installNormalAttackHook(hooks) {
+        var original = hooks.countAttackHurt;
+        hooks.countAttackHurt = function (context) {
+            try {
+                var data = baye.data;
+                var attackerIndex = data.g_GenAtt[0].generalIndex;
+                var defenderIndex = data.g_GenAtt[1].generalIndex;
+                if (
+                    cheatState.invincible && attackerIndex >= PLAYER_GENERAL_LIMIT &&
+                    defenderIndex < PLAYER_GENERAL_LIMIT
+                ) {
+                    context.hurt = 0;
+                    return 0;
+                }
+                if (attackerIndex < PLAYER_GENERAL_LIMIT && defenderIndex >= PLAYER_GENERAL_LIMIT) {
+                    cheatState.groupAttackTargeting = null;
+                    if (!cheatState.wideGroupAttack && !cheatState.oneHitKill) {
+                        return original ? original(context) : 1;
+                    }
+                    var originalHandled = false;
+                    if (cheatState.oneHitKill) {
+                        context.hurt = 65535;
+                    } else if (original) {
+                        originalHandled = original(context) === 0;
+                    }
+                    if (!cheatState.oneHitKill && !originalHandled) {
+                        var calculatedHurt = calculateNormalAttackHurt();
+                        if (calculatedHurt == null) return 1;
+                        context.hurt = calculatedHurt;
+                    }
+                    if (cheatState.wideGroupAttack) {
+                        applyNormalAttackGroupDamage(
+                            Number(context.hurt) || 0,
+                            attackerIndex,
+                            defenderIndex
+                        );
+                    }
+                    return 0;
+                }
+            } catch (_) {
+                // 数据不完整时交回原版或已有模组 Hook。
+            }
+            return original ? original(context) : 1;
+        };
     }
 
     /**
@@ -719,7 +1067,7 @@
      */
     function factionColor(belong, playerRuler) {
         if (belong === 0) return [126, 132, 138];
-        if (belong === playerRuler) return [35, 166, 92];
+        if (belong === playerRuler) return PLAYER_UNIT_RED;
         return hslToRgb((belong * 137.508) % 360, 0.72, 0.52);
     }
 
@@ -748,6 +1096,94 @@
         } catch (_) {
             return null;
         }
+    }
+
+    /**
+     * 根据原版 CITY_LINKR 邻接表补画可行军城池连接。
+     *
+     * @param {Uint8ClampedArray} pixels RGBA 像素数组。
+     * @param {number} pixelWidth 像素宽度。
+     * @param {number} pixelHeight 像素高度。
+     * @param {number} scaleX 横向像素倍率。
+     * @param {number} scaleY 纵向像素倍率。
+     * @return {number} 实际绘制的像素数量。
+     */
+    function drawCityConnections(pixels, pixelWidth, pixelHeight, scaleX, scaleY) {
+        var context = mapContext();
+        if (!context) return 0;
+        var viewport = context.data.g_CityPos;
+        var positions = context.data.g_CityPositions;
+        var visibleColumns = Math.floor((global.lcdWidth + 1) / 16) - 2;
+        var visibleRows = Math.floor(global.lcdHeight / 16);
+        var mapPixelWidth = Math.min(pixelWidth, Math.round(visibleColumns * 16 * scaleX));
+        var mapPixelHeight = Math.min(pixelHeight, Math.round(visibleRows * 16 * scaleY));
+        var scale = Math.min(scaleX, scaleY);
+        var radius = Math.max(0, Math.floor(scale / 2));
+        var painted = 0;
+
+        function paintRadius(x, y, radius, color) {
+            for (var offsetY = -radius; offsetY <= radius; offsetY++) {
+                for (var offsetX = -radius; offsetX <= radius; offsetX++) {
+                    var targetX = x + offsetX;
+                    var targetY = y + offsetY;
+                    if (
+                        targetX < 0 || targetY < 0 ||
+                        targetX >= mapPixelWidth || targetY >= mapPixelHeight
+                    ) {
+                        continue;
+                    }
+                    var pixelOffset = (targetY * pixelWidth + targetX) * 4;
+                    pixels[pixelOffset] = color[0];
+                    pixels[pixelOffset + 1] = color[1];
+                    pixels[pixelOffset + 2] = color[2];
+                    pixels[pixelOffset + 3] = 255;
+                    painted++;
+                }
+            }
+        }
+
+        function paint(x, y) {
+            paintRadius(x, y, radius, CITY_ROAD_COLOR);
+        }
+
+        CITY_CONNECTIONS.forEach(function (connection) {
+            var from = positions[connection[0]];
+            var to = positions[connection[1]];
+            if (!from || !to) return;
+            var startX = (from.x - viewport.x) * 16 + 8;
+            var startY = (from.y - viewport.y) * 16 + 8;
+            var endX = (to.x - viewport.x) * 16 + 8;
+            var endY = (to.y - viewport.y) * 16 + 8;
+            var deltaX = endX - startX;
+            var deltaY = endY - startY;
+            var length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            if (!length) return;
+            var trim = 6;
+            startX = Math.round((startX + deltaX / length * trim) * scaleX);
+            startY = Math.round((startY + deltaY / length * trim) * scaleY);
+            endX = Math.round((endX - deltaX / length * trim) * scaleX);
+            endY = Math.round((endY - deltaY / length * trim) * scaleY);
+
+            var lineDeltaX = Math.abs(endX - startX);
+            var lineDeltaY = Math.abs(endY - startY);
+            var stepX = startX < endX ? 1 : -1;
+            var stepY = startY < endY ? 1 : -1;
+            var error = lineDeltaX - lineDeltaY;
+            while (true) {
+                paint(startX, startY);
+                if (startX === endX && startY === endY) break;
+                var doubledError = error * 2;
+                if (doubledError > -lineDeltaY) {
+                    error -= lineDeltaY;
+                    startX += stepX;
+                }
+                if (doubledError < lineDeltaX) {
+                    error += lineDeltaX;
+                    startY += stepY;
+                }
+            }
+        });
+        return painted;
     }
 
     /**
@@ -865,7 +1301,7 @@
      * 不修改文字、地图纹理或右侧信息栏。地图 Hook 仅在重绘时触发，不参与逐帧循环。
      */
     function colorizeCityIcons() {
-        if (!cheatState.factionColors || !cheatState.mainMapVisible) return;
+        if (!cheatState.mainMapVisible) return;
         var canvas = document.getElementById('lcd');
         if (!canvas || !canvas.getContext || !global.lcdWidth || !global.lcdHeight) return;
 
@@ -874,13 +1310,18 @@
             var image = drawing.getImageData(0, 0, canvas.width, canvas.height);
             var scaleX = canvas.width / global.lcdWidth;
             var scaleY = canvas.height / global.lcdHeight;
-            colorizePixelData(
-                image.data,
-                canvas.width,
-                canvas.height,
-                scaleX,
-                scaleY
-            );
+            if (cheatState.mainMapRoadsVisible) {
+                drawCityConnections(image.data, canvas.width, canvas.height, scaleX, scaleY);
+            }
+            if (cheatState.factionColors) {
+                colorizePixelData(
+                    image.data,
+                    canvas.width,
+                    canvas.height,
+                    scaleX,
+                    scaleY
+                );
+            }
             drawing.putImageData(image, 0, 0);
         } catch (_) {
             // Canvas 读取失败时保留原版黑白地图。
@@ -992,6 +1433,7 @@
 
         canvas.addEventListener('touchstart', function (event) {
             if (!cheatState.mainMapVisible || active || !event.targetTouches.length) return;
+            cheatState.mainMapRoadsVisible = false;
             var touch = event.targetTouches[0];
             active = {
                 identifier: touch.identifier,
@@ -1040,16 +1482,17 @@
      * 安装 LCD 输出和输入状态桥。
      *
      * 主地图后续的周期刷新会在写入 Canvas 前直接处理 WASM RGBA 缓冲，避免先着色后又
-     * 被黑白帧覆盖。非方向键和触摸先标记离开主地图，防止菜单文字被误着色。
+     * 被黑白帧覆盖。弹窗期间继续保留城池着色，只暂停道路重画，避免路线穿过弹窗。
      */
     function installDisplayPipeline() {
         var originalFlush = global.bayeFlushLcdBuffer;
         if (typeof originalFlush === 'function') {
             global.bayeFlushLcdBuffer = function (buffer) {
                 var shouldColorCities = cheatState.factionColors && cheatState.mainMapVisible;
+                var shouldDrawRoads = cheatState.mainMapVisible && cheatState.mainMapRoadsVisible;
                 var shouldColorBattle = global.baye && baye.data && isBattleActive(baye.data);
                 if (
-                    (shouldColorCities || shouldColorBattle) &&
+                    (shouldColorCities || shouldDrawRoads || shouldColorBattle) &&
                     typeof wasmMemory !== 'undefined' &&
                     global.lcdWidth && global.lcdHeight && global.dotSize
                 ) {
@@ -1061,6 +1504,15 @@
                             buffer,
                             width * height * 4
                         );
+                        if (shouldDrawRoads) {
+                            drawCityConnections(
+                                pixels,
+                                width,
+                                height,
+                                global.dotSize,
+                                global.dotSize
+                            );
+                        }
                         if (shouldColorCities) {
                             colorizePixelData(
                                 pixels,
@@ -1090,20 +1542,68 @@
         var originalSendKey = global.sendKey;
         if (typeof originalSendKey === 'function') {
             global.sendKey = function (key) {
-                if (key !== VK_UP && key !== VK_DOWN && key !== VK_LEFT && key !== VK_RIGHT) {
-                    cheatState.mainMapVisible = false;
+                if (
+                    key === VK_ENTER && cheatState.groupAttackTargeting &&
+                    redirectSelfGroupAttack(
+                        Number(baye.data.g_FoucsX),
+                        Number(baye.data.g_FoucsY)
+                    )
+                ) {
+                    return originalSendKey(VK_ENTER);
                 }
-                return originalSendKey(key);
+                if (key === VK_EXIT) cheatState.groupAttackTargeting = null;
+                var expedition = cheatState.expeditionFoodSelection;
+                var submitFood = false;
+                if (expedition) {
+                    if (key === VK_ENTER) {
+                        expedition.selectedCount++;
+                        submitFood = expedition.selectedCount >= expedition.maxSelections;
+                    } else if (key === VK_EXIT) {
+                        submitFood = expedition.selectedCount > 0;
+                        if (!submitFood) cheatState.expeditionFoodSelection = null;
+                    }
+                }
+                if (key !== VK_UP && key !== VK_DOWN && key !== VK_LEFT && key !== VK_RIGHT) {
+                    cheatState.mainMapRoadsVisible = false;
+                }
+                var keyResult = originalSendKey(key);
+                if (submitFood) {
+                    cheatState.expeditionFoodSelection = null;
+                    submitExpeditionFood(originalSendKey, expedition);
+                }
+                return keyResult;
             };
         }
 
         var originalRaiseTouchEvent = global.raiseTouchEvent;
         if (typeof originalRaiseTouchEvent === 'function') {
             global.raiseTouchEvent = function () {
-                cheatState.mainMapVisible = false;
+                cheatState.mainMapRoadsVisible = false;
                 return originalRaiseTouchEvent.apply(this, arguments);
             };
         }
+    }
+
+    /** 安装战场触摸自选群攻桥，屏幕点按自己与方向键确认保持相同行为。 */
+    function installSelfGroupTouchPipeline() {
+        if (cheatState.selfGroupTouchInstalled) return;
+        var originalSendTouch = global._bayeSendTouchEvent;
+        if (typeof originalSendTouch !== 'function') return;
+        global._bayeSendTouchEvent = function (key, x, y) {
+            if (key === 2 && cheatState.groupAttackTargeting) {
+                var mapX = (Number(baye.data.g_MapSX) || 0) + Math.floor(x / 16);
+                var mapY = (Number(baye.data.g_MapSY) || 0) + Math.floor(y / 16);
+                if (redirectSelfGroupAttack(mapX, mapY)) {
+                    var touchResult = originalSendTouch(4, x, y);
+                    global.sendKey(VK_ENTER);
+                    return touchResult;
+                }
+            } else if (key === 4) {
+                cheatState.groupAttackTargeting = null;
+            }
+            return originalSendTouch.apply(this, arguments);
+        };
+        cheatState.selfGroupTouchInstalled = true;
     }
 
     /**
@@ -1176,11 +1676,35 @@
         if (cheatState.hooksInstalled) return true;
         if (!global.baye || !baye.hooks || !baye.data) return false;
         var hooks = baye.hooks;
-        installOverrideHook(hooks, 'countAttackHurt', function (context) {
-            return overrideDamage(context, false);
-        });
+        installNormalAttackHook(hooks);
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);
+        });
+        installOverrideHook(hooks, 'calcAttackRange', function (context) {
+            var personIndex = Number(context.personIndex);
+            var person = baye.data.g_Persons[personIndex];
+            if (
+                !cheatState.wideGroupAttack ||
+                Number(context.type) !== NORMAL_ATTACK_COMMAND || !person ||
+                person.Belong !== baye.data.g_PlayerKing + 1 || !context.range
+            ) {
+                cheatState.groupAttackTargeting = null;
+                return false;
+            }
+            context.rangeSize = NORMAL_ATTACK_RANGE_SIZE;
+            for (var rangeIndex = 0; rangeIndex < context.range.length; rangeIndex++) {
+                context.range[rangeIndex] = 0;
+            }
+            var center = NORMAL_ATTACK_DISTANCE;
+            for (var rangeY = 0; rangeY < NORMAL_ATTACK_RANGE_SIZE; rangeY++) {
+                for (var rangeX = 0; rangeX < NORMAL_ATTACK_RANGE_SIZE; rangeX++) {
+                    context.range[rangeY * NORMAL_ATTACK_RANGE_SIZE + rangeX] = 1;
+                }
+            }
+            var generalIndex = battleIndexOf(baye.data, personIndex);
+            if (generalIndex < 0 || generalIndex >= PLAYER_GENERAL_LIMIT) return false;
+            cheatState.groupAttackTargeting = {generalIndex: generalIndex};
+            return true;
         });
         installOverrideHook(hooks, 'countMove', function (context) {
             var generalIndex = Number(context.generalIndex);
@@ -1224,7 +1748,14 @@
                 baye.data.g_FgtParam.MProvender = snapshot;
             }
         });
-        installObserverHook(hooks, 'tacticStage4', protectCityFoodShortage);
+        installObserverHook(hooks, 'tacticStage4', function () {
+            protectCityFoodShortage();
+            snapshotCityFoodConsumption();
+        });
+        installObserverHook(hooks, 'tacticStage5', restoreCityFoodConsumption);
+        installObserverHook(hooks, 'tacticStage2', function () {
+            runAutoCityMaintenance('策略结束自动', true);
+        });
         installObserverHook(hooks, 'didOpenNewGame', applyPersistentGeneralEffects);
         installObserverHook(hooks, 'didLoadGame', applyPersistentGeneralEffects);
         installObserverHook(hooks, 'exitBattle', function () {
@@ -1232,12 +1763,18 @@
                 cheatState.postBattleAutomationPending = true;
             }
         });
+        installObserverHook(hooks, 'enterBattle', function () {
+            cheatState.mainMapVisible = false;
+            cheatState.mainMapRoadsVisible = false;
+        });
+        installExpeditionFoodHook(hooks);
         installBattleUnitDrawing(hooks);
 
         var originalMapHook = hooks.didShowMainMap;
         hooks.didShowMainMap = function (context) {
             var hookResult = originalMapHook ? originalMapHook(context) : 1;
             cheatState.mainMapVisible = true;
+            cheatState.mainMapRoadsVisible = true;
             global.requestAnimationFrame(colorizeCityIcons);
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
@@ -1246,6 +1783,7 @@
             return hookResult;
         };
         installEnemyCityLongPress();
+        installSelfGroupTouchPipeline();
         installBattleSpeedPipeline();
         cheatState.hooksInstalled = true;
         applyPersistentGeneralEffects();
@@ -1395,8 +1933,20 @@
 
         try {
             if (action === 'sgby_max_all') {
-                var maximizedCities = maximizeOwnedCities(context);
-                return result(true, '已将 ' + maximizedCities + ' 座我方城池资源和发展一键拉满');
+                cheatState.autoMaxCities = !cheatState.autoMaxCities;
+                if (!cheatState.autoMaxCities) {
+                    cheatState.cityFoodConsumptionSnapshot = null;
+                }
+                savePersistentCheatState();
+                if (cheatState.autoMaxCities) {
+                    runAutoCityMaintenance('开启自动拉满', false);
+                }
+                return result(
+                    true,
+                    cheatState.autoMaxCities
+                        ? '自动拉满与搜索已开启，并已立即执行一次'
+                        : '自动拉满与搜索已关闭'
+                );
             }
             if (action === 'sgby_resources') {
                 context.ownedCities.forEach(function (entry) {
@@ -1455,7 +2005,7 @@
                 );
             }
             if (action === 'sgby_search_city') {
-                var searchResult = searchAllOwnedCities(context, '手动搜索');
+                var searchResult = searchAllOwnedCities(context, '手动搜索', []);
                 return result(
                     true,
                     '搜索完成：' + formatSearchDetails(searchResult.cities)
@@ -1465,7 +2015,11 @@
                 var recruitCity = selectedOwnedCity(context);
                 if (!recruitCity) return result(false, '请先在主地图选中一座我方城池');
                 var recruited = recruitCaptives(context, [recruitCity]);
-                return result(true, '已招降当前城池全部俘虏，共 ' + recruited + ' 名，忠诚均为 100');
+                appendSearchHistory(context, '手动招降', recruited.cities);
+                return result(
+                    true,
+                    '已招降当前城池全部俘虏，共 ' + recruited.count + ' 名，忠诚均为 100'
+                );
             }
             if (action === 'sgby_post_battle_automation') {
                 cheatState.postBattleAutomation = !cheatState.postBattleAutomation;
@@ -1504,6 +2058,17 @@
                 cheatState.oneHitKill = !cheatState.oneHitKill;
                 savePersistentCheatState();
                 return result(true, cheatState.oneHitKill ? '一击必杀已开启' : '一击必杀已关闭');
+            }
+            if (action === 'sgby_wide_group_attack') {
+                cheatState.wideGroupAttack = !cheatState.wideGroupAttack;
+                if (!cheatState.wideGroupAttack) cheatState.groupAttackTargeting = null;
+                savePersistentCheatState();
+                return result(
+                    true,
+                    cheatState.wideGroupAttack
+                        ? '扩大范围与群攻已开启，可选择自己攻击范围内全部敌军'
+                        : '扩大范围与群攻已关闭，已恢复原版攻击规则'
+                );
             }
             if (action === 'sgby_faction_colors') {
                 cheatState.factionColors = !cheatState.factionColors;
@@ -1607,8 +2172,10 @@
         return JSON.stringify({
             invincible: cheatState.invincible,
             oneHitKill: cheatState.oneHitKill,
+            wideGroupAttack: cheatState.wideGroupAttack,
             freeMovement: cheatState.freeMovement,
             autoMaxGenerals: cheatState.autoMaxGenerals,
+            autoMaxCities: cheatState.autoMaxCities,
             foodProtection: cheatState.foodProtection,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,

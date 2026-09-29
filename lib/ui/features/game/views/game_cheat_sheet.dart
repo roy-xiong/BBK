@@ -96,9 +96,10 @@ Future<void> showGameCheatSheet(
     GameId.sgby => const <_CheatOption>[
       _CheatOption(
         action: 'sgby_max_all',
-        title: '一键拉满全部城池',
-        description: '我方全部城池的资源、发展、人口、民忠和防灾同时提升至上限',
+        title: '自动拉满与搜索',
+        description: '策略结束自动拉满、搜索全部城池，且我方驻军不消耗城池粮草',
         icon: Icons.auto_graph,
+        stateKey: 'autoMaxCities',
       ),
       _CheatOption(
         action: 'sgby_generals',
@@ -172,6 +173,13 @@ Future<void> showGameCheatSheet(
         description: '我方普通攻击和伤害技能直接击溃敌方目标',
         icon: Icons.flash_on,
         stateKey: 'oneHitKill',
+      ),
+      _CheatOption(
+        action: 'sgby_wide_group_attack',
+        title: '扩大范围与群攻',
+        description: '普通攻击改为 7×7 范围；选择自己可攻击范围内全部敌军',
+        icon: Icons.grid_on,
+        stateKey: 'wideGroupAttack',
       ),
       _CheatOption(
         action: 'sgby_force_win',
@@ -774,6 +782,7 @@ class _FmjCheatStatus extends StatelessWidget {
     final enabledLabels = <String>[
       if (state['invincible'] == true) '我方无敌',
       if (state['oneHitKill'] == true) '一击必杀',
+      if (state['wideGroupAttack'] == true) '扩大范围与群攻',
       if (state['normalAttackAll'] == true) '普通攻击群攻',
       if (state['randomBattleDisabled'] == true) '关闭随机战斗',
     ];
@@ -823,6 +832,7 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['oneHitKill'] == true) '一击必杀',
       if (state['freeMovement'] == true) '全员移动 8 步',
       if (state['autoMaxGenerals'] == true) '武将自动满属性',
+      if (state['autoMaxCities'] == true) '自动拉满与搜索',
       if (state['foodProtection'] == true) '粮草保护',
       if (state['postBattleAutomation'] == true) '战后自动处理',
     ];

@@ -13,6 +13,7 @@ import '../view_models/game_view_model.dart';
 import 'game_cheat_sheet.dart';
 import 'game_controls_overlay.dart';
 import 'game_enemy_city_sheet.dart';
+import 'game_general_roster_sheet.dart';
 import 'game_map_sheet.dart';
 import 'game_search_history_sheet.dart';
 
@@ -42,6 +43,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _orientationChanging = false;
   bool _enemyCitySheetVisible = false;
   bool _searchHistorySheetVisible = false;
+  bool _generalRosterSheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
   Offset _toolbarOffset = const Offset(8, 8);
@@ -220,11 +222,26 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
   }
 
+  /// 打开按城池排序的我方将领列表，并防止重复叠加面板。
+  Future<void> _showGeneralRoster() async {
+    if (!mounted || _generalRosterSheetVisible) return;
+    _generalRosterSheetVisible = true;
+    try {
+      await showSgbyGeneralRosterSheet(context, viewModel: _viewModel);
+    } finally {
+      _generalRosterSheetVisible = false;
+    }
+  }
+
   /// 分发屏幕按钮输入。
   void _sendGameInput(GameInput input) {
     if (!_viewModel.isReady) return;
     if (input == GameInput.searchHistory) {
       unawaited(_showSearchHistory());
+      return;
+    }
+    if (input == GameInput.generalRoster) {
+      unawaited(_showGeneralRoster());
       return;
     }
     _viewModel.sendInput(input);

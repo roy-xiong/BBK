@@ -31,7 +31,7 @@ class GameControlsOverlay extends StatelessWidget {
           children: [
             Positioned(
               left: 18,
-              bottom: 18,
+              bottom: 42,
               child: _DirectionPad(
                 buttonSize: buttonSize,
                 gap: gap,
@@ -111,40 +111,44 @@ class PortraitGameControlsPanel extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 560),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (showSgbyUtilityButtons) ...[
-                              _SgbyUtilityButtons(
-                                isDarkTheme: isDarkTheme,
-                                hapticsEnabled: hapticsEnabled,
-                                battleSpeedMultiplier: battleSpeedMultiplier,
-                                onInput: onInput,
-                              ),
-                              const SizedBox(height: 14),
-                            ],
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                _NesDirectionPad(
-                                  buttonSize: directionButtonSize,
-                                  hapticsEnabled: hapticsEnabled,
-                                  onInput: onInput,
-                                ),
-                                _NesSystemButtons(
+                        child: Transform.translate(
+                          offset: const Offset(0, -24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (showSgbyUtilityButtons) ...[
+                                _SgbyUtilityButtons(
                                   isDarkTheme: isDarkTheme,
                                   hapticsEnabled: hapticsEnabled,
+                                  battleSpeedMultiplier: battleSpeedMultiplier,
                                   onInput: onInput,
                                 ),
-                                _NesActionButtons(
-                                  buttonSize: actionButtonSize,
-                                  hapticsEnabled: hapticsEnabled,
-                                  onInput: onInput,
-                                ),
+                                const SizedBox(height: 14),
                               ],
-                            ),
-                          ],
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  _NesDirectionPad(
+                                    buttonSize: directionButtonSize,
+                                    hapticsEnabled: hapticsEnabled,
+                                    onInput: onInput,
+                                  ),
+                                  _NesSystemButtons(
+                                    isDarkTheme: isDarkTheme,
+                                    hapticsEnabled: hapticsEnabled,
+                                    onInput: onInput,
+                                  ),
+                                  _NesActionButtons(
+                                    buttonSize: actionButtonSize,
+                                    hapticsEnabled: hapticsEnabled,
+                                    onInput: onInput,
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -205,88 +209,119 @@ class _SgbyUtilityButtons extends StatelessWidget {
     final nextSpeed = battleSpeedMultiplier >= 4
         ? 1
         : battleSpeedMultiplier + 1;
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          button(
-            tooltip: '查看搜索记录',
-            input: GameInput.searchHistory,
-            width: 72,
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.history, color: iconColor, size: 21),
-                SizedBox(width: 4),
-                Text(
-                  '记录',
-                  style: TextStyle(
-                    color: iconColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            button(
+              tooltip: '查看我方将领',
+              input: GameInput.generalRoster,
+              width: 104,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.groups, color: iconColor, size: 21),
+                  SizedBox(width: 5),
+                  Text(
+                    '我方将领',
+                    style: TextStyle(
+                      color: iconColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          button(
-            tooltip: '切换为 ${nextSpeed}x 战斗速度',
-            input: GameInput.toggleBattleSpeed,
-            child: Text(
-              '${battleSpeedMultiplier}x',
-              style: const TextStyle(
-                color: iconColor,
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
+                ],
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          button(
-            tooltip: '查看战场形势',
-            input: GameInput.battleInfo,
-            width: 100,
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.assessment, color: iconColor, size: 22),
-                SizedBox(width: 5),
-                Text(
-                  '战场信息',
-                  style: TextStyle(
+            const SizedBox(width: 8),
+            button(
+              tooltip: '查看搜索记录',
+              input: GameInput.searchHistory,
+              width: 104,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.history, color: iconColor, size: 21),
+                  SizedBox(width: 5),
+                  Text(
+                    '搜索记录',
+                    style: TextStyle(
+                      color: iconColor,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              button(
+                tooltip: '切换为 ${nextSpeed}x 战斗速度',
+                input: GameInput.toggleBattleSpeed,
+                child: Text(
+                  '${battleSpeedMultiplier}x',
+                  style: const TextStyle(
                     color: iconColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 6),
-          button(
-            tooltip: '结束当前回合',
-            input: GameInput.endTurn,
-            width: 110,
-            child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.skip_next, color: iconColor, size: 24),
-                SizedBox(width: 5),
-                Text(
-                  '结束回合',
-                  style: TextStyle(
-                    color: iconColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
+              ),
+              const SizedBox(width: 6),
+              button(
+                tooltip: '查看战场形势',
+                input: GameInput.battleInfo,
+                width: 100,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.assessment, color: iconColor, size: 22),
+                    SizedBox(width: 5),
+                    Text(
+                      '战场信息',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 6),
+              button(
+                tooltip: '结束当前回合',
+                input: GameInput.endTurn,
+                width: 110,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.skip_next, color: iconColor, size: 24),
+                    SizedBox(width: 5),
+                    Text(
+                      '结束回合',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
