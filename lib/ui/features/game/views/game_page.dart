@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -46,7 +47,6 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _generalRosterSheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
-  Offset _toolbarOffset = const Offset(8, 8);
 
   static const double _toolbarHeight = 44;
 
@@ -272,18 +272,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 final toolbarWidth = widget.game.id == GameId.fmj
                     ? 352.0
                     : 264.0;
-                final toolbarLeft = _toolbarOffset.dx
-                    .clamp(
-                      0.0,
-                      math.max(0.0, constraints.maxWidth - toolbarWidth),
-                    )
-                    .toDouble();
-                final toolbarTop = _toolbarOffset.dy
-                    .clamp(
-                      0.0,
-                      math.max(0.0, constraints.maxHeight - _toolbarHeight),
-                    )
-                    .toDouble();
+                final savedToolbarPosition =
+                    settings.toolbarPositions[widget.game.id];
                 return Stack(
                   fit: StackFit.expand,
                   children: [
@@ -301,31 +291,20 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         controlsVisible: settings.controlsVisible,
                         hapticsEnabled: settings.hapticsEnabled,
                       ),
-                    Positioned(
-                      left: toolbarLeft,
-                      top: toolbarTop,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onPanUpdate: (details) {
-                          final nextOffset = _toolbarOffset + details.delta;
-                          setState(() {
-                            _toolbarOffset = Offset(
-                              nextOffset.dx.clamp(
-                                0.0,
-                                math.max(
-                                  0.0,
-                                  constraints.maxWidth - toolbarWidth,
-                                ),
+                    Positioned.fill(
+                      child: _DraggableToolbar(
+                        toolbarSize: Size(toolbarWidth, _toolbarHeight),
+                        initialRelativeOffset: savedToolbarPosition == null
+                            ? null
+                            : Offset(
+                                savedToolbarPosition.xRatio,
+                                savedToolbarPosition.yRatio,
                               ),
-                              nextOffset.dy.clamp(
-                                0.0,
-                                math.max(
-                                  0.0,
-                                  constraints.maxHeight - _toolbarHeight,
-                                ),
-                              ),
-                            );
-                          });
+                        onDragFinished: (relativeOffset) {
+                          widget.settingsViewModel.setGameToolbarPosition(
+                            widget.game.id,
+                            relativeOffset,
+                          );
                         },
                         child: _GameToolbar(
                           portraitRequested: _portraitRequested,
@@ -464,6 +443,130 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             onInput: _sendGameInput,
           ),
       ],
+    );
+  }
+}
+
+/// 只重绘自身合成层的可拖动悬浮工具栏。
+///
+/// 拖动过程中通过 [ValueNotifier] 更新一个 [Transform]，不会调用游戏页面的
+/// `setState`，因此 WebView、游戏画面和下方控制区都不会随每个指针事件重建。
+/// [onDragFinished] 仅在抬手或手势取消时调用，用于低频持久化最终位置。
+class _DraggableToolbar extends StatefulWidget {
+  const _DraggableToolbar({
+    required this.toolbarSize,
+    required this.initialRelativeOffset,
+    required this.onDragFinished,
+    required this.child,
+  });
+
+  final Size toolbarSize;
+  final Offset? initialRelativeOffset;
+  final ValueChanged<Offset> onDragFinished;
+  final Widget child;
+
+  @override
+  State<_DraggableToolbar> createState() => _DraggableToolbarState();
+}
+
+class _DraggableToolbarState extends State<_DraggableToolbar> {
+  late final ValueNotifier<Offset?> _relativeOffset;
+  Offset _maxPixelOffset = Offset.zero;
+  bool _dragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _relativeOffset = ValueNotifier<Offset?>(widget.initialRelativeOffset);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DraggableToolbar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_dragging &&
+        oldWidget.initialRelativeOffset != widget.initialRelativeOffset) {
+      _relativeOffset.value = widget.initialRelativeOffset;
+    }
+  }
+
+  @override
+  void dispose() {
+    _relativeOffset.dispose();
+    super.dispose();
+  }
+
+  /// 将持久化比例换算为当前屏幕内的物理位置。
+  Offset _resolvePixelOffset(Offset? relativeOffset) {
+    if (relativeOffset == null) {
+      return Offset(
+        math.min(8.0, _maxPixelOffset.dx),
+        math.min(8.0, _maxPixelOffset.dy),
+      );
+    }
+    return Offset(
+      relativeOffset.dx.clamp(0.0, 1.0) * _maxPixelOffset.dx,
+      relativeOffset.dy.clamp(0.0, 1.0) * _maxPixelOffset.dy,
+    );
+  }
+
+  /// 只更新工具栏自身的归一化坐标，不触发父页面重建或磁盘写入。
+  void _handlePanUpdate(DragUpdateDetails details) {
+    final current = _resolvePixelOffset(_relativeOffset.value);
+    final next = Offset(
+      (current.dx + details.delta.dx).clamp(0.0, _maxPixelOffset.dx),
+      (current.dy + details.delta.dy).clamp(0.0, _maxPixelOffset.dy),
+    );
+    _relativeOffset.value = Offset(
+      _maxPixelOffset.dx > 0 ? next.dx / _maxPixelOffset.dx : 0.0,
+      _maxPixelOffset.dy > 0 ? next.dy / _maxPixelOffset.dy : 0.0,
+    );
+  }
+
+  /// 结束拖动并持久化唯一一次最终位置。
+  void _finishDrag() {
+    _dragging = false;
+    final relativeOffset = _relativeOffset.value;
+    if (relativeOffset != null) widget.onDragFinished(relativeOffset);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _maxPixelOffset = Offset(
+          math.max(0.0, constraints.maxWidth - widget.toolbarSize.width),
+          math.max(0.0, constraints.maxHeight - widget.toolbarSize.height),
+        );
+        return ValueListenableBuilder<Offset?>(
+          valueListenable: _relativeOffset,
+          child: RepaintBoundary(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              dragStartBehavior: DragStartBehavior.down,
+              onPanStart: (_) => _dragging = true,
+              onPanUpdate: _handlePanUpdate,
+              onPanEnd: (_) => _finishDrag(),
+              onPanCancel: _finishDrag,
+              child: widget.child,
+            ),
+          ),
+          builder: (context, relativeOffset, child) {
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Transform.translate(
+                    offset: _resolvePixelOffset(relativeOffset),
+                    child: child,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

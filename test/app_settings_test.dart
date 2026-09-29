@@ -9,12 +9,17 @@ void main() {
       hapticsEnabled: true,
       sgbyEdition: SgbyEdition.balanced,
       fmjHighDefinition: false,
+      toolbarPositions: <GameId, GameToolbarPosition>{
+        GameId.sgby: GameToolbarPosition(xRatio: 0.75, yRatio: 0.35),
+      },
     );
     final restored = AppSettings.fromJson(source.toJson());
     expect(restored.controlsVisible, isFalse);
     expect(restored.hapticsEnabled, isTrue);
     expect(restored.sgbyEdition, SgbyEdition.balanced);
     expect(restored.fmjHighDefinition, isFalse);
+    expect(restored.toolbarPositions[GameId.sgby]?.xRatio, 0.75);
+    expect(restored.toolbarPositions[GameId.sgby]?.yRatio, 0.35);
   });
 
   test('旧设置缺少伏魔记画质字段时默认启用高清模式', () {
@@ -25,5 +30,22 @@ void main() {
       'sgbyEdition': SgbyEdition.original.storageValue,
     });
     expect(restored.fmjHighDefinition, isTrue);
+    expect(restored.toolbarPositions, isEmpty);
+  });
+
+  test('损坏的悬浮工具栏坐标会被限制在有效范围内', () {
+    final restored = AppSettings.fromJson(<String, Object>{
+      'toolbarPositions': <String, Object>{
+        GameId.fmj.storageKey: <String, Object>{'xRatio': 3.0, 'yRatio': -2.0},
+        GameId.sgby.storageKey: <String, Object>{
+          'xRatio': 'invalid',
+          'yRatio': double.nan,
+        },
+      },
+    });
+    expect(restored.toolbarPositions[GameId.fmj]?.xRatio, 1.0);
+    expect(restored.toolbarPositions[GameId.fmj]?.yRatio, 0.0);
+    expect(restored.toolbarPositions[GameId.sgby]?.xRatio, 0.0);
+    expect(restored.toolbarPositions[GameId.sgby]?.yRatio, 0.0);
   });
 }
