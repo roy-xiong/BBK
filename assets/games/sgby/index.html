@@ -14,6 +14,7 @@
       width: 100%; height: 100%; object-fit: contain;
       image-rendering: pixelated; background: #b4b4b4;
     }
+    html[data-sgby-graphics="4x"] #lcd { image-rendering: auto; }
   </style>
   <script>
     (function restoreFlutterBackup() {
@@ -35,6 +36,9 @@
         window.localStorage.setItem('baye/libname', '词典原版');
         window.localStorage.setItem('baye/resolution', '0');
       }
+      var libPath = window.localStorage.getItem('baye/libpath') || '';
+      document.documentElement.dataset.sgbyGraphics =
+        libPath.endsWith('SGBY-Reset-4X.lib') ? '4x' : 'classic';
     })();
   </script>
   <script src="js/jquery.min.js"></script>

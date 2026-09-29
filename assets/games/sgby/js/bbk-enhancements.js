@@ -1671,11 +1671,86 @@
         };
     }
 
+    /**
+     * 使用手机WebView当前系统字体生成引擎需要的加粗1bpp字模。
+     *
+     * 4X资源使用48×48中文和24×48英数；低倍率版本按当前倍率回退到24或12像素，
+     * 因此三国霸业所有通过引擎绘制的菜单、属性、战报和地图文字都使用同一系统字体。
+     *
+     * @param {Object} hooks 游戏Hook集合。
+     * @return {boolean} 是否成功安装。
+     */
+    function installSystemFont(hooks) {
+        if (
+            !global.document || typeof global.document.createElement !== 'function' ||
+            typeof global.TextDecoder !== 'function' || typeof baye.setFont !== 'function'
+        ) {
+            return false;
+        }
+        var scale = Number(baye.data.g_scale) || 1;
+        var fontSize = scale >= 4 ? 48 : (scale >= 2 ? 24 : 12);
+        var fontId = scale >= 4 ? 5 : (scale >= 2 ? 1 : 0);
+        var fontResult = baye.setFont(fontId);
+        if (fontResult !== 0 && fontResult !== baye.OK) return false;
+        if (typeof baye.clearFontCache === 'function') baye.clearFontCache();
+        baye.data.g_engineConfig.useCustomFont = 1;
+        baye.data.g_engineConfig.useCustomFontEn = 1;
+        baye.data.g_engineConfig.cacheCustomFont = 1;
+
+        var canvas = global.document.createElement('canvas');
+        var decoder = new global.TextDecoder('gbk');
+        var cache = new Map();
+        var original = hooks.fontImageForChar;
+
+        function bitmapFor(code) {
+            if (cache.has(code)) return cache.get(code).slice();
+            var ascii = code < 256;
+            var width = ascii ? Math.ceil(fontSize / 2) : fontSize;
+            canvas.width = width;
+            canvas.height = fontSize;
+            var drawing = canvas.getContext('2d', {willReadFrequently: true});
+            if (!drawing) throw new Error('Canvas 2D不可用');
+            var character = ascii
+                ? String.fromCharCode(code)
+                : decoder.decode(new Uint8Array([code >> 8, code & 0xff]));
+            drawing.clearRect(0, 0, width, fontSize);
+            drawing.fillStyle = '#ffffff';
+            drawing.textAlign = 'center';
+            drawing.textBaseline = 'middle';
+            drawing.font = '700 ' + Math.max(10, fontSize - 6) +
+                'px system-ui, -apple-system, "Noto Sans CJK SC", sans-serif';
+            drawing.fillText(character, width / 2, fontSize / 2 + 1);
+            var rgba = drawing.getImageData(0, 0, width, fontSize).data;
+            var bytesPerLine = Math.ceil(width / 8);
+            var bitmap = new Array(bytesPerLine * fontSize).fill(0);
+            for (var y = 0; y < fontSize; y++) {
+                for (var x = 0; x < width; x++) {
+                    var offset = (y * width + x) * 4;
+                    if (rgba[offset + 3] < 56 || rgba[offset] < 56) continue;
+                    bitmap[Math.floor(x / 8) + y * bytesPerLine] |= 0x80 >> (x % 8);
+                }
+            }
+            cache.set(code, bitmap);
+            return bitmap.slice();
+        }
+
+        hooks.fontImageForChar = function (context) {
+            try {
+                context.zmCode = bitmapFor(Number(context.code));
+                return 0;
+            } catch (_) {
+                return original ? original(context) : 1;
+            }
+        };
+        return true;
+    }
+
     /** 安装战斗、内政作弊和地图增强 Hook，重复调用不会重复包装。 */
     function initialize() {
         if (cheatState.hooksInstalled) return true;
         if (!global.baye || !baye.hooks || !baye.data) return false;
         var hooks = baye.hooks;
+        installSystemFont(hooks);
         installNormalAttackHook(hooks);
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);

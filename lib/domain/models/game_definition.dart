@@ -48,8 +48,8 @@ enum SgbyEdition {
   ),
   refined(
     storageValue: 'refined',
-    title: '原版精修',
-    assetPath: 'libs/SGBY-Reset.lib',
+    title: '原版精修 4X',
+    assetPath: 'libs/SGBY-Reset-4X.lib',
   ),
   balanced(
     storageValue: 'balanced',
