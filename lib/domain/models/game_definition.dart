@@ -27,6 +27,7 @@ enum GameInput {
   help,
   endTurn,
   battleInfo,
+  autoBattle,
   toggleBattleSpeed,
   searchHistory,
   generalRoster;

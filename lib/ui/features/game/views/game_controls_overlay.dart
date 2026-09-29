@@ -13,12 +13,14 @@ class GameControlsOverlay extends StatelessWidget {
     required this.onInput,
     this.showSgbyUtilityButtons = false,
     this.battleSpeedMultiplier = 2,
+    this.sgbyAutoBattleEnabled = false,
   });
 
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
   final int battleSpeedMultiplier;
+  final bool sgbyAutoBattleEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -47,6 +49,7 @@ class GameControlsOverlay extends StatelessWidget {
                   isDarkTheme: true,
                   hapticsEnabled: hapticsEnabled,
                   battleSpeedMultiplier: battleSpeedMultiplier,
+                  autoBattleEnabled: sgbyAutoBattleEnabled,
                   onInput: onInput,
                 ),
               ),
@@ -79,6 +82,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
     required this.onInput,
     this.showSgbyUtilityButtons = false,
     this.battleSpeedMultiplier = 2,
+    this.sgbyAutoBattleEnabled = false,
   });
 
   final bool isDarkTheme;
@@ -86,6 +90,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
   final int battleSpeedMultiplier;
+  final bool sgbyAutoBattleEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -121,6 +126,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
                                   isDarkTheme: isDarkTheme,
                                   hapticsEnabled: hapticsEnabled,
                                   battleSpeedMultiplier: battleSpeedMultiplier,
+                                  autoBattleEnabled: sgbyAutoBattleEnabled,
                                   onInput: onInput,
                                 ),
                                 const SizedBox(height: 14),
@@ -171,12 +177,14 @@ class _SgbyUtilityButtons extends StatelessWidget {
     required this.isDarkTheme,
     required this.hapticsEnabled,
     required this.battleSpeedMultiplier,
+    required this.autoBattleEnabled,
     required this.onInput,
   });
 
   final bool isDarkTheme;
   final bool hapticsEnabled;
   final int battleSpeedMultiplier;
+  final bool autoBattleEnabled;
   final ValueChanged<GameInput> onInput;
 
   @override
@@ -186,13 +194,16 @@ class _SgbyUtilityButtons extends StatelessWidget {
       required GameInput input,
       required Widget child,
       double width = 62,
+      bool active = false,
     }) {
       return Tooltip(
         message: tooltip,
         child: _NesInputButton(
           width: width,
           height: 52,
-          color: isDarkTheme
+          color: active
+              ? const Color(0xFF9F1F2B)
+              : isDarkTheme
               ? const Color(0xFF4A4D52)
               : const Color(0xFF343539),
           pressedColor: const Color(0xFF111214),
@@ -212,51 +223,78 @@ class _SgbyUtilityButtons extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            button(
-              tooltip: '查看我方将领',
-              input: GameInput.generalRoster,
-              width: 104,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.groups, color: iconColor, size: 21),
-                  SizedBox(width: 5),
-                  Text(
-                    '我方将领',
-                    style: TextStyle(
-                      color: iconColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              button(
+                tooltip: '查看我方将领',
+                input: GameInput.generalRoster,
+                width: 104,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.groups, color: iconColor, size: 21),
+                    SizedBox(width: 5),
+                    Text(
+                      '我方将领',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            button(
-              tooltip: '查看搜索记录',
-              input: GameInput.searchHistory,
-              width: 104,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.history, color: iconColor, size: 21),
-                  SizedBox(width: 5),
-                  Text(
-                    '搜索记录',
-                    style: TextStyle(
-                      color: iconColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              button(
+                tooltip: '查看搜索记录',
+                input: GameInput.searchHistory,
+                width: 104,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.history, color: iconColor, size: 21),
+                    SizedBox(width: 5),
+                    Text(
+                      '搜索记录',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              button(
+                tooltip: autoBattleEnabled ? '关闭自动战斗' : '开启自动战斗',
+                input: GameInput.autoBattle,
+                width: 112,
+                active: autoBattleEnabled,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.smart_toy, color: iconColor, size: 21),
+                    const SizedBox(width: 5),
+                    Text(
+                      '自动战斗',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: autoBattleEnabled
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 8),
         FittedBox(

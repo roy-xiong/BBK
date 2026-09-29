@@ -6,9 +6,12 @@
     var PLAYER_GENERAL_LIMIT = 10;
     var TOTAL_GENERAL_LIMIT = 20;
     var STATE_NORMAL = 0;
+    var STATE_CONFUSED = 1;
     var STATE_SILENCED = 2;
     var STATE_IMMOBILIZED = 3;
+    var STATE_STONE = 6;
     var STATE_DEAD = 8;
+    var ACTION_WAITING = 0;
     var BATTLE_RUNNING = 0;
     var BATTLE_WIN = 1;
     var CAPTIVE_BELONG = 0xffff;
@@ -17,8 +20,18 @@
     var BATTLE_COMMAND = 27;
     var AUTO_EXPEDITION_FOOD = 5000;
     var NORMAL_ATTACK_COMMAND = 0;
+    var REST_COMMAND = 3;
     var NORMAL_ATTACK_RANGE_SIZE = 7;
     var NORMAL_ATTACK_DISTANCE = 3;
+    var FIGHT_PATH_SIZE = 15;
+    var BLOCKED_FIGHT_PATH = 0x80;
+    var AUTO_BATTLE_KEY_DELAY_MS = 220;
+    var AUTO_BATTLE_STAGE_DELAY_MS = 420;
+    var AUTO_BATTLE_ACTION_DELAY_MS = 1600;
+    var GENERAL_CON_RESOURCE_ID = 63;
+    var RESOURCE_HEADER_SIZE = 14;
+    var RESOURCE_INDEX_SIZE = 8;
+    var SEARCH_CONDITION_SIZE = 4;
     var LONG_PRESS_DELAY_MS = 600;
     var LONG_PRESS_CANCEL_DISTANCE = 12;
     var PLAYER_UNIT_MARKER_COLOR = 0x80;
@@ -61,6 +74,7 @@
         autoMaxGenerals: persistedCheatState.autoMaxGenerals === true,
         autoMaxCities: persistedCheatState.autoMaxCities === true,
         foodProtection: persistedCheatState.foodProtection === true,
+        autoBattle: persistedCheatState.autoBattle === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
         factionColors: typeof persistedCheatState.factionColors === 'boolean'
@@ -79,8 +93,19 @@
         mainMapRoadsVisible: false,
         groupAttackTargeting: null,
         selfGroupTouchInstalled: false,
-        expeditionFoodSelection: null
+        expeditionFoodSelection: null,
+        autoBattlePlayerStage: false,
+        autoBattleRunId: 0,
+        autoBattleGeneralIndex: -1,
+        autoBattleForceRestIndex: -1,
+        autoBattleEndTurnIssued: false,
+        autoBattleEndTurnPending: false,
+        autoBattleEndTurnRestore: null
     };
+    var generalConditionCache = null;
+    var autoBattleHooks = null;
+    var autoBattleOriginalChooseAction = null;
+    var autoBattleChooseActionHook = null;
 
     /**
      * 构造供 Flutter 解析的统一返回值。
@@ -133,6 +158,7 @@
                 autoMaxGenerals: cheatState.autoMaxGenerals,
                 autoMaxCities: cheatState.autoMaxCities,
                 foodProtection: cheatState.foodProtection,
+                autoBattle: cheatState.autoBattle,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
@@ -283,6 +309,182 @@
     }
 
     /**
+     * 读取小端无符号整数；越界时返回 null，避免损坏资源导致 DataView 异常中断游戏。
+     *
+     * @param {DataView} view LIB 数据视图。
+     * @param {number} offset 字节偏移。
+     * @param {number} size 整数宽度，只允许 1、2、4。
+     * @return {number|null} 读取结果。
+     */
+    function readUnsignedLittleEndian(view, offset, size) {
+        if (!Number.isInteger(offset) || offset < 0 || offset + size > view.byteLength) {
+            return null;
+        }
+        if (size === 1) return view.getUint8(offset);
+        if (size === 2) return view.getUint16(offset, true);
+        if (size === 4) return view.getUint32(offset, true);
+        return null;
+    }
+
+    /**
+     * 同步读取当前版本的本地 LIB 文件。
+     *
+     * 游戏资源由应用内的 127.0.0.1 静态服务提供，读取只发生在首次全城搜索时。使用
+     * x-user-defined 保留原始字节，兼容 Window 环境不允许同步 XHR 设置 arraybuffer 的限制。
+     *
+     * @param {string} path 当前资源库相对路径。
+     * @return {Uint8Array|null} LIB 原始字节。
+     */
+    function loadLibraryBytes(path) {
+        if (!path || typeof global.XMLHttpRequest !== 'function') return null;
+        try {
+            var request = new global.XMLHttpRequest();
+            request.open('GET', path, false);
+            if (typeof request.overrideMimeType === 'function') {
+                request.overrideMimeType('text/plain; charset=x-user-defined');
+            }
+            request.send(null);
+            if (request.status !== 0 && (request.status < 200 || request.status >= 300)) {
+                return null;
+            }
+            var text = request.responseText || '';
+            if (!text.length) return null;
+            var bytes = new Uint8Array(text.length);
+            for (var index = 0; index < text.length; index++) {
+                bytes[index] = text.charCodeAt(index) & 0xff;
+            }
+            return bytes;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * 解析当前剧本的武将出现条件（资源 63）。
+     *
+     * 同时兼容定长资源项和带 RIDX 索引的变长资源项。解析结果按“资源路径+剧本编号”
+     * 缓存，后续每月自动搜索不会重复读取约 2MB 的本地资源库。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @return {Array<Object>} 与人物数组序号一致的出现条件。
+     */
+    function generalSearchConditions(context) {
+        var path = global.localStorage.getItem('baye/libpath') || '';
+        var period = Number(context.data.g_PIdx);
+        if (!Number.isInteger(period) || period < 1) return [];
+        var cacheKey = path + '#' + period;
+        if (generalConditionCache && generalConditionCache.key === cacheKey) {
+            return generalConditionCache.conditions;
+        }
+        var bytes = loadLibraryBytes(path);
+        if (!bytes) return [];
+        try {
+            var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            var tableOffset = (GENERAL_CON_RESOURCE_ID - 1) * 4;
+            var resourceOffset = readUnsignedLittleEndian(view, tableOffset, 4);
+            if (resourceOffset == null || resourceOffset + RESOURCE_HEADER_SIZE > view.byteLength) {
+                return [];
+            }
+            var resourceId = readUnsignedLittleEndian(view, resourceOffset + 4, 2);
+            var itemCount = readUnsignedLittleEndian(view, resourceOffset + 6, 2);
+            var itemLength = readUnsignedLittleEndian(view, resourceOffset + 8, 4);
+            var resourceKey = readUnsignedLittleEndian(view, resourceOffset + 12, 1);
+            if (
+                resourceId !== GENERAL_CON_RESOURCE_ID || resourceKey !== 0 ||
+                period > itemCount
+            ) {
+                return [];
+            }
+            var itemOffset;
+            var selectedItemLength;
+            if (itemLength > 0) {
+                itemOffset = resourceOffset + RESOURCE_HEADER_SIZE + (period - 1) * itemLength;
+                selectedItemLength = itemLength;
+            } else {
+                var indexOffset = resourceOffset + RESOURCE_HEADER_SIZE +
+                    (period - 1) * RESOURCE_INDEX_SIZE;
+                var relativeOffset = readUnsignedLittleEndian(view, indexOffset, 4);
+                selectedItemLength = readUnsignedLittleEndian(view, indexOffset + 4, 4);
+                if (relativeOffset == null || selectedItemLength == null) return [];
+                itemOffset = resourceOffset + relativeOffset;
+            }
+            if (
+                itemOffset < 0 || selectedItemLength < SEARCH_CONDITION_SIZE ||
+                itemOffset + selectedItemLength > view.byteLength
+            ) {
+                return [];
+            }
+            var count = Math.min(
+                context.people.length,
+                Math.floor(selectedItemLength / SEARCH_CONDITION_SIZE)
+            );
+            var conditions = [];
+            for (var personIndex = 0; personIndex < count; personIndex++) {
+                var offset = itemOffset + personIndex * SEARCH_CONDITION_SIZE;
+                conditions.push({
+                    birth: readUnsignedLittleEndian(view, offset, 1) || 0,
+                    bole: readUnsignedLittleEndian(view, offset + 1, 2) || 0,
+                    city: readUnsignedLittleEndian(view, offset + 3, 1) || 0
+                });
+            }
+            generalConditionCache = {key: cacheKey, conditions: conditions};
+            return conditions;
+        } catch (_) {
+            return [];
+        }
+    }
+
+    /**
+     * 将尚未到出生年份、但出生地已属于玩家的武将提前加入对应城池的人才队列。
+     *
+     * 已在任意城池队列中的人物不会重复添加；出生地为 0 的随机人物稳定分配到一座
+     * 我方城池。这里只让人物进入原版“隐藏/可搜索”状态，真正归属仍由搜索流程修改。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @return {number} 新加入人才队列的人数。
+     */
+    function materializeFutureGenerals(context) {
+        var conditions = generalSearchConditions(context);
+        if (!conditions.length || typeof baye.putPersonInCity !== 'function') return 0;
+        var cityIndexes = personCityIndexes(context);
+        var currentYear = Number(context.data.g_YearDate) || 0;
+        var added = 0;
+        for (var personIndex = 0; personIndex < conditions.length; personIndex++) {
+            var condition = conditions[personIndex];
+            var person = context.people[personIndex];
+            if (
+                !condition || condition.birth <= 0 ||
+                condition.birth + 16 <= currentYear || !person || person.Belong !== 0 ||
+                cityIndexes[personIndex] != null
+            ) {
+                continue;
+            }
+            var cityIndex;
+            if (condition.city === 0) {
+                cityIndex = context.ownedCities[personIndex % context.ownedCities.length].index;
+            } else {
+                cityIndex = context.data.g_engineConfig.fixCityOffset
+                    ? condition.city - 1
+                    : condition.city;
+            }
+            if (
+                !Number.isInteger(cityIndex) || cityIndex < 0 ||
+                cityIndex >= context.cities.length ||
+                context.cities[cityIndex].Belong !== context.ruler
+            ) {
+                continue;
+            }
+            baye.putPersonInCity(cityIndex, personIndex);
+            cityIndexes[personIndex] = cityIndex;
+            if (typeof person.Age === 'number') {
+                person.Age = Math.max(16, Math.min(255, currentYear - condition.birth));
+            }
+            added++;
+        }
+        return added;
+    }
+
+    /**
      * 获取人物所在城池序号表。
      *
      * @param {Object} context 当前游戏上下文。
@@ -409,7 +611,7 @@
     }
 
     /**
-     * 搜出全部我方城池中当前已经存在的隐藏人物和物品。
+     * 搜出全部我方城池中的隐藏人物和物品，并提前加入尚未到出现年份的武将。
      *
      * @param {Object} context 当前游戏上下文。
      * @param {string} source 触发来源。
@@ -417,6 +619,7 @@
      * @return {{people:number, tools:number, cities:Array<Object>}} 搜索结果统计。
      */
     function searchAllOwnedCities(context, source, recruitedCities) {
+        materializeFutureGenerals(context);
         var foundPeople = 0;
         var foundTools = 0;
         var cityResults = [];
@@ -489,6 +692,7 @@
             toolCount += (city.tools || []).length;
             recruitedCount += (city.recruited || []).length;
         });
+        if (peopleCount + toolCount + recruitedCount === 0) return;
         records.unshift({
             id: String(now.getTime()),
             timestamp: now.toISOString(),
@@ -567,7 +771,7 @@
         if (!context) return;
         var cityCount = maximizeOwnedCities(context);
         var searched = searchAllOwnedCities(context, source, []);
-        if (showNotice) {
+        if (showNotice && searched.people + searched.tools > 0) {
             postSystemNotice(
                 true,
                 source + '：已拉满 ' + cityCount + ' 座城池，搜出隐藏人物 ' +
@@ -611,6 +815,7 @@
         var cityCount = maximizeOwnedCities(context);
         var recruited = recruitCaptives(context, context.ownedCities);
         var searched = searchAllOwnedCities(context, '战后自动', recruited.cities);
+        if (recruited.count + searched.people + searched.tools === 0) return;
         postSystemNotice(
             true,
             '战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' + recruited.count +
@@ -1607,7 +1812,7 @@
     }
 
     /**
-     * 安装仅在战斗期间生效的 2x 定时管线。
+     * 安装仅在战斗期间生效的倍率定时管线。
      *
      * 原版关闭战斗动画后仍有伤害数字、状态闪烁和敌军移动等固定等待，这些等待最终都
      * 经过 Emscripten 的 safeSetTimeout。这里只在有效战斗中缩短等待，主地图、内政、
@@ -1633,6 +1838,495 @@
             return originalSafeSetTimeout(callback, adjustedDelay);
         };
         cheatState.battleSpeedPipelineInstalled = true;
+    }
+
+    /** @return {number} 当前倍率下单次自动按键的间隔。 */
+    function autoBattleKeyDelay() {
+        return Math.max(
+            55,
+            Math.round(AUTO_BATTLE_KEY_DELAY_MS / cheatState.battleSpeedMultiplier)
+        );
+    }
+
+    /** @return {number} 当前倍率下等待引擎切换输入阶段的时间。 */
+    function autoBattleStageDelay() {
+        return Math.max(
+            90,
+            Math.round(AUTO_BATTLE_STAGE_DELAY_MS / cheatState.battleSpeedMultiplier)
+        );
+    }
+
+    /** @return {number} 当前倍率下等待攻击及死亡动画完成的时间。 */
+    function autoBattleActionDelay() {
+        return Math.max(
+            400,
+            Math.round(AUTO_BATTLE_ACTION_DELAY_MS / cheatState.battleSpeedMultiplier)
+        );
+    }
+
+    /** 使已排队的自动战斗回调失效，但不改变用户开关。 */
+    function cancelAutoBattleRun() {
+        cheatState.autoBattleRunId++;
+        cheatState.autoBattleGeneralIndex = -1;
+        cheatState.autoBattleForceRestIndex = -1;
+        cheatState.autoBattleEndTurnPending = false;
+        if (typeof cheatState.autoBattleEndTurnRestore === 'function') {
+            cheatState.autoBattleEndTurnRestore();
+        }
+    }
+
+    /** @return {boolean} 指定自动战斗任务是否仍可继续。 */
+    function isAutoBattleRunValid(runId) {
+        return (
+            cheatState.autoBattle && cheatState.autoBattlePlayerStage &&
+            runId === cheatState.autoBattleRunId && global.baye && baye.data &&
+            isBattleActive(baye.data)
+        );
+    }
+
+    /** @return {Array<number>} 当前仍存活的敌方战场序号。 */
+    function aliveEnemyIndexes(data) {
+        var indexes = [];
+        for (var index = PLAYER_GENERAL_LIMIT; index < TOTAL_GENERAL_LIMIT; index++) {
+            if (
+                data.g_FgtParam.GenArray[index] && data.g_GenPos[index] &&
+                data.g_GenPos[index].state !== STATE_DEAD
+            ) {
+                indexes.push(index);
+            }
+        }
+        return indexes;
+    }
+
+    /** @return {Array<number>} 当前回合仍可由玩家操作的我方战场序号。 */
+    function availablePlayerIndexes(data) {
+        var indexes = [];
+        for (var index = 0; index < PLAYER_GENERAL_LIMIT; index++) {
+            var position = data.g_GenPos[index];
+            if (
+                !data.g_FgtParam.GenArray[index] || !position ||
+                position.state === STATE_DEAD || position.state === STATE_CONFUSED ||
+                position.state === STATE_STONE || position.active !== ACTION_WAITING
+            ) {
+                continue;
+            }
+            indexes.push(index);
+        }
+        return indexes;
+    }
+
+    /** 计算曼哈顿距离，保持与原版战场 AI 的格子距离定义一致。 */
+    function battleDistance(leftX, leftY, rightX, rightY) {
+        return Math.abs(leftX - rightX) + Math.abs(leftY - rightY);
+    }
+
+    /**
+     * 生成光标从起点移动到终点的逐格方向键序列。
+     *
+     * @return {Array<number>} 方向键序列。
+     */
+    function directionalKeys(fromX, fromY, toX, toY) {
+        var keys = [];
+        var currentX = fromX;
+        var currentY = fromY;
+        while (currentX < toX) {
+            keys.push(VK_RIGHT);
+            currentX++;
+        }
+        while (currentX > toX) {
+            keys.push(VK_LEFT);
+            currentX--;
+        }
+        while (currentY < toY) {
+            keys.push(VK_DOWN);
+            currentY++;
+        }
+        while (currentY > toY) {
+            keys.push(VK_UP);
+            currentY--;
+        }
+        return keys;
+    }
+
+    /**
+     * 逐个发送自动战斗按键。每次发送前都校验 runId，关闭开关后不会遗留延时输入。
+     */
+    function sendAutoBattleKeys(keys, runId, completed) {
+        var keyIndex = 0;
+        var sendNext = function () {
+            if (!isAutoBattleRunValid(runId)) return;
+            if (keyIndex >= keys.length) {
+                if (completed) completed();
+                return;
+            }
+            sendKey(keys[keyIndex++]);
+            global.setTimeout(sendNext, autoBattleKeyDelay());
+        };
+        global.setTimeout(sendNext, autoBattleKeyDelay());
+    }
+
+    /**
+     * 从引擎刚计算出的 15x15 可移动路径中选择最接近任意敌人的落点。
+     *
+     * 不直接修改坐标，只返回目标格；后续仍通过方向键和确认键完成原版移动流程。
+     */
+    function chooseAutoBattleMove(data, generalIndex) {
+        var position = data.g_GenPos[generalIndex];
+        var enemies = aliveEnemyIndexes(data);
+        var path = data.g_FightPath;
+        if (!position || !enemies.length || !path) {
+            return position ? {x: position.x, y: position.y} : null;
+        }
+        var best = {x: position.x, y: position.y};
+        var bestEnemyDistance = Number.MAX_SAFE_INTEGER;
+        var bestTravelDistance = -1;
+        var pathStartX = Number(data.g_PathSX) || 0;
+        var pathStartY = Number(data.g_PathSY) || 0;
+        var useStartX = Number(data.g_PUseSX) || 0;
+        var useStartY = Number(data.g_PUseSY) || 0;
+        for (var pathY = useStartY; pathY < FIGHT_PATH_SIZE; pathY++) {
+            for (var pathX = useStartX; pathX < FIGHT_PATH_SIZE; pathX++) {
+                var resistance = Number(path[pathY * FIGHT_PATH_SIZE + pathX]);
+                if (!Number.isFinite(resistance) || resistance >= BLOCKED_FIGHT_PATH) continue;
+                var mapX = pathX - useStartX + pathStartX;
+                var mapY = pathY - useStartY + pathStartY;
+                if (
+                    mapX < 0 || mapY < 0 || mapX >= data.g_MapWid || mapY >= data.g_MapHgt
+                ) {
+                    continue;
+                }
+                var nearestEnemyDistance = Number.MAX_SAFE_INTEGER;
+                enemies.forEach(function (enemyIndex) {
+                    var enemy = data.g_GenPos[enemyIndex];
+                    nearestEnemyDistance = Math.min(
+                        nearestEnemyDistance,
+                        battleDistance(mapX, mapY, enemy.x, enemy.y)
+                    );
+                });
+                var travelDistance = battleDistance(position.x, position.y, mapX, mapY);
+                if (
+                    nearestEnemyDistance < bestEnemyDistance ||
+                    (nearestEnemyDistance === bestEnemyDistance && travelDistance > bestTravelDistance)
+                ) {
+                    best = {x: mapX, y: mapY};
+                    bestEnemyDistance = nearestEnemyDistance;
+                    bestTravelDistance = travelDistance;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 按战场序号返回当前普通攻击范围内的第一名敌军。
+     *
+     * 攻击范围起点由原引擎保存为 U8；武将在地图上边缘或左边缘时起点会回绕到
+     * 253~255，因此坐标差也必须按 U8 回绕，才能与原版 FgtChkRng 的判断一致。
+     *
+     * @return {number} 第一名合法敌军的战场序号；没有目标时返回 -1。
+     */
+    function chooseAutoBattleTarget(data) {
+        var range = data.g_FgtAtkRng;
+        if (!range) return -1;
+        var size = Number(range[0]);
+        var startX = Number(range[1]);
+        var startY = Number(range[2]);
+        if (!Number.isInteger(size) || size <= 0) return -1;
+        var enemies = aliveEnemyIndexes(data);
+        for (var enemyOffset = 0; enemyOffset < enemies.length; enemyOffset++) {
+            var enemyIndex = enemies[enemyOffset];
+            var enemy = data.g_GenPos[enemyIndex];
+            var rangeX = (enemy.x - startX + 256) & 0xff;
+            var rangeY = (enemy.y - startY + 256) & 0xff;
+            if (
+                rangeX < 0 || rangeY < 0 || rangeX >= size || rangeY >= size ||
+                Number(range[3 + rangeY * size + rangeX]) !== 1
+            ) {
+                continue;
+            }
+            return enemyIndex;
+        }
+        return -1;
+    }
+
+    /** @return {boolean} 是否仍有已归零但尚未完成死亡状态结算的单位。 */
+    function hasPendingBattleDeaths(data) {
+        for (var index = 0; index < TOTAL_GENERAL_LIMIT; index++) {
+            var personId = data.g_FgtParam.GenArray[index];
+            var position = data.g_GenPos[index];
+            var person = personId ? data.g_Persons[personId - 1] : null;
+            if (
+                person && position && position.state !== STATE_DEAD &&
+                (Number(person.Arms) === 0 || Number(position.hp) === 0)
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 等待原版攻击、伤害数字和逐个死亡动画完成，再选择下一名我方武将。
+     *
+     * 上一版只使用固定延时，群攻连续阵亡时光标会被死亡动画移动到其他位置，后续
+     * 方向键便可能在空格确认。这里同时等待当前武将完成行动、异步动画结束以及死亡
+     * 状态全部落定；超时仅停止本次自动输入，不向仍在动画中的引擎继续塞按键。
+     */
+    function waitForAutoBattleResolution(runId, generalIndex, attempts) {
+        if (!isAutoBattleRunValid(runId)) return;
+        var data = baye.data;
+        var position = data.g_GenPos[generalIndex];
+        var asyncAction = Number(data.g_asyncActionID) || 0;
+        if (
+            !position || position.active === ACTION_WAITING || asyncAction !== 0 ||
+            hasPendingBattleDeaths(data)
+        ) {
+            if (attempts >= 160) return;
+            global.setTimeout(function () {
+                waitForAutoBattleResolution(runId, generalIndex, attempts + 1);
+            }, autoBattleStageDelay());
+            return;
+        }
+        scheduleAutoBattleGeneral(runId);
+    }
+
+    /** 选择普通攻击目标；没有合法目标时退出目标选择并让该武将原地休息。 */
+    function driveAutoBattleAim(runId, generalIndex, attempts) {
+        if (!isAutoBattleRunValid(runId)) return;
+        var data = baye.data;
+        if (!data.g_FgtAtkRng || Number(data.g_FgtAtkRng[0]) <= 0) {
+            if (attempts >= 40) return;
+            global.setTimeout(function () {
+                driveAutoBattleAim(runId, generalIndex, attempts + 1);
+            }, autoBattleStageDelay());
+            return;
+        }
+        var targetIndex = chooseAutoBattleTarget(data);
+        if (targetIndex < 0) {
+            cheatState.autoBattleForceRestIndex = generalIndex;
+            sendKey(VK_EXIT);
+            return;
+        }
+        var attacker = data.g_GenPos[generalIndex];
+        var target = cheatState.wideGroupAttack
+            ? attacker
+            : data.g_GenPos[targetIndex];
+        if (!attacker || !target) return;
+        var keys = directionalKeys(attacker.x, attacker.y, target.x, target.y);
+        keys.push(VK_ENTER);
+        sendAutoBattleKeys(keys, runId, function () {
+            global.setTimeout(function () {
+                waitForAutoBattleResolution(runId, generalIndex, 0);
+            }, autoBattleActionDelay());
+        });
+    }
+
+    /** 在移动范围出现后逐格选择目标位置。 */
+    function driveAutoBattleMove(runId, generalIndex) {
+        if (!isAutoBattleRunValid(runId)) return;
+        var data = baye.data;
+        var target = chooseAutoBattleMove(data, generalIndex);
+        if (!target) return;
+        var keys = directionalKeys(data.g_FoucsX, data.g_FoucsY, target.x, target.y);
+        keys.push(VK_ENTER);
+        sendAutoBattleKeys(keys, runId, null);
+    }
+
+    /** @return {number} 当前倍率下自动结束回合的重试间隔。 */
+    function autoBattleEndTurnRetryDelay() {
+        return Math.max(
+            700,
+            Math.round(1800 / cheatState.battleSpeedMultiplier)
+        );
+    }
+
+    /**
+     * 安装带确认回调的战斗菜单 Hook。
+     *
+     * 只有原版 FgtMainMenu 真正调用该 Hook，才表示退出键已经进入“结束回合”菜单；
+     * 伤害提示、死亡动画或报告框消费退出键时不会提前标记成功。
+     */
+    function installAutoBattleEndTurnHook(runId) {
+        if (typeof cheatState.autoBattleEndTurnRestore === 'function') return;
+        var hooks = baye.hooks || (baye.hooks = {});
+        var original = hooks.fightOpenMainMenu;
+        var endTurnHook;
+        var restore = function () {
+            if (hooks.fightOpenMainMenu === endTurnHook) {
+                if (original) {
+                    hooks.fightOpenMainMenu = original;
+                } else {
+                    delete hooks.fightOpenMainMenu;
+                }
+            }
+            if (cheatState.autoBattleEndTurnRestore === restore) {
+                cheatState.autoBattleEndTurnRestore = null;
+            }
+        };
+        endTurnHook = function (context) {
+            if (!isAutoBattleRunValid(runId)) {
+                restore();
+                return original ? original(context) : 0;
+            }
+            cheatState.autoBattleEndTurnIssued = true;
+            cheatState.autoBattleEndTurnPending = false;
+            restore();
+            return 0;
+        };
+        cheatState.autoBattleEndTurnRestore = restore;
+        hooks.fightOpenMainMenu = endTurnHook;
+    }
+
+    /**
+     * 重试结束回合，直到原版战斗菜单确认执行或当前自动战斗任务失效。
+     */
+    function retryAutoBattleEndTurn(runId, attempts) {
+        if (!isAutoBattleRunValid(runId) || cheatState.autoBattleEndTurnIssued) {
+            cheatState.autoBattleEndTurnPending = false;
+            if (typeof cheatState.autoBattleEndTurnRestore === 'function') {
+                cheatState.autoBattleEndTurnRestore();
+            }
+            return;
+        }
+        if (attempts >= 160) {
+            cheatState.autoBattleEndTurnPending = false;
+            if (typeof cheatState.autoBattleEndTurnRestore === 'function') {
+                cheatState.autoBattleEndTurnRestore();
+            }
+            return;
+        }
+        installAutoBattleEndTurnHook(runId);
+        if ((Number(baye.data.g_asyncActionID) || 0) === 0) {
+            sendKey(VK_EXIT);
+        }
+        global.setTimeout(function () {
+            retryAutoBattleEndTurn(runId, attempts + 1);
+        }, autoBattleEndTurnRetryDelay());
+    }
+
+    /** 当前已无可行动武将时，通过原版战斗菜单结束我方回合。 */
+    function finishAutoBattlePlayerTurn(runId) {
+        if (!isAutoBattleRunValid(runId)) return;
+        if (cheatState.autoBattleEndTurnIssued || cheatState.autoBattleEndTurnPending) return;
+        cheatState.autoBattleEndTurnPending = true;
+        retryAutoBattleEndTurn(runId, 0);
+    }
+
+    /** 选择下一名可行动武将，并进入原版移动范围选择。 */
+    function scheduleAutoBattleGeneral(runId) {
+        global.setTimeout(function () {
+            if (!isAutoBattleRunValid(runId)) return;
+            var data = baye.data;
+            var players = availablePlayerIndexes(data);
+            var enemies = aliveEnemyIndexes(data);
+            if (!players.length || !enemies.length) {
+                finishAutoBattlePlayerTurn(runId);
+                return;
+            }
+            var selectedIndex = players[0];
+            var selectedDistance = Number.MAX_SAFE_INTEGER;
+            players.forEach(function (playerIndex) {
+                var player = data.g_GenPos[playerIndex];
+                enemies.forEach(function (enemyIndex) {
+                    var enemy = data.g_GenPos[enemyIndex];
+                    var distance = battleDistance(player.x, player.y, enemy.x, enemy.y);
+                    if (distance < selectedDistance) {
+                        selectedDistance = distance;
+                        selectedIndex = playerIndex;
+                    }
+                });
+            });
+            cheatState.autoBattleGeneralIndex = selectedIndex;
+            var selected = data.g_GenPos[selectedIndex];
+            var keys = directionalKeys(data.g_FoucsX, data.g_FoucsY, selected.x, selected.y);
+            keys.push(VK_ENTER);
+            sendAutoBattleKeys(keys, runId, function () {
+                global.setTimeout(function () {
+                    driveAutoBattleMove(runId, selectedIndex);
+                }, autoBattleStageDelay());
+            });
+        }, autoBattleStageDelay());
+    }
+
+    /** 开始本轮玩家阶段；新 runId 会取消上一轮未执行的定时按键。 */
+    function beginAutoBattlePlayerTurn() {
+        cancelAutoBattleRun();
+        cheatState.autoBattleEndTurnIssued = false;
+        if (!cheatState.autoBattle || !cheatState.autoBattlePlayerStage) return;
+        scheduleAutoBattleGeneral(cheatState.autoBattleRunId);
+    }
+
+    /**
+     * 按自动战斗开关安装或恢复动作菜单 Hook。
+     *
+     * 原引擎只要检测到 fightChooseAction 存在就会跳过人工菜单，因此关闭自动战斗时
+     * 必须真正删除增强 Hook，而不是从 Hook 内返回一个默认值。
+     */
+    function syncAutoBattleChooseActionHook() {
+        if (!autoBattleHooks || !autoBattleChooseActionHook) return;
+        if (cheatState.autoBattle) {
+            autoBattleHooks.fightChooseAction = autoBattleChooseActionHook;
+            return;
+        }
+        if (autoBattleHooks.fightChooseAction !== autoBattleChooseActionHook) return;
+        if (autoBattleOriginalChooseAction) {
+            autoBattleHooks.fightChooseAction = autoBattleOriginalChooseAction;
+        } else {
+            delete autoBattleHooks.fightChooseAction;
+        }
+    }
+
+    /**
+     * 安装自动战斗所需 Hook。
+     *
+     * 移动、选目标和确认均通过 sendKey 驱动；唯一直接返回的是原版动作菜单中的“攻击”
+     * 或“休息”选项，从而保持原有伤害、动画、死亡和胜负结算链路。
+     */
+    function installAutoBattleHooks(hooks) {
+        autoBattleHooks = hooks;
+        autoBattleOriginalChooseAction = hooks.fightChooseAction || null;
+        autoBattleChooseActionHook = function (context) {
+            var generalIndex = Number(context.index);
+            if (
+                !cheatState.autoBattle || !cheatState.autoBattlePlayerStage ||
+                !Number.isInteger(generalIndex) || generalIndex < 0 ||
+                generalIndex >= PLAYER_GENERAL_LIMIT
+            ) {
+                return autoBattleOriginalChooseAction
+                    ? autoBattleOriginalChooseAction(context)
+                    : NORMAL_ATTACK_COMMAND;
+            }
+            if (cheatState.autoBattleForceRestIndex === generalIndex) {
+                cheatState.autoBattleForceRestIndex = -1;
+                global.setTimeout(function () {
+                    waitForAutoBattleResolution(
+                        cheatState.autoBattleRunId,
+                        generalIndex,
+                        0
+                    );
+                }, autoBattleStageDelay());
+                return REST_COMMAND;
+            }
+            cheatState.autoBattleGeneralIndex = generalIndex;
+            if (baye.data.g_FgtAtkRng) {
+                // 清除上一名武将的范围标记；原引擎会在 Hook 返回后立即写入本次范围。
+                baye.data.g_FgtAtkRng[0] = 0;
+            }
+            var runId = cheatState.autoBattleRunId;
+            global.setTimeout(function () {
+                driveAutoBattleAim(runId, generalIndex, 0);
+            }, autoBattleStageDelay());
+            return NORMAL_ATTACK_COMMAND;
+        };
+        syncAutoBattleChooseActionHook();
+        installObserverHook(hooks, 'battleStage2', function () {
+            cheatState.autoBattlePlayerStage = true;
+            beginAutoBattlePlayerTurn();
+        });
+        installObserverHook(hooks, 'battleStage3', function () {
+            cheatState.autoBattlePlayerStage = false;
+            cancelAutoBattleRun();
+        });
     }
 
     /**
@@ -1752,6 +2446,7 @@
         var hooks = baye.hooks;
         installSystemFont(hooks);
         installNormalAttackHook(hooks);
+        installAutoBattleHooks(hooks);
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);
         });
@@ -1834,11 +2529,15 @@
         installObserverHook(hooks, 'didOpenNewGame', applyPersistentGeneralEffects);
         installObserverHook(hooks, 'didLoadGame', applyPersistentGeneralEffects);
         installObserverHook(hooks, 'exitBattle', function () {
+            cheatState.autoBattlePlayerStage = false;
+            cancelAutoBattleRun();
             if (cheatState.postBattleAutomation) {
                 cheatState.postBattleAutomationPending = true;
             }
         });
         installObserverHook(hooks, 'enterBattle', function () {
+            cheatState.autoBattlePlayerStage = false;
+            cancelAutoBattleRun();
             cheatState.mainMapVisible = false;
             cheatState.mainMapRoadsVisible = false;
         });
@@ -1970,6 +2669,23 @@
                 : cheatState.battleSpeedMultiplier + 1;
             savePersistentCheatState();
             return result(true, '战斗速度已切换为 ' + cheatState.battleSpeedMultiplier + 'x');
+        }
+
+        if (action === 'autoBattle') {
+            cheatState.autoBattle = !cheatState.autoBattle;
+            syncAutoBattleChooseActionHook();
+            savePersistentCheatState();
+            if (cheatState.autoBattle && cheatState.autoBattlePlayerStage) {
+                beginAutoBattlePlayerTurn();
+            } else if (!cheatState.autoBattle) {
+                cancelAutoBattleRun();
+            }
+            return result(
+                true,
+                cheatState.autoBattle
+                    ? '自动战斗已开启，将按当前倍率逐步移动和攻击'
+                    : '自动战斗已关闭'
+            );
         }
 
         var context = gameContext();
@@ -2252,6 +2968,7 @@
             autoMaxGenerals: cheatState.autoMaxGenerals,
             autoMaxCities: cheatState.autoMaxCities,
             foodProtection: cheatState.foodProtection,
+            autoBattle: cheatState.autoBattle,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
             battleSpeed4x: cheatState.battleSpeedMultiplier === 4,

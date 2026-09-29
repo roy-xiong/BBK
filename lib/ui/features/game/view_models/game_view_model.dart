@@ -333,12 +333,14 @@ class GameViewModel extends ChangeNotifier {
   bool _isReady = false;
   bool _fmjHighDefinition;
   int _sgbyBattleSpeedMultiplier = 2;
+  bool _sgbyAutoBattleEnabled = false;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
   int get progress => _progress;
   bool get isReady => _isReady;
   int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
+  bool get sgbyAutoBattleEnabled => _sgbyAutoBattleEnabled;
   Object? get error => _error;
 
   Future<void> initialize() async {
@@ -411,6 +413,10 @@ class GameViewModel extends ChangeNotifier {
   void sendInput(GameInput input) {
     final controller = _webViewController;
     if (!_isReady || controller == null) return;
+    if (input == GameInput.autoBattle) {
+      unawaited(_toggleSgbyAutoBattle());
+      return;
+    }
     final wireValue = jsonEncode(input.name);
     if (input == GameInput.toggleBattleSpeed) {
       _sgbyBattleSpeedMultiplier = _sgbyBattleSpeedMultiplier >= 4
@@ -425,6 +431,51 @@ class GameViewModel extends ChangeNotifier {
           )
           .catchError((_) {}),
     );
+  }
+
+  /// 切换自动战斗，并以增强脚本返回的持久化状态校准按钮。
+  ///
+  /// UI 先显示用户期望的状态以保证点击反馈及时；如果 WebView 已离开游戏、脚本拒绝
+  /// 操作或页面恰好被销毁，则恢复旧值并通过页面顶部提示失败。所有状态更新都发生在
+  /// Flutter 主 isolate，避免后台回调直接刷新界面。
+  Future<void> _toggleSgbyAutoBattle() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || !_isReady || controller == null) return;
+    final previous = _sgbyAutoBattleEnabled;
+    _sgbyAutoBattleEnabled = !previous;
+    notifyListeners();
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkSendInput ? window.bbkSendInput("autoBattle") : '
+        'JSON.stringify({ok:false,message:"自动战斗模块尚未加载"});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is! Map || decoded['ok'] != true) {
+        _sgbyAutoBattleEnabled = previous;
+        notifyListeners();
+        _onNoticeRequested(
+          CheatResult(
+            isSuccess: false,
+            message: decoded is Map && decoded['message'] is String
+                ? decoded['message'] as String
+                : '无法切换自动战斗',
+          ),
+        );
+        return;
+      }
+      final state = await getCheatState();
+      final actual = state['autoBattle'];
+      if (actual != null && actual != _sgbyAutoBattleEnabled) {
+        _sgbyAutoBattleEnabled = actual;
+        notifyListeners();
+      }
+    } on Object {
+      _sgbyAutoBattleEnabled = previous;
+      notifyListeners();
+      _onNoticeRequested(
+        const CheatResult(isSuccess: false, message: '无法切换自动战斗'),
+      );
+    }
   }
 
   /// 切换伏魔记的显示画质。
@@ -685,7 +736,7 @@ class GameViewModel extends ChangeNotifier {
     }
   }
 
-  /// 页面就绪后同步三国霸业持久化的速度倍率，避免按钮文字与引擎状态不一致。
+  /// 页面就绪后同步三国霸业持久化的速度倍率和自动战斗开关。
   Future<void> _restoreSgbyControlState() async {
     if (game.id != GameId.sgby) return;
     final state = await getCheatState();
@@ -696,8 +747,13 @@ class GameViewModel extends ChangeNotifier {
         : state['battleSpeed2x'] == true
         ? 2
         : 1;
-    if (restoredSpeed == _sgbyBattleSpeedMultiplier) return;
+    final restoredAutoBattle = state['autoBattle'] == true;
+    if (restoredSpeed == _sgbyBattleSpeedMultiplier &&
+        restoredAutoBattle == _sgbyAutoBattleEnabled) {
+      return;
+    }
     _sgbyBattleSpeedMultiplier = restoredSpeed;
+    _sgbyAutoBattleEnabled = restoredAutoBattle;
     notifyListeners();
   }
 

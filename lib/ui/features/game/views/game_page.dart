@@ -432,6 +432,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     hapticsEnabled: hapticsEnabled,
                     showSgbyUtilityButtons: widget.game.id == GameId.sgby,
                     battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
+                    sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
                     onInput: _sendGameInput,
                   )
                 : ColoredBox(
@@ -459,6 +460,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             hapticsEnabled: hapticsEnabled,
             showSgbyUtilityButtons: widget.game.id == GameId.sgby,
             battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
+            sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
             onInput: _sendGameInput,
           ),
       ],

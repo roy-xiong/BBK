@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../view_models/game_view_model.dart';
+import 'game_cheat_sheet.dart';
 
 /// 展示按城池顺序排列的我方将领列表。
 Future<void> showSgbyGeneralRosterSheet(
@@ -42,6 +43,7 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
   final TextEditingController _searchController = TextEditingController();
   SgbyCheatData? _data;
   bool _loading = false;
+  int? _changingGeneralIndex;
   String _query = '';
 
   @override
@@ -78,6 +80,58 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               general.cityName.toLowerCase().contains(query),
         )
         .toList(growable: false);
+  }
+
+  /// 点击将领后选择新的基础兵种，并复用作弊面板已有的白名单修改动作。
+  ///
+  /// 对话框只返回固定的 0~5 兵种序号，不接受任意脚本内容。修改期间锁定对应行，等待
+  /// WebView 返回后重新读取列表，确保装备覆盖兵种等实际状态与游戏引擎保持一致。
+  Future<void> _changeArmsType(SgbyGeneralCheatInfo general) async {
+    if (_changingGeneralIndex != null || !mounted) return;
+    final selectedArmsType = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text('修改 ${general.name} 的兵种'),
+        children: List<Widget>.generate(_armsTypeNames.length, (index) {
+          final selected = index == general.baseArmsType;
+          return SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(index),
+            child: Row(
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: selected
+                      ? Theme.of(dialogContext).colorScheme.primary
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text(_armsTypeNames[index])),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+    if (!mounted ||
+        selectedArmsType == null ||
+        selectedArmsType == general.baseArmsType) {
+      return;
+    }
+    setState(() => _changingGeneralIndex = general.index);
+    final result = await widget.viewModel.applyCheat(
+      'sgby_general_arm_type',
+      parameters: <String, Object?>{
+        'generalIndex': general.index,
+        'armsType': selectedArmsType,
+      },
+    );
+    if (!mounted) return;
+    await _load();
+    if (!mounted) return;
+    setState(() => _changingGeneralIndex = null);
+    showCheatToast(context, result);
   }
 
   @override
@@ -178,7 +232,10 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
           );
         }
         final general = row as SgbyGeneralCheatInfo;
+        final changing = _changingGeneralIndex == general.index;
         return ListTile(
+          enabled: _changingGeneralIndex == null,
+          onTap: () => _changeArmsType(general),
           leading: CircleAvatar(
             child: Text(
               general.name.isEmpty ? '?' : general.name.characters.first,
@@ -200,6 +257,12 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               ],
             ),
           ),
+          trailing: changing
+              ? const SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Tooltip(message: '修改兵种', child: Icon(Icons.swap_horiz)),
         );
       },
     );

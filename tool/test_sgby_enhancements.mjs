@@ -13,10 +13,11 @@ const enhancementSource = readFileSync(
  * 这里只模拟增强脚本实际访问的数据结构，不复制游戏算法；测试目标是验证增强层是否
  * 正确调用 Hook、修改城池队列数据，并且不会把玩家规则错误地应用到敌方。
  */
-function createHarness(storage = new Map()) {
+function createHarness(storage = new Map(), options = {}) {
   const returnedTools = [];
   const sentKeys = [];
   const scheduledDelays = [];
+  const scheduledTimers = [];
   const drawnImages = [];
   const systemMessages = [];
   const people = [
@@ -33,6 +34,7 @@ function createHarness(storage = new Map()) {
     g_PlayerKing: 0,
     g_YearDate: 190,
     g_MonthDate: 9,
+    g_PIdx: 1,
     g_Persons: people,
     g_Cities: [
       {
@@ -140,7 +142,18 @@ function createHarness(storage = new Map()) {
       {generalIndex: 10, at: 100, df: 100, armsType: 1},
     ],
     g_FgtOver: 0,
+    g_FoucsX: 4,
+    g_FoucsY: 4,
+    g_MapWid: 15,
+    g_MapHgt: 15,
+    g_PathSX: 0,
+    g_PathSY: 0,
+    g_PUseSX: 0,
+    g_PUseSY: 0,
+    g_FightPath: new Array(15 * 15 + 25).fill(0xff),
+    g_FgtAtkRng: new Array(15 * 15 + 5).fill(0),
   };
+  data.g_engineConfig.fixCityOffset = true;
   data.g_GenPos[0].x = 4;
   data.g_GenPos[0].y = 4;
   data.g_GenPos[10].x = 4;
@@ -169,6 +182,14 @@ function createHarness(storage = new Map()) {
       });
     },
     putToolInCity: (city, tool, hide) => returnedTools.push({city, tool, hide}),
+    putPersonInCity: (cityIndex, personIndex) => {
+      const city = data.g_Cities[cityIndex];
+      data.g_PersonsQueue.splice(city.PersonQueue, 0, personIndex);
+      city.Persons++;
+      for (let index = cityIndex + 1; index < data.g_Cities.length; index++) {
+        data.g_Cities[index].PersonQueue++;
+      }
+    },
     deletePersonInCity: (cityIndex, personIndex) => {
       const city = data.g_Cities[cityIndex];
       const end = city.PersonQueue + city.Persons;
@@ -192,7 +213,10 @@ function createHarness(storage = new Map()) {
     Math,
     Number,
     Uint8ClampedArray,
-    setTimeout: () => 1,
+    setTimeout: (callback, delay) => {
+      scheduledTimers.push({callback, delay});
+      return scheduledTimers.length;
+    },
     clearTimeout: () => {},
     requestAnimationFrame: (callback) => callback(),
     safeSetTimeout: (_callback, delay) => {
@@ -207,7 +231,13 @@ function createHarness(storage = new Map()) {
     BbkSystemChannel: {
       postMessage: (message) => systemMessages.push(JSON.parse(message)),
     },
-    sendKey: (key) => sentKeys.push(key),
+    sendKey: (key) => {
+      sentKeys.push(key);
+      if (key === 0x22) data.g_FoucsY--;
+      if (key === 0x23) data.g_FoucsY++;
+      if (key === 0x24) data.g_FoucsX--;
+      if (key === 0x25) data.g_FoucsX++;
+    },
     bayeFlushLcdBuffer: () => {},
     wasmMemory,
     VK_UP: 0x22,
@@ -221,6 +251,22 @@ function createHarness(storage = new Map()) {
     lcdHeight: 96,
     dotSize: 1,
   };
+  if (options.libraryBytes) {
+    const responseText = Array.from(
+      options.libraryBytes,
+      (value) => String.fromCharCode(value),
+    ).join('');
+    context.XMLHttpRequest = class {
+      status = 200;
+      responseText = responseText;
+
+      open() {}
+
+      overrideMimeType() {}
+
+      send() {}
+    };
+  }
   vm.createContext(context);
   vm.runInContext(enhancementSource, context, {
     filename: 'bbk-enhancements.js',
@@ -235,6 +281,7 @@ function createHarness(storage = new Map()) {
     returnedTools,
     sentKeys,
     scheduledDelays,
+    scheduledTimers,
     drawnImages,
     systemMessages,
     wasmMemory,
@@ -349,8 +396,37 @@ function person(overrides) {
     Arms: 50,
     Tool1: 0,
     Tool2: 0,
+    Age: 30,
     ...overrides,
   };
+}
+
+/** 构造只含资源 63 的最小 LIB，用于验证未来年份武将解析。 */
+function buildGeneralConditionsLibrary(conditions) {
+  const table = Buffer.alloc(63 * 4, 0xff);
+  const item = Buffer.alloc(conditions.length * 4);
+  conditions.forEach((condition, index) => {
+    const offset = index * 4;
+    item[offset] = condition.birth ?? 0;
+    item.writeUInt16LE(condition.bole ?? 0, offset + 1);
+    item[offset + 3] = condition.city ?? 0;
+  });
+  const resource = Buffer.alloc(14 + item.length);
+  resource.writeUInt32LE(resource.length, 0);
+  resource.writeUInt16LE(63, 4);
+  resource.writeUInt16LE(1, 6);
+  resource.writeUInt32LE(item.length, 8);
+  item.copy(resource, 14);
+  table.writeUInt32LE(table.length, (63 - 1) * 4);
+  return Buffer.concat([table, resource]);
+}
+
+/** 执行一项增强脚本定时任务，缺少任务时直接让测试失败。 */
+function runNextTimer(harness) {
+  const timer = harness.scheduledTimers.shift();
+  assert.ok(timer, '预期存在待执行的增强脚本定时任务');
+  timer.callback();
+  return timer.delay;
 }
 
 function apply(api, action) {
@@ -411,6 +487,8 @@ function apply(api, action) {
   apply(first.api, 'sgby_wide_group_attack');
   apply(first.api, 'sgby_max_all');
   apply(first.api, 'sgby_post_battle_automation');
+  const autoBattleResult = JSON.parse(first.api.handleControl('autoBattle'));
+  assert.equal(autoBattleResult.ok, true, autoBattleResult.message);
   first.api.handleControl('toggleBattleSpeed');
 
   const second = createHarness(sharedStorage);
@@ -423,11 +501,163 @@ function apply(api, action) {
   assert.equal(restoredState.wideGroupAttack, true);
   assert.equal(restoredState.autoMaxCities, true);
   assert.equal(restoredState.postBattleAutomation, true);
+  assert.equal(restoredState.autoBattle, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
   assert.equal(second.people[0].Force, 100);
   assert.equal(second.people[0].Arms, 65535);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  assert.equal(hooks.fightChooseAction, undefined);
+  let controlResult = JSON.parse(api.handleControl('autoBattle'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  assert.equal(JSON.parse(api.getCheatState()).autoBattle, true);
+  assert.equal(typeof hooks.fightChooseAction, 'function');
+
+  data.g_FightPath[4 + 4 * 15] = 0;
+  data.g_FightPath[4 + 5 * 15] = 0;
+  hooks.battleStage2({});
+  assert.equal(runNextTimer(harness), 210);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys.slice(-3), [0x27, 0x23, 0x27]);
+  data.g_GenPos[0].x = data.g_FoucsX;
+  data.g_GenPos[0].y = data.g_FoucsY;
+
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 7;
+  data.g_FgtAtkRng[1] = 1;
+  data.g_FgtAtkRng[2] = 1;
+  data.g_FgtAtkRng[3 + 5 * 7 + 3] = 1;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys.slice(-2), [0x23, 0x27]);
+
+  controlResult = JSON.parse(api.handleControl('autoBattle'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  assert.equal(JSON.parse(api.getCheatState()).autoBattle, false);
+  assert.equal(hooks.fightChooseAction, undefined);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  harness.scheduledTimers.length = 0;
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 5;
+  runNextTimer(harness);
+  assert.equal(sentKeys.at(-1), 0x28);
+  assert.equal(hooks.fightChooseAction({index: 0}), 3);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  apply(api, 'sgby_wide_group_attack');
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  harness.scheduledTimers.length = 0;
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  hooks.calcAttackRange({
+    type: 0,
+    personIndex: 0,
+    rangeSize: 5,
+    range: new Array(225).fill(0),
+  });
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 7;
+  data.g_FgtAtkRng[1] = 1;
+  data.g_FgtAtkRng[2] = 1;
+  data.g_FgtAtkRng[3 + 5 * 7 + 3] = 1;
+  data.g_FoucsX = data.g_GenPos[0].x;
+  data.g_FoucsY = data.g_GenPos[0].y;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys, [0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people, sentKeys} = harness;
+  people[5].Arms = 1;
+  data.g_GenPos[11].x = 5;
+  data.g_GenPos[11].y = 4;
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  harness.scheduledTimers.length = 0;
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 7;
+  data.g_FgtAtkRng[1] = 1;
+  data.g_FgtAtkRng[2] = 1;
+  data.g_FgtAtkRng[3 + 5 * 7 + 3] = 1;
+  data.g_FgtAtkRng[3 + 3 * 7 + 4] = 1;
+  data.g_FoucsX = data.g_GenPos[0].x;
+  data.g_FoucsY = data.g_GenPos[0].y;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys, [0x23, 0x23, 0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  data.g_GenPos[0].x = 1;
+  data.g_GenPos[0].y = 1;
+  data.g_GenPos[10].x = 0;
+  data.g_GenPos[10].y = 1;
+  data.g_FoucsX = 1;
+  data.g_FoucsY = 1;
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  harness.scheduledTimers.length = 0;
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 5;
+  data.g_FgtAtkRng[1] = 0xff;
+  data.g_FgtAtkRng[2] = 0xff;
+  data.g_FgtAtkRng[3 + 2 * 5 + 1] = 1;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys, [0x24, 0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  for (let index = 0; index < 10; index++) {
+    data.g_GenPos[index].active = 1;
+  }
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  const selectionTimer = harness.scheduledTimers.shift();
+  assert.ok(selectionTimer);
+  selectionTimer.callback();
+  runNextTimer(harness);
+  assert.equal(sentKeys.filter((key) => key === 0x28).length, 2);
+  assert.equal(hooks.fightOpenMainMenu({}), 0);
+  while (harness.scheduledTimers.length) {
+    runNextTimer(harness);
+  }
+  assert.equal(sentKeys.filter((key) => key === 0x28).length, 2);
 }
 
 {
@@ -567,6 +797,42 @@ function apply(api, action) {
   assert.equal(recruitHistory.records[0].source, '手动招降');
   assert.equal(recruitHistory.records[0].recruitedCount, 1);
   assert.deepEqual(recruitHistory.records[0].cities[0].recruited, ['武将3']);
+}
+
+{
+  const storage = new Map([['baye/libpath', 'libs/test.lib']]);
+  const conditions = Array.from({length: 8}, () => ({}));
+  conditions[7] = {birth: 220, city: 1};
+  const harness = createHarness(storage, {
+    libraryBytes: buildGeneralConditionsLibrary(conditions),
+  });
+  harness.people[2].Belong = 1;
+  harness.people[6].Belong = 1;
+  harness.people[7].Belong = 0;
+  harness.data.g_GoodsQueue[0] |= 0x8000;
+  harness.data.g_GoodsQueue[2] |= 0x8000;
+
+  const searchResult = apply(harness.api, 'sgby_search_city');
+  assert.match(searchResult.message, /武将7/);
+  assert.equal(harness.people[7].Belong, 1);
+  assert.equal(harness.people[7].Age, 16);
+  assert.ok(harness.data.g_PersonsQueue.includes(7));
+  const history = JSON.parse(harness.api.getSearchHistory());
+  assert.equal(history.records.length, 1);
+  assert.deepEqual(history.records[0].cities[0].people, ['武将7']);
+}
+
+{
+  const harness = createHarness();
+  apply(harness.api, 'sgby_max_all');
+  const historyCount = JSON.parse(harness.api.getSearchHistory()).records.length;
+  harness.systemMessages.length = 0;
+  harness.hooks.tacticStage2({});
+  assert.equal(harness.systemMessages.length, 0);
+  assert.equal(
+    JSON.parse(harness.api.getSearchHistory()).records.length,
+    historyCount,
+  );
 }
 
 {

@@ -84,7 +84,10 @@
 
       window.bbkSendInput = function (action) {
         if (
-          (action === 'endTurn' || action === 'battleInfo' || action === 'toggleBattleSpeed') &&
+          (
+            action === 'endTurn' || action === 'battleInfo' ||
+            action === 'toggleBattleSpeed' || action === 'autoBattle'
+          ) &&
           window.BbkSgby
         ) {
           return window.BbkSgby.handleControl(action);
