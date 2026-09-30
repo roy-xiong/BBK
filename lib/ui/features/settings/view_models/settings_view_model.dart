@@ -47,6 +47,21 @@ class SettingsViewModel extends ChangeNotifier {
     _update(_settings.copyWith(sgbyEdition: value));
   }
 
+  /// 设置三国霸业世界活跃度并异步持久化。
+  ///
+  /// 滑动条只会在拖动结束时调用本方法；这里仍执行边界限制和相同值去重，防止未来
+  /// 其他入口写入非法数值或产生无意义的文件写入。
+  void setSgbyWorldActivity(int value) {
+    final normalized = value
+        .clamp(
+          AppSettings.minSgbyWorldActivity,
+          AppSettings.maxSgbyWorldActivity,
+        )
+        .toInt();
+    if (normalized == _settings.sgbyWorldActivity) return;
+    _update(_settings.copyWith(sgbyWorldActivity: normalized));
+  }
+
   /// 设置伏魔记显示画质并异步持久化。
   ///
   /// 当前值会先同步通知 UI；文件写入失败时仅记录错误，不撤销正在运行的游戏画面。

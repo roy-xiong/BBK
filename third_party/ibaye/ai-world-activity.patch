@@ -1,0 +1,329 @@
+diff --git a/src/baye/attribute.h b/src/baye/attribute.h
+index 3898b16..91b054d 100644
+--- a/src/baye/attribute.h
++++ b/src/baye/attribute.h
+@@ -238,6 +238,7 @@ typedef struct {
+     U8 cacheCustomFont;     // 缓存自定义字体
+ 
+     Theme theme; // 主题
++    U8 aiWorldActivity;     // AI世界活跃度（0~100，25保持原版策略频率）
+ } EngineConfig;
+ 
+ extern EngineConfig g_engineConfig;
+diff --git a/src/bind-objects.c b/src/bind-objects.c
+index 5dbf5b4..0d96608 100644
+--- a/src/bind-objects.c
++++ b/src/bind-objects.c
+@@ -445,6 +445,7 @@ void bind_init(void) {
+             _FIELD_RW(useCustomFont, U8),
+             _FIELD_RW(useCustomFontEn, U8),
+             _FIELD_RW(cacheCustomFont, U8),
++            _FIELD_RW(aiWorldActivity, U8),
+         };
+ 
+         static ObjectDef _obj_def = {
+diff --git a/src/citycmd.c b/src/citycmd.c
+index 4c06630..f7e8772 100644
+--- a/src/citycmd.c
++++ b/src/citycmd.c
+@@ -46,6 +46,34 @@
+  FAR U8 GetCitySet(CitySetType *pos);
+  FAR U8 SearchRoad(U8 sc,U8 xs,U8 ys,U8 ob,U8 xo,U8 yo);*/
+ 
++/*
++ * 世界活跃度只修正电脑发起的外交命令。25保持原版成功率；100最多为最终性格
++ * 判定增加20个百分点，并温和修正智力、忠诚门槛。玩家手动命令完全沿用原公式。
++ */
++static U32 AiDiplomacyBonus(PersonID person)
++{
++    U8 activity;
++    if (person >= PERSON_COUNT || g_Persons[person].Belong == g_PlayerKing + 1)
++        return 0;
++    activity = g_engineConfig.aiWorldActivity > 100 ? 100 : g_engineConfig.aiWorldActivity;
++    if (activity <= 25)
++        return 0;
++    return ((U32)(activity - 25) * 20) / 75;
++}
++
++static U32 AddChanceBonus(U32 chance,U32 bonus)
++{
++    if (!bonus)
++        return chance;
++    chance += bonus;
++    return chance > 100 ? 100 : chance;
++}
++
++static U32 ReduceDevotion(U32 devotion,U32 bonus)
++{
++    return devotion > bonus ? devotion - bonus : 0;
++}
++
+ /******************************************************************************
+  * 函数名:AppointDrv
+  * 说  明:“任命”命令驱动
+@@ -562,6 +590,7 @@ U8 AlienateDrv(OrderType *Order)
+ {
+     U8 randint;
+     U8 rade;
++    U32 activityBonus = AiDiplomacyBonus(Order->Person);
+     PersonID ob;
+     static const char* sucessDialogs[] = {
+         /* 主多疑而不用，吾当如何处之！ */
+@@ -589,12 +618,13 @@ U8 AlienateDrv(OrderType *Order)
+     {
+         rade = g_Persons[Order->Person].IQ - g_Persons[ob].IQ;
+         rade += 50;
++        rade = AddChanceBonus(rade,activityBonus / 2);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+ 
+         randint = gam_rand() % 100;
+-        if (randint < g_Persons[ob].Devotion)
++        if (randint < ReduceDevotion(g_Persons[ob].Devotion,activityBonus / 2))
+             break;
+ 
+         switch (g_Persons[ob].Character)
+@@ -615,6 +645,7 @@ U8 AlienateDrv(OrderType *Order)
+                 rade = ALIENATE_TEMERITY;
+                 break;
+         }
++        rade = AddChanceBonus(rade,activityBonus);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+@@ -679,15 +710,17 @@ U8 CanvassDrv(OrderType *Order)
+ 
+     o = Order->Object;
+     p = Order->Person;
++    U32 activityBonus = AiDiplomacyBonus(p);
+     do
+     {
+         rade = g_Persons[p].IQ - g_Persons[o].IQ;
++        rade = AddChanceBonus(rade,activityBonus / 2);
+         randint = gam_rand() % 100;
+         if ((randint + 100) > (rade + 100))
+             break;
+ 
+         randint = gam_rand() % 100;
+-        if (randint < g_Persons[o].Devotion)
++        if (randint < ReduceDevotion(g_Persons[o].Devotion,activityBonus / 2))
+             break;
+ 
+         switch (g_Persons[o].Character)
+@@ -708,6 +741,7 @@ U8 CanvassDrv(OrderType *Order)
+                 rade = CANVASS_TEMERITY;
+                 break;
+         }
++        rade = AddChanceBonus(rade,activityBonus);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+@@ -773,18 +807,20 @@ U8 CounterespiongeDrv(OrderType *Order)
+     PersonID *pqptr;
+     U32 i,pcount,c;
+     PersonID o;
++    U32 activityBonus = AiDiplomacyBonus(Order->Person);
+ 
+     o = Order->Object;
+     do
+     {
+         rade = g_Persons[Order->Person].IQ - g_Persons[o].IQ;
+         rade += 50;
++        rade = AddChanceBonus(rade,activityBonus / 2);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+ 
+         randint = gam_rand() % 100;
+-        if (randint < g_Persons[o].Devotion)
++        if (randint < ReduceDevotion(g_Persons[o].Devotion,activityBonus / 2))
+             break;
+ 
+         switch (g_Persons[o].Character)
+@@ -805,6 +841,7 @@ U8 CounterespiongeDrv(OrderType *Order)
+                 rade = COUNTERESPIONGE_TEMERITY;
+                 break;
+         }
++        rade = AddChanceBonus(rade,activityBonus);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+@@ -891,6 +928,7 @@ U8 InduceDrv(OrderType *Order)
+ 
+     p = Order->Person;
+     o = Order->Object;
++    U32 activityBonus = AiDiplomacyBonus(p);
+     wf = 0;
+     cqptr = SHARE_MEM;
+     do
+@@ -905,6 +943,7 @@ U8 InduceDrv(OrderType *Order)
+ 
+         rade = g_Persons[p].IQ - g_Persons[o].IQ;
+         rade += 50;
++        rade = AddChanceBonus(rade,activityBonus / 2);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+@@ -931,6 +970,7 @@ U8 InduceDrv(OrderType *Order)
+                 rade = PERSUADE_RASH;
+                 break;
+         }
++        rade = AddChanceBonus(rade,activityBonus);
+         randint = gam_rand() % 100;
+         if (randint > rade)
+             break;
+diff --git a/src/gamEng.c b/src/gamEng.c
+index 824cab5..bdbdf9a 100644
+--- a/src/gamEng.c
++++ b/src/gamEng.c
+@@ -1039,6 +1039,7 @@ EngineConfig g_engineConfig = {
+     .showStartMovie = 1, // 显示开场动画
+     .compressCustomData = 0,
+     .cacheCustomFont = 1,
++    .aiWorldActivity = 50,
+     .theme = {
+         .landMapColor = 0xcf,
+         .ownedCityColor = 0xff,
+diff --git a/src/tactic.c b/src/tactic.c
+index 1c792f8..da31295 100644
+--- a/src/tactic.c
++++ b/src/tactic.c
+@@ -127,6 +127,21 @@ U8 PlayerTactic(void)
+ /*const U8 KingTacticOddsIH[5] = {50,40,30,20,10};
+  const U8 KingTacticOddsD[5] = {80,70,70,40,20};*/
+ 
++#define AI_WORLD_ACTIVITY_ORIGINAL 25
++
++static U8 AiWorldActivity(void)
++{
++    return g_engineConfig.aiWorldActivity > 100 ? 100 : g_engineConfig.aiWorldActivity;
++}
++
++static U8 AiWorldActivityBonus(void)
++{
++    U8 activity = AiWorldActivity();
++    if (activity <= AI_WORLD_ACTIVITY_ORIGINAL)
++        return 0;
++    return (U8)(((U32)(activity - AI_WORLD_ACTIVITY_ORIGINAL) * 100) / 75);
++}
++
+ void ComputerTactic(void)
+ {
+     U32 i;
+@@ -172,6 +187,7 @@ void ComputerTactic(void)
+             cptr->Money /= 2;
+         /*添加电脑策略代码*/
+         rnd = gam_rand() % 100;
++        U8 activity = AiWorldActivity();
+         if (TacticOddsIH[g_Persons[b - 1].Character] > rnd)			/*执行内政、协调策略*/
+         {
+             ComputerTacticInterior(i);
+@@ -179,11 +195,28 @@ void ComputerTactic(void)
+         }
+         else if (TacticOddsD[g_Persons[b - 1].Character] > rnd)		/*执行外交策略*/
+         {
+-            ComputerTacticDiplomatism(i);
++            if (activity >= AI_WORLD_ACTIVITY_ORIGINAL ||
++                gam_rand() % AI_WORLD_ACTIVITY_ORIGINAL < activity)
++                ComputerTacticDiplomatism(i);
+         }
+         else										/*执行军备策略*/
+         {
+-            ComputerTacticArmament(i);
++            if (activity >= AI_WORLD_ACTIVITY_ORIGINAL ||
++                gam_rand() % AI_WORLD_ACTIVITY_ORIGINAL < activity)
++                ComputerTacticArmament(i);
++        }
++
++        /*
++         * 25保持原版每城每月只执行一个策略分支。更高档位最多追加一次外交或军备，
++         * 让电脑势力之间产生更多战争、策反和劝降，同时避免同城无限堆叠命令。
++         */
++        if (activity > AI_WORLD_ACTIVITY_ORIGINAL &&
++            gam_rand() % 100 < AiWorldActivityBonus())
++        {
++            if (gam_rand() % 2)
++                ComputerTacticDiplomatism(i);
++            else
++                ComputerTacticArmament(i);
+         }
+     }
+ }
+@@ -302,6 +335,8 @@ void ComputerTacticDiplomatism(U8 city)
+     for (i = 0;i < pcount;i ++)
+     {
+         rnd = gam_rand() % 8;
++        if (AiWorldActivityBonus() && gam_rand() % 100 < AiWorldActivityBonus())
++            rnd = 3 + gam_rand() % 4;
+         ecount = GetCityCaptives(city,eqptr);
+         if (ecount)
+         {
+@@ -518,6 +553,18 @@ void ComputerTacticArmament(U8 city)
+     U32 pcount,fpcount,fcount;
+     OrderType order;
+     PersonType *pptr;
++    U8 forceExpedition;
++    U8 minGenerals = 4;
++    U16 minArms = 1000;
++    U8 activity = AiWorldActivity();
++
++    if (activity >= 50)
++    {
++        minGenerals = 3;
++        minArms = 800;
++    }
++    if (activity >= 80)
++        minArms = 600;
+ 
+     pqptr = (PersonID*)SHARE_MEM;
+     cqptr = (U8*)(pqptr + PERSON_COUNT);
+@@ -534,7 +581,17 @@ void ComputerTacticArmament(U8 city)
+     }
+     for (i = 0;i < pcount;i ++)
+     {
++        forceExpedition = 0;
+         rnd = gam_rand() % 9;
++        if (i == 0 && activity > AI_WORLD_ACTIVITY_ORIGINAL)
++        {
++            U8 expeditionBonus = (U8)(((U32)(activity - AI_WORLD_ACTIVITY_ORIGINAL) * 30) / 75);
++            if (gam_rand() % 100 < expeditionBonus)
++            {
++                rnd = 7;
++                forceExpedition = 1;
++            }
++        }
+         switch (rnd)
+         {
+             case 0:
+@@ -579,9 +636,12 @@ void ComputerTacticArmament(U8 city)
+                 {
+                     continue;
+                 }
+-                rnd = gam_rand() % (fcount * 2);
+-                if (rnd >= fcount)
+-                    continue;
++                if (!forceExpedition)
++                {
++                    rnd = gam_rand() % (fcount * 2);
++                    if (rnd >= fcount)
++                        continue;
++                }
+                 /*rnd = gam_rand() % fcount;
+                  order.Object = cqptr[rnd];*/
+                 order.Object = PID(GetWeekCity(fcount,cqptr));
+@@ -607,12 +667,12 @@ void ComputerTacticArmament(U8 city)
+                         }
+                     }
+ 
+-                    if (g_Persons[pqptr[0]].Arms < 1000)
++                    if (g_Persons[pqptr[0]].Arms < minArms)
+                     {
+                         continue;
+                     }
+ 
+-                    if (fpcount < 4)
++                    if (fpcount < minGenerals)
+                     {
+                         continue;
+                     }

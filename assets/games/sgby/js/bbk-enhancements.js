@@ -28,6 +28,9 @@
     var AUTO_BATTLE_KEY_DELAY_MS = 220;
     var AUTO_BATTLE_STAGE_DELAY_MS = 420;
     var AUTO_BATTLE_ACTION_DELAY_MS = 1600;
+    var DEFAULT_WORLD_ACTIVITY = 50;
+    var MIN_WORLD_ACTIVITY = 0;
+    var MAX_WORLD_ACTIVITY = 100;
     var GENERAL_CON_RESOURCE_ID = 63;
     var RESOURCE_HEADER_SIZE = 14;
     var RESOURCE_INDEX_SIZE = 8;
@@ -98,6 +101,8 @@
         autoBattleRunId: 0,
         autoBattleGeneralIndex: -1,
         autoBattleForceRestIndex: -1,
+        autoBattleMoveReadyIndex: -1,
+        autoBattleActionIndex: -1,
         autoBattleEndTurnIssued: false,
         autoBattleEndTurnPending: false,
         autoBattleEndTurnRestore: null
@@ -116,6 +121,33 @@
      */
     function result(ok, message) {
         return JSON.stringify({ok: ok, message: message});
+    }
+
+    /**
+     * 将 Flutter 传入的世界活跃度写入引擎配置。
+     *
+     * 非有限值回退到默认值，其他值取整并限制到 0～100。旧版 WASM 没有对应字段时
+     * 返回 false，调用方可继续使用引擎默认策略，不会写入未知内存。
+     *
+     * @param {*} value 待设置的世界活跃度。
+     * @return {boolean} 是否已写入引擎。
+     */
+    function setWorldActivity(value) {
+        var normalized = Number(value);
+        if (!Number.isFinite(normalized)) normalized = DEFAULT_WORLD_ACTIVITY;
+        normalized = Math.max(
+            MIN_WORLD_ACTIVITY,
+            Math.min(MAX_WORLD_ACTIVITY, Math.round(normalized))
+        );
+        start();
+        if (
+            !global.baye || !baye.data || !baye.data.g_engineConfig ||
+            typeof baye.data.g_engineConfig.aiWorldActivity === 'undefined'
+        ) {
+            return false;
+        }
+        baye.data.g_engineConfig.aiWorldActivity = normalized;
+        return true;
     }
 
     /**
@@ -1869,6 +1901,8 @@
         cheatState.autoBattleRunId++;
         cheatState.autoBattleGeneralIndex = -1;
         cheatState.autoBattleForceRestIndex = -1;
+        cheatState.autoBattleMoveReadyIndex = -1;
+        cheatState.autoBattleActionIndex = -1;
         cheatState.autoBattleEndTurnPending = false;
         if (typeof cheatState.autoBattleEndTurnRestore === 'function') {
             cheatState.autoBattleEndTurnRestore();
@@ -2132,6 +2166,59 @@
         sendAutoBattleKeys(keys, runId, null);
     }
 
+    /**
+     * 等待引擎确认己方武将已经进入移动范围阶段。
+     *
+     * 多人连续行动时，伤害动画结束和 FgtGetControl 恢复接收按键并不是同一时刻。旧实现
+     * 只等待固定时长，确认键若被前一阶段消费，后续移动键就会落在选择武将界面。这里
+     * 以引擎的 countMoveRange Hook 作为可靠确认；若长时间未确认，则基于实时光标重新
+     * 发送一次选择序列，等价于用户关闭再开启自动战斗时触发的自恢复，但不改变开关。
+     */
+    function waitForAutoBattleGeneralSelection(runId, generalIndex, attempts) {
+        if (!isAutoBattleRunValid(runId)) return;
+        if (cheatState.autoBattleActionIndex === generalIndex) return;
+        if (cheatState.autoBattleMoveReadyIndex === generalIndex) {
+            global.setTimeout(function () {
+                driveAutoBattleMove(runId, generalIndex);
+            }, autoBattleStageDelay());
+            return;
+        }
+        if (attempts >= 20) {
+            if (availablePlayerIndexes(baye.data).indexOf(generalIndex) < 0) {
+                scheduleAutoBattleGeneral(runId);
+                return;
+            }
+            selectAutoBattleGeneral(runId, generalIndex);
+            return;
+        }
+        global.setTimeout(function () {
+            waitForAutoBattleGeneralSelection(runId, generalIndex, attempts + 1);
+        }, autoBattleStageDelay());
+    }
+
+    /** 发送选择指定己方武将的按键，并等待引擎阶段确认。 */
+    function selectAutoBattleGeneral(runId, generalIndex) {
+        if (!isAutoBattleRunValid(runId)) return;
+        var selected = baye.data.g_GenPos[generalIndex];
+        if (!selected) {
+            scheduleAutoBattleGeneral(runId);
+            return;
+        }
+        cheatState.autoBattleGeneralIndex = generalIndex;
+        cheatState.autoBattleMoveReadyIndex = -1;
+        cheatState.autoBattleActionIndex = -1;
+        var keys = directionalKeys(
+            baye.data.g_FoucsX,
+            baye.data.g_FoucsY,
+            selected.x,
+            selected.y
+        );
+        keys.push(VK_ENTER);
+        sendAutoBattleKeys(keys, runId, function () {
+            waitForAutoBattleGeneralSelection(runId, generalIndex, 0);
+        });
+    }
+
     /** @return {number} 当前倍率下自动结束回合的重试间隔。 */
     function autoBattleEndTurnRetryDelay() {
         return Math.max(
@@ -2236,15 +2323,7 @@
                     }
                 });
             });
-            cheatState.autoBattleGeneralIndex = selectedIndex;
-            var selected = data.g_GenPos[selectedIndex];
-            var keys = directionalKeys(data.g_FoucsX, data.g_FoucsY, selected.x, selected.y);
-            keys.push(VK_ENTER);
-            sendAutoBattleKeys(keys, runId, function () {
-                global.setTimeout(function () {
-                    driveAutoBattleMove(runId, selectedIndex);
-                }, autoBattleStageDelay());
-            });
+            selectAutoBattleGeneral(runId, selectedIndex);
         }, autoBattleStageDelay());
     }
 
@@ -2308,6 +2387,8 @@
                 return REST_COMMAND;
             }
             cheatState.autoBattleGeneralIndex = generalIndex;
+            cheatState.autoBattleActionIndex = generalIndex;
+            cheatState.autoBattleMoveReadyIndex = -1;
             if (baye.data.g_FgtAtkRng) {
                 // 清除上一名武将的范围标记；原引擎会在 Hook 返回后立即写入本次范围。
                 baye.data.g_FgtAtkRng[0] = 0;
@@ -2319,6 +2400,17 @@
             return NORMAL_ATTACK_COMMAND;
         };
         syncAutoBattleChooseActionHook();
+        installObserverHook(hooks, 'countMoveRange', function (context) {
+            var generalIndex = Number(context.generalIndex);
+            if (
+                cheatState.autoBattle && cheatState.autoBattlePlayerStage &&
+                Number.isInteger(generalIndex) && generalIndex >= 0 &&
+                generalIndex < PLAYER_GENERAL_LIMIT &&
+                generalIndex === cheatState.autoBattleGeneralIndex
+            ) {
+                cheatState.autoBattleMoveReadyIndex = generalIndex;
+            }
+        });
         installObserverHook(hooks, 'battleStage2', function () {
             cheatState.autoBattlePlayerStage = true;
             beginAutoBattlePlayerTurn();
@@ -2988,6 +3080,7 @@
         onSaveCompleted: onSaveCompleted,
         handleControl: handleControl,
         applyCheat: applyCheat,
+        setWorldActivity: setWorldActivity,
         getCheatState: getCheatState,
         getSearchHistory: getSearchHistory,
         getCheatData: getCheatData

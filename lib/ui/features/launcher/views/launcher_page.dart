@@ -72,6 +72,7 @@ class _LauncherPageState extends State<LauncherPage> {
               viewModel: _settingsViewModel,
               showEdition: true,
               showFmjGraphics: true,
+              showSgbyActivity: true,
             ),
             icon: const Icon(Icons.settings),
           ),

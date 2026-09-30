@@ -8,6 +8,7 @@ void main() {
       controlsVisible: false,
       hapticsEnabled: true,
       sgbyEdition: SgbyEdition.balanced,
+      sgbyWorldActivity: 85,
       fmjHighDefinition: false,
       toolbarPositions: <GameId, GameToolbarPosition>{
         GameId.sgby: GameToolbarPosition(xRatio: 0.75, yRatio: 0.35),
@@ -17,6 +18,7 @@ void main() {
     expect(restored.controlsVisible, isFalse);
     expect(restored.hapticsEnabled, isTrue);
     expect(restored.sgbyEdition, SgbyEdition.balanced);
+    expect(restored.sgbyWorldActivity, 85);
     expect(restored.fmjHighDefinition, isFalse);
     expect(restored.toolbarPositions[GameId.sgby]?.xRatio, 0.75);
     expect(restored.toolbarPositions[GameId.sgby]?.yRatio, 0.35);
@@ -30,7 +32,29 @@ void main() {
       'sgbyEdition': SgbyEdition.original.storageValue,
     });
     expect(restored.fmjHighDefinition, isTrue);
+    expect(restored.sgbyWorldActivity, AppSettings.defaultSgbyWorldActivity);
     expect(restored.toolbarPositions, isEmpty);
+  });
+
+  test('世界活跃度会限制到合法范围并拒绝非有限值', () {
+    expect(
+      AppSettings.fromJson(<String, Object>{
+        'sgbyWorldActivity': 180,
+      }).sgbyWorldActivity,
+      AppSettings.maxSgbyWorldActivity,
+    );
+    expect(
+      AppSettings.fromJson(<String, Object>{
+        'sgbyWorldActivity': -10,
+      }).sgbyWorldActivity,
+      AppSettings.minSgbyWorldActivity,
+    );
+    expect(
+      AppSettings.fromJson(<String, Object>{
+        'sgbyWorldActivity': double.nan,
+      }).sgbyWorldActivity,
+      AppSettings.defaultSgbyWorldActivity,
+    );
   });
 
   test('损坏的悬浮工具栏坐标会被限制在有效范围内', () {

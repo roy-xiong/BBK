@@ -118,6 +118,12 @@
         return window.BbkSgby ? window.BbkSgby.getCheatState() : '{}';
       };
 
+      window.bbkSetSgbyWorldActivity = function (value) {
+        return window.BbkSgby
+          ? window.BbkSgby.setWorldActivity(value)
+          : false;
+      };
+
       window.bbkGetSgbyCheatData = function () {
         return window.BbkSgby
           ? window.BbkSgby.getCheatData()

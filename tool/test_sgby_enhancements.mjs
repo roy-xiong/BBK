@@ -122,6 +122,7 @@ function createHarness(storage = new Map(), options = {}) {
     g_engineConfig: {
       maxLevel: 20,
       ratioOfFoodToArmsPerMouth: 50,
+      aiWorldActivity: 25,
     },
     g_FgtParam: {
       MProvender: 100,
@@ -523,6 +524,7 @@ function apply(api, action) {
   hooks.battleStage2({});
   assert.equal(runNextTimer(harness), 210);
   runNextTimer(harness);
+  hooks.countMoveRange({generalIndex: 0});
   runNextTimer(harness);
   runNextTimer(harness);
   runNextTimer(harness);
@@ -638,6 +640,49 @@ function apply(api, action) {
   runNextTimer(harness);
   runNextTimer(harness);
   assert.deepEqual(sentKeys, [0x24, 0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  data.g_GenPos[0].x = 4;
+  data.g_GenPos[0].y = 4;
+  data.g_GenPos[1].x = 6;
+  data.g_GenPos[1].y = 4;
+  data.g_GenPos[10].x = 6;
+  data.g_GenPos[10].y = 6;
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  harness.scheduledTimers.length = 0;
+
+  // 第一名武将无合法目标，完成休息后进入第二名武将选择。
+  assert.equal(hooks.fightChooseAction({index: 0}), 0);
+  data.g_FgtAtkRng.fill(0);
+  data.g_FgtAtkRng[0] = 5;
+  runNextTimer(harness);
+  assert.equal(hooks.fightChooseAction({index: 0}), 3);
+  data.g_GenPos[0].active = 1;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys.slice(-3), [0x25, 0x25, 0x27]);
+
+  const selectedKeyCount = sentKeys.length;
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.equal(
+    sentKeys.length,
+    selectedKeyCount,
+    '引擎确认第二名武将前不得提前发送移动按键',
+  );
+  hooks.countMoveRange({generalIndex: 1});
+  runNextTimer(harness);
+  runNextTimer(harness);
+  runNextTimer(harness);
+  assert.ok(sentKeys.length > selectedKeyCount, '确认选中后应继续发送移动按键');
 }
 
 {
@@ -884,6 +929,18 @@ function apply(api, action) {
   data.g_Cities[0].Food = 65000;
   hooks.tacticStage5({});
   assert.equal(data.g_Cities[0].Food, 65000);
+}
+
+{
+  const {api, data} = createHarness();
+  assert.equal(api.setWorldActivity(85), true);
+  assert.equal(data.g_engineConfig.aiWorldActivity, 85);
+  assert.equal(api.setWorldActivity(180), true);
+  assert.equal(data.g_engineConfig.aiWorldActivity, 100);
+  assert.equal(api.setWorldActivity(Number.NaN), true);
+  assert.equal(data.g_engineConfig.aiWorldActivity, 50);
+  delete data.g_engineConfig.aiWorldActivity;
+  assert.equal(api.setWorldActivity(60), false);
 }
 
 {

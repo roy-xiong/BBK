@@ -4,6 +4,7 @@
 
 - iBaye: https://gitee.com/bgwp/iBaye
   - 固定基线：`62241e294f3ba3d4589d6e1205e6deb486a6c2d9`
+  - 本地世界活跃度补丁：`third_party/ibaye/ai-world-activity.patch`
   - 许可证：MIT，全文见 `third_party/ibaye/LICENSE`
 - baye-alpha: https://gitee.com/bgwp/baye-alpha
   - 固定基线：`5d19e8fd5828547cfd6dc310e3c6d27429d37de9`

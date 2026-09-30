@@ -313,6 +313,7 @@ class GameViewModel extends ChangeNotifier {
     required ValueChanged<CheatResult> onNoticeRequested,
   }) : _initialSettings = initialSettings,
        _fmjHighDefinition = initialSettings.fmjHighDefinition,
+       _sgbyWorldActivity = initialSettings.sgbyWorldActivity,
        _saveRepository = saveRepository,
        _localGameServer = localGameServer,
        _onExitRequested = onExitRequested,
@@ -332,6 +333,7 @@ class GameViewModel extends ChangeNotifier {
   int _progress = 0;
   bool _isReady = false;
   bool _fmjHighDefinition;
+  int _sgbyWorldActivity;
   int _sgbyBattleSpeedMultiplier = 2;
   bool _sgbyAutoBattleEnabled = false;
   Object? _error;
@@ -493,6 +495,24 @@ class GameViewModel extends ChangeNotifier {
       );
     } on Object {
       // 高清显示属于可选增强；桥接失败时网页渲染器会保留自身的安全默认值。
+    }
+  }
+
+  /// 将世界活跃度同步到正在运行的三国霸业引擎。
+  ///
+  /// 值会先限制到 `0～100` 并保存为待同步状态。页面尚未 ready 时不访问 WebView；
+  /// ready 回调会补发最新值，从而规避初始化和设置拖动并发造成的丢失更新。
+  Future<void> setSgbyWorldActivity(int value) async {
+    _sgbyWorldActivity = value.clamp(0, 100).toInt();
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || !_isReady || controller == null) return;
+    try {
+      await controller.runJavaScript(
+        'window.bbkSetSgbyWorldActivity && '
+        'window.bbkSetSgbyWorldActivity($_sgbyWorldActivity);',
+      );
+    } on Object {
+      // 世界活跃度属于增强能力；桥接失败时引擎保留自身默认值，不影响游戏主循环。
     }
   }
 
@@ -707,6 +727,7 @@ class GameViewModel extends ChangeNotifier {
       _error = null;
       notifyListeners();
       unawaited(setFmjHighDefinition(_fmjHighDefinition));
+      unawaited(setSgbyWorldActivity(_sgbyWorldActivity));
       unawaited(_restoreSgbyControlState());
     } else if (message.message == 'exit') {
       _onExitRequested();

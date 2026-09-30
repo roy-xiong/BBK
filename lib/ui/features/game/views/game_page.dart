@@ -47,6 +47,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _generalRosterSheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
+  late int _lastSgbyWorldActivity;
 
   static const double _toolbarHeight = 44;
 
@@ -65,6 +66,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     );
     _lastFmjHighDefinition =
         widget.settingsViewModel.settings.fmjHighDefinition;
+    _lastSgbyWorldActivity =
+        widget.settingsViewModel.settings.sgbyWorldActivity;
     widget.settingsViewModel.addListener(_onSettingsChanged);
     unawaited(_enterGameMode());
     unawaited(_viewModel.initialize());
@@ -87,21 +90,39 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  /// 将设置页或工具栏中的画质变化同步给正在运行的伏魔记页面。
+  /// 将设置变化同步给正在运行的游戏页面。
   ///
-  /// 使用上次值去重，避免其他设置变化时重复跨平台调用 WebView。
+  /// 使用各自的上次值去重，避免无关设置变化时重复跨平台调用 WebView。两个同步任务
+  /// 相互独立，单项桥接失败不会阻断另一款游戏的设置更新。
   void _onSettingsChanged() {
-    final enabled = widget.settingsViewModel.settings.fmjHighDefinition;
-    if (enabled == _lastFmjHighDefinition) return;
-    _lastFmjHighDefinition = enabled;
-    unawaited(_viewModel.setFmjHighDefinition(enabled));
+    final settings = widget.settingsViewModel.settings;
+    final highDefinitionEnabled = settings.fmjHighDefinition;
+    if (highDefinitionEnabled != _lastFmjHighDefinition) {
+      _lastFmjHighDefinition = highDefinitionEnabled;
+      unawaited(_viewModel.setFmjHighDefinition(highDefinitionEnabled));
+    }
+    final worldActivity = settings.sgbyWorldActivity;
+    if (worldActivity != _lastSgbyWorldActivity) {
+      _lastSgbyWorldActivity = worldActivity;
+      unawaited(_viewModel.setSgbyWorldActivity(worldActivity));
+    }
   }
 
   Future<void> _enterGameMode() async {
     await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
     ]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarDividerColor: Colors.black,
+      ),
+    );
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   /// 在竖屏控制台和横屏悬浮控制之间切换。
@@ -256,99 +277,104 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: ListenableBuilder(
-          listenable: Listenable.merge(<Listenable>[
-            _viewModel,
-            widget.settingsViewModel,
-          ]),
-          builder: (context, _) {
-            final controller = _viewModel.webViewController;
-            final settings = widget.settingsViewModel.settings;
-            final gameSurface = _buildGameSurface(controller);
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final usePortraitLayout =
-                    constraints.maxHeight >= constraints.maxWidth;
-                final toolbarWidth = widget.game.id == GameId.fmj
-                    ? 352.0
-                    : 264.0;
-                final savedToolbarPosition =
-                    settings.toolbarPositions[widget.game.id];
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (usePortraitLayout)
-                      _buildPortraitLayout(
-                        constraints: constraints,
-                        gameSurface: gameSurface,
-                        controlsVisible: settings.controlsVisible,
-                        darkControls: _darkControls,
-                        hapticsEnabled: settings.hapticsEnabled,
-                      )
-                    else
-                      _buildLandscapeLayout(
-                        gameSurface: gameSurface,
-                        controlsVisible: settings.controlsVisible,
-                        hapticsEnabled: settings.hapticsEnabled,
-                      ),
-                    Positioned.fill(
-                      child: _DraggableToolbar(
-                        toolbarSize: Size(toolbarWidth, _toolbarHeight),
-                        initialRelativeOffset: savedToolbarPosition == null
-                            ? null
-                            : Offset(
-                                savedToolbarPosition.xRatio,
-                                savedToolbarPosition.yRatio,
-                              ),
-                        onDragFinished: (relativeOffset) {
-                          widget.settingsViewModel.setGameToolbarPosition(
-                            widget.game.id,
-                            relativeOffset,
-                          );
-                        },
-                        child: _GameToolbar(
-                          portraitRequested: _portraitRequested,
-                          onBack: () => unawaited(_requestLeaveGame()),
-                          onSave: () => unawaited(_openSaveMenu()),
-                          onCheat: () => showGameCheatSheet(
-                            context,
-                            game: widget.game,
-                            viewModel: _viewModel,
-                          ),
-                          onMap: widget.game.id == GameId.fmj
-                              ? () => showGameMapSheet(
-                                  context,
-                                  viewModel: _viewModel,
-                                  worldMapRepository:
-                                      widget.dependencies.fmjWorldMapRepository,
-                                )
-                              : null,
-                          onOrientationChanged: () =>
-                              unawaited(_toggleOrientation()),
-                          onThemeChanged: () {
-                            setState(() => _darkControls = !_darkControls);
+        body: SafeArea(
+          child: ListenableBuilder(
+            listenable: Listenable.merge(<Listenable>[
+              _viewModel,
+              widget.settingsViewModel,
+            ]),
+            builder: (context, _) {
+              final controller = _viewModel.webViewController;
+              final settings = widget.settingsViewModel.settings;
+              final gameSurface = _buildGameSurface(controller);
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final usePortraitLayout =
+                      constraints.maxHeight >= constraints.maxWidth;
+                  final toolbarWidth = widget.game.id == GameId.fmj
+                      ? 352.0
+                      : 264.0;
+                  final savedToolbarPosition =
+                      settings.toolbarPositions[widget.game.id];
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (usePortraitLayout)
+                        _buildPortraitLayout(
+                          constraints: constraints,
+                          gameSurface: gameSurface,
+                          controlsVisible: settings.controlsVisible,
+                          darkControls: _darkControls,
+                          hapticsEnabled: settings.hapticsEnabled,
+                        )
+                      else
+                        _buildLandscapeLayout(
+                          gameSurface: gameSurface,
+                          controlsVisible: settings.controlsVisible,
+                          hapticsEnabled: settings.hapticsEnabled,
+                        ),
+                      Positioned.fill(
+                        child: _DraggableToolbar(
+                          toolbarSize: Size(toolbarWidth, _toolbarHeight),
+                          initialRelativeOffset: savedToolbarPosition == null
+                              ? null
+                              : Offset(
+                                  savedToolbarPosition.xRatio,
+                                  savedToolbarPosition.yRatio,
+                                ),
+                          onDragFinished: (relativeOffset) {
+                            widget.settingsViewModel.setGameToolbarPosition(
+                              widget.game.id,
+                              relativeOffset,
+                            );
                           },
-                          highDefinitionEnabled: settings.fmjHighDefinition,
-                          onHighDefinitionChanged: widget.game.id == GameId.fmj
-                              ? () => widget.settingsViewModel
-                                    .setFmjHighDefinition(
-                                      !settings.fmjHighDefinition,
-                                    )
-                              : null,
-                          onSettings: () => showGameSettingsSheet(
-                            context,
-                            viewModel: widget.settingsViewModel,
-                            showEdition: false,
-                            showFmjGraphics: widget.game.id == GameId.fmj,
+                          child: _GameToolbar(
+                            portraitRequested: _portraitRequested,
+                            onBack: () => unawaited(_requestLeaveGame()),
+                            onSave: () => unawaited(_openSaveMenu()),
+                            onCheat: () => showGameCheatSheet(
+                              context,
+                              game: widget.game,
+                              viewModel: _viewModel,
+                            ),
+                            onMap: widget.game.id == GameId.fmj
+                                ? () => showGameMapSheet(
+                                    context,
+                                    viewModel: _viewModel,
+                                    worldMapRepository: widget
+                                        .dependencies
+                                        .fmjWorldMapRepository,
+                                  )
+                                : null,
+                            onOrientationChanged: () =>
+                                unawaited(_toggleOrientation()),
+                            onThemeChanged: () {
+                              setState(() => _darkControls = !_darkControls);
+                            },
+                            highDefinitionEnabled: settings.fmjHighDefinition,
+                            onHighDefinitionChanged:
+                                widget.game.id == GameId.fmj
+                                ? () => widget.settingsViewModel
+                                      .setFmjHighDefinition(
+                                        !settings.fmjHighDefinition,
+                                      )
+                                : null,
+                            onSettings: () => showGameSettingsSheet(
+                              context,
+                              viewModel: widget.settingsViewModel,
+                              showEdition: false,
+                              showFmjGraphics: widget.game.id == GameId.fmj,
+                              showSgbyActivity: widget.game.id == GameId.sgby,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
+                    ],
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );
