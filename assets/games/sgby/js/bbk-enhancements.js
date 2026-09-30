@@ -116,6 +116,7 @@
         cityFoodConsumptionSnapshot: null,
         postBattleAutomationPending: false,
         postBattleSource: null,
+        battleCaptiveSnapshot: null,
         initializationTimer: null,
         mainMapVisible: false,
         mainMapRoadsVisible: false,
@@ -931,12 +932,7 @@
                 executedNames.push(
                     baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
                 );
-                if (captive.Tool1 > 0) {
-                    baye.putToolInCity(cityEntry.index, captive.Tool1 - 1, false);
-                }
-                if (captive.Tool2 > 0) {
-                    baye.putToolInCity(cityEntry.index, captive.Tool2 - 1, false);
-                }
+                returnPersonEquipment(cityEntry.index, captive);
                 baye.deletePersonInCity(cityEntry.index, personIndex);
                 count++;
             });
@@ -953,6 +949,105 @@
             }
         });
         return {count: count, cities: cityResults, label: '处斩'};
+    }
+
+    /** 按原版战死规则把人物装备作为已发现物品放入所在城市。 */
+    function returnPersonEquipment(cityIndex, person) {
+        if (person.Tool1 > 0) baye.putToolInCity(cityIndex, person.Tool1 - 1, false);
+        if (person.Tool2 > 0) baye.putToolInCity(cityIndex, person.Tool2 - 1, false);
+    }
+
+    /**
+     * 处死全地图当前位于城市队列中的在野武将。
+     *
+     * 删除前把归属设为俘虏哨兵，防止未来武将补全逻辑把已处死人物再次加入地图；人物
+     * 不在任何城市队列中，因此不会被招降俘虏功能重新找到。
+     */
+    function executeAllWildGenerals(context) {
+        var count = 0;
+        var cityResults = [];
+        context.cities.forEach(function (city, cityIndex) {
+            var executedNames = [];
+            var cityEntry = {index: cityIndex, value: city};
+            cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
+                var person = context.people[personIndex];
+                if (!person || person.Belong !== 0) return;
+                executedNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
+                returnPersonEquipment(cityIndex, person);
+                person.OldBelong = 0;
+                person.Belong = CAPTIVE_BELONG;
+                person.Arms = 0;
+                baye.deletePersonInCity(cityIndex, personIndex);
+                count++;
+            });
+            if (executedNames.length) {
+                cityResults.push({
+                    cityName: baye.getCityName(cityIndex) || ('城池 ' + (cityIndex + 1)),
+                    people: [],
+                    tools: [],
+                    recruited: [],
+                    executed: executedNames,
+                    exiled: []
+                });
+            }
+        });
+        appendSearchHistory(context, '全地图处死在野', cityResults, null);
+        return {count: count, cities: cityResults};
+    }
+
+    /**
+     * 搜出全地图所有城市队列中的在野武将。
+     *
+     * 有主城池中的人物加入当地势力；空城以人物队列中的第一名在野武将为新主公，其他
+     * 人物加入该新势力。每座空城独立建国，不改变玩家君主，也不处理尚未进入地图队列
+     * 的未来年份人物。
+     */
+    function searchAllWorldGenerals(context) {
+        var found = 0;
+        var newRulers = 0;
+        var cityResults = [];
+        context.cities.forEach(function (city, cityIndex) {
+            var cityEntry = {index: cityIndex, value: city};
+            var wildIndexes = cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
+                var person = context.people[personIndex];
+                return person && person.Belong === 0;
+            });
+            if (!wildIndexes.length) return;
+
+            var targetBelong = Number(city.Belong) || 0;
+            if (!targetBelong) {
+                targetBelong = wildIndexes[0] + 1;
+                city.Belong = targetBelong;
+                city.SatrapId = targetBelong;
+                newRulers++;
+            }
+            var personNames = [];
+            wildIndexes.forEach(function (personIndex) {
+                var person = context.people[personIndex];
+                personNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
+                person.OldBelong = 0;
+                person.Belong = targetBelong;
+                person.Devotion = 100;
+                if (targetBelong === context.ruler && cheatState.autoMaxGenerals) {
+                    maximizeGeneral(person, context.data);
+                }
+                found++;
+            });
+            cityResults.push({
+                cityName: baye.getCityName(cityIndex) || ('城池 ' + (cityIndex + 1)),
+                people: personNames,
+                tools: [],
+                recruited: [],
+                executed: [],
+                exiled: []
+            });
+        });
+        appendSearchHistory(context, '全地图搜索', cityResults, null);
+        return {count: found, newRulers: newRulers, cities: cityResults};
     }
 
     /**
@@ -1147,6 +1242,73 @@
             defenderRulerName: defenderRulerName,
             source: source
         };
+    }
+
+    /**
+     * 保存战斗开始前已经关押在目标城市的俘虏。
+     *
+     * 核心的 `GetCityPersons` 只返回在任武将，必死模式不会触及这些既有俘虏；增强层在
+     * 城池确实易主后补齐处死，守城成功或战斗中止时不会误处理。
+     */
+    function captureBattleCityCaptives() {
+        if (!global.baye || !baye.data || !baye.data.g_FgtParam) return null;
+        var data = baye.data;
+        var cities = data.g_Cities;
+        var people = data.g_Persons;
+        if (!cities || !people || !data.g_PersonsQueue) return null;
+        var context = {data: data, cities: cities, people: people};
+        var cityIndex = Number(data.g_FgtParam.CityIndex);
+        if (!Number.isInteger(cityIndex) || cityIndex < 0 || cityIndex >= cities.length) {
+            return null;
+        }
+        var city = cities[cityIndex];
+        var cityEntry = {index: cityIndex, value: city};
+        return {
+            cityIndex: cityIndex,
+            originalBelong: Number(city.Belong) || 0,
+            personIndexes: cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
+                var person = context.people[personIndex];
+                return person && person.Belong === CAPTIVE_BELONG;
+            })
+        };
+    }
+
+    /** 城破回到主地图后，补齐“必死”模式对战前既有俘虏的处理。 */
+    function executeDefeatedCityCaptives() {
+        var snapshot = cheatState.battleCaptiveSnapshot;
+        cheatState.battleCaptiveSnapshot = null;
+        if (!snapshot || cheatState.battleLoserOutcome !== BATTLE_LOSER_OUTCOME_DEATH) {
+            return 0;
+        }
+        if (!global.baye || !baye.data) return 0;
+        var data = baye.data;
+        var cities = data.g_Cities;
+        var people = data.g_Persons;
+        if (
+            !cities || !people || !data.g_PersonsQueue ||
+            snapshot.cityIndex < 0 || snapshot.cityIndex >= cities.length
+        ) {
+            return 0;
+        }
+        var context = {data: data, cities: cities, people: people};
+        var city = cities[snapshot.cityIndex];
+        if (Number(city.Belong) === snapshot.originalBelong) return 0;
+        var cityEntry = {index: snapshot.cityIndex, value: city};
+        var currentIndexes = cityPersonIndexes(context, cityEntry);
+        var count = 0;
+        snapshot.personIndexes.forEach(function (personIndex) {
+            var person = context.people[personIndex];
+            if (
+                !person || person.Belong !== CAPTIVE_BELONG ||
+                currentIndexes.indexOf(personIndex) < 0
+            ) {
+                return;
+            }
+            returnPersonEquipment(snapshot.cityIndex, person);
+            baye.deletePersonInCity(snapshot.cityIndex, personIndex);
+            count++;
+        });
+        return count;
     }
 
     /** 战斗结算完成并回到主地图后执行一次自动处理。 */
@@ -3081,6 +3243,7 @@
             cheatState.mainMapVisible = false;
             cheatState.mainMapRoadsVisible = false;
             cheatState.postBattleSource = captureBattleSource();
+            cheatState.battleCaptiveSnapshot = captureBattleCityCaptives();
         });
         installExpeditionFoodHook(hooks);
         installBattleUnitDrawing(hooks);
@@ -3090,6 +3253,7 @@
             var hookResult = originalMapHook ? originalMapHook(context) : 1;
             cheatState.mainMapVisible = true;
             cheatState.mainMapRoadsVisible = true;
+            executeDefeatedCityCaptives();
             global.requestAnimationFrame(colorizeCityIcons);
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
@@ -3344,6 +3508,21 @@
                 return result(
                     true,
                     '搜索完成：' + formatSearchDetails(searchResult.cities)
+                );
+            }
+            if (action === 'sgby_search_world_generals') {
+                var worldSearch = searchAllWorldGenerals(context);
+                return result(
+                    true,
+                    '全地图搜索完成：搜出 ' + worldSearch.count + ' 名在野武将，' +
+                    worldSearch.newRulers + ' 座空城建立新势力'
+                );
+            }
+            if (action === 'sgby_execute_wild_generals') {
+                var wildExecution = executeAllWildGenerals(context);
+                return result(
+                    true,
+                    '已处死全地图在野武将 ' + wildExecution.count + ' 名，装备已收入所在城池'
                 );
             }
             if (action === 'sgby_search_outcome') {

@@ -229,6 +229,18 @@ Future<void> showGameCheatSheet(
         icon: Icons.travel_explore,
       ),
       _CheatOption(
+        action: 'sgby_search_world_generals',
+        title: '一键搜索全地图武将',
+        description: '所有在野武将加入当地势力；空城由第一名武将自立为主公',
+        icon: Icons.public,
+      ),
+      _CheatOption(
+        action: 'sgby_execute_wild_generals',
+        title: '处死全地图在野武将',
+        description: '永久移除所有城市中的在野武将，并回收其装备',
+        icon: Icons.person_remove,
+      ),
+      _CheatOption(
         action: 'sgby_recruit_captives',
         title: '一键招降全部俘虏',
         description: '招降当前我方城池全部俘虏，忠诚设为 100',
@@ -462,14 +474,21 @@ Future<void> showGameCheatSheet(
                             }
                             return;
                           }
-                          if (option.action == 'sgby_execute_captives') {
+                          if (option.action == 'sgby_execute_captives' ||
+                              option.action == 'sgby_execute_wild_generals') {
+                            final executeWild =
+                                option.action == 'sgby_execute_wild_generals';
                             final confirmed =
                                 await showDialog<bool>(
                                   context: hostContext,
                                   builder: (dialogContext) => AlertDialog(
-                                    title: const Text('处斩全部俘虏？'),
-                                    content: const Text(
-                                      '将处斩当前选中我方城池内的所有俘虏。该操作不可撤销，请先确认存档。',
+                                    title: Text(
+                                      executeWild ? '处死全地图在野武将？' : '处斩全部俘虏？',
+                                    ),
+                                    content: Text(
+                                      executeWild
+                                          ? '将永久移除所有城市中的在野武将。该操作不可撤销，请先确认存档。'
+                                          : '将处斩当前选中我方城池内的所有俘虏。该操作不可撤销，请先确认存档。',
                                     ),
                                     actions: [
                                       TextButton(
@@ -482,7 +501,9 @@ Future<void> showGameCheatSheet(
                                         onPressed: () => Navigator.of(
                                           dialogContext,
                                         ).pop(true),
-                                        child: const Text('确认处斩'),
+                                        child: Text(
+                                          executeWild ? '确认处死' : '确认处斩',
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -512,7 +533,10 @@ Future<void> showGameCheatSheet(
                           showCheatToast(
                             hostContext,
                             result,
-                            duration: option.action == 'sgby_search_city'
+                            duration:
+                                option.action == 'sgby_search_city' ||
+                                    option.action ==
+                                        'sgby_search_world_generals'
                                 ? const Duration(seconds: 6)
                                 : const Duration(milliseconds: 2600),
                           );

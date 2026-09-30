@@ -1159,4 +1159,75 @@ function apply(api, action) {
   assert.equal(history.records[0].recruitedCount, 0);
 }
 
+{
+  const harness = createHarness();
+  const {api, data, people} = harness;
+  // 敌方城池加入一名在野武将，空城则保留首名在野武将用于验证自立逻辑。
+  people[5].Belong = 0;
+  data.g_Cities[3].Belong = 0;
+
+  const searchResult = JSON.parse(api.applyCheat(
+    'sgby_search_world_generals',
+    {},
+  ));
+  assert.equal(searchResult.ok, true, searchResult.message);
+  assert.equal(people[2].Belong, 1);
+  assert.equal(people[5].Belong, 5);
+  assert.equal(people[6].Belong, 7);
+  assert.equal(data.g_Cities[3].Belong, 7);
+  assert.equal(data.g_Cities[3].SatrapId, 7);
+  assert.match(searchResult.message, /搜出 3 名/);
+  assert.match(searchResult.message, /1 座空城建立新势力/);
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].source, '全地图搜索');
+  assert.equal(history.records[0].peopleCount, 3);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, people, returnedTools} = harness;
+  people[2].Tool1 = 2;
+  const executeResult = JSON.parse(api.applyCheat(
+    'sgby_execute_wild_generals',
+    {},
+  ));
+  assert.equal(executeResult.ok, true, executeResult.message);
+  assert.match(executeResult.message, /2 名/);
+  assert.equal(data.g_PersonsQueue.includes(2), false);
+  assert.equal(data.g_PersonsQueue.includes(6), false);
+  assert.equal(data.g_PersonsQueue.includes(3), true);
+  assert.equal(people[2].Belong, 0xffff);
+  assert.equal(people[6].Belong, 0xffff);
+  assert.equal(returnedTools.some((entry) => entry.tool === 1), true);
+
+  const searchResult = JSON.parse(api.applyCheat(
+    'sgby_search_world_generals',
+    {},
+  ));
+  assert.match(searchResult.message, /搜出 0 名/);
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].source, '全地图处死在野');
+  assert.equal(history.records[0].executedCount, 2);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people, returnedTools} = harness;
+  const outcomeResult = JSON.parse(api.applyCheat(
+    'sgby_battle_loser_outcome',
+    {mode: 'death'},
+  ));
+  assert.equal(outcomeResult.ok, true, outcomeResult.message);
+  data.g_FgtParam.CityIndex = 0;
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  data.g_Cities[0].Belong = 5;
+  hooks.didShowMainMap({});
+
+  assert.equal(data.g_PersonsQueue.includes(3), false);
+  assert.equal(people[3].Belong, 0xffff);
+  assert.equal(returnedTools.some((entry) => entry.tool === 4), true);
+  assert.equal(returnedTools.some((entry) => entry.tool === 5), true);
+}
+
 console.log('三国霸业增强回归测试通过');
