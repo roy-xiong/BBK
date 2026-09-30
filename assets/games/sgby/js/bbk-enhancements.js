@@ -14,6 +14,9 @@
     var ACTION_WAITING = 0;
     var BATTLE_RUNNING = 0;
     var BATTLE_WIN = 1;
+    var BATTLE_MODE_PLAYER_DEFENCE = 0;
+    var BATTLE_MODE_PLAYER_ATTACK = 1;
+    var BATTLE_MODE_AUTO = 2;
     var CAPTIVE_BELONG = 0xffff;
     var FOUND_GOODS_MASK = 0x8000;
     var MOVEMENT_TERRAIN_COST = 0x81;
@@ -91,6 +94,7 @@
         battleFoodSnapshot: null,
         cityFoodConsumptionSnapshot: null,
         postBattleAutomationPending: false,
+        postBattleSource: null,
         initializationTimer: null,
         mainMapVisible: false,
         mainMapRoadsVisible: false,
@@ -648,9 +652,10 @@
      * @param {Object} context 当前游戏上下文。
      * @param {string} source 触发来源。
      * @param {Array<Object>} recruitedCities 本次招降的逐城结果。
+     * @param {Object|null} battleSource 战斗来源快照；非战斗搜索传 null。
      * @return {{people:number, tools:number, cities:Array<Object>}} 搜索结果统计。
      */
-    function searchAllOwnedCities(context, source, recruitedCities) {
+    function searchAllOwnedCities(context, source, recruitedCities, battleSource) {
         materializeFutureGenerals(context);
         var foundPeople = 0;
         var foundTools = 0;
@@ -702,7 +707,7 @@
                 resultEntry.tools = toolNames;
             }
         });
-        appendSearchHistory(context, source, cityResults);
+        appendSearchHistory(context, source, cityResults, battleSource);
         return {people: foundPeople, tools: foundTools, cities: cityResults};
     }
 
@@ -712,8 +717,9 @@
      * @param {Object} context 当前游戏上下文。
      * @param {string} source 触发来源。
      * @param {Array<Object>} cityResults 逐城结果。
+     * @param {Object|null} battleSource 战斗来源快照；旧记录和非战斗记录为空。
      */
-    function appendSearchHistory(context, source, cityResults) {
+    function appendSearchHistory(context, source, cityResults, battleSource) {
         var now = new Date();
         var records = loadSearchHistory();
         var peopleCount = 0;
@@ -732,6 +738,7 @@
             gameTime: String(context.data.g_YearDate || 0) + '年' +
                 String(context.data.g_MonthDate || 0) + '月',
             source: source || '手动搜索',
+            battle: battleSource || null,
             peopleCount: peopleCount,
             toolCount: toolCount,
             recruitedCount: recruitedCount,
@@ -802,7 +809,7 @@
         var context = gameContext();
         if (!context) return;
         var cityCount = maximizeOwnedCities(context);
-        var searched = searchAllOwnedCities(context, source, []);
+        var searched = searchAllOwnedCities(context, source, [], null);
         if (showNotice && searched.people + searched.tools > 0) {
             postSystemNotice(
                 true,
@@ -836,8 +843,93 @@
         }));
     }
 
+    /**
+     * 根据人物归属编号返回主公名。
+     *
+     * @param {Object} data 游戏数据。
+     * @param {number} belong 人物或城池的归属编号，值为“主公数组序号 + 1”。
+     * @return {string} 主公名；数据异常时返回兜底文案。
+     */
+    function rulerNameForBelong(data, belong) {
+        var rulerIndex = Number(belong) - 1;
+        if (!Number.isInteger(rulerIndex) || rulerIndex < 0 || rulerIndex >= data.g_Persons.length) {
+            return '未知主公';
+        }
+        return baye.getPersonName(rulerIndex) || ('主公 ' + (rulerIndex + 1));
+    }
+
+    /** @return {number} 指定战场序号对应武将的归属编号；无效时返回 0。 */
+    function battleGeneralBelong(data, battleIndex) {
+        var personId = Number(data.g_FgtParam.GenArray[battleIndex]);
+        var personIndex = personId - 1;
+        var person = Number.isInteger(personIndex) && personIndex >= 0
+            ? data.g_Persons[personIndex]
+            : null;
+        return person ? Number(person.Belong) || 0 : 0;
+    }
+
+    /**
+     * 在战斗开始时快照方向、双方主公和城市。
+     *
+     * 战斗结算会立即改变城池归属，必须在 enterBattle 阶段保存原防守方；防守战的进攻
+     * 主公则由敌方首名参战武将反查，不能在返回主地图后使用城池当前归属推断。
+     *
+     * @return {Object|null} 可持久化的战斗来源。
+     */
+    function captureBattleSource() {
+        if (!global.baye || !baye.data || !baye.data.g_FgtParam) return null;
+        var data = baye.data;
+        var battle = data.g_FgtParam;
+        var cityIndex = Number(battle.CityIndex);
+        if (
+            !Number.isInteger(cityIndex) || cityIndex < 0 ||
+            !data.g_Cities || cityIndex >= data.g_Cities.length
+        ) {
+            return null;
+        }
+        var city = data.g_Cities[cityIndex];
+        if (!city) return null;
+        var mode = Number(battle.Mode);
+        var playerBelong = Number(data.g_PlayerKing) + 1;
+        var attackerBelong;
+        var defenderBelong = Number(city.Belong) || 0;
+        var direction;
+        if (mode === BATTLE_MODE_PLAYER_ATTACK) {
+            direction = 'playerAttack';
+            attackerBelong = playerBelong;
+        } else if (mode === BATTLE_MODE_PLAYER_DEFENCE) {
+            direction = 'playerDefence';
+            attackerBelong = battleGeneralBelong(data, PLAYER_GENERAL_LIMIT);
+            defenderBelong = playerBelong;
+        } else if (mode === BATTLE_MODE_AUTO) {
+            direction = 'auto';
+            attackerBelong = battleGeneralBelong(data, 0);
+        } else {
+            return null;
+        }
+        var cityName = baye.getCityName(cityIndex) || ('城池 ' + (cityIndex + 1));
+        var attackerRulerName = rulerNameForBelong(data, attackerBelong);
+        var defenderRulerName = rulerNameForBelong(data, defenderBelong);
+        var source;
+        if (direction === 'playerAttack') {
+            source = '我方进攻「' + defenderRulerName + '」所属的「' + cityName + '」';
+        } else if (direction === 'playerDefence') {
+            source = '「' + attackerRulerName + '」进攻我方「' + cityName + '」';
+        } else {
+            source = '「' + attackerRulerName + '」进攻「' + defenderRulerName +
+                '」所属的「' + cityName + '」';
+        }
+        return {
+            direction: direction,
+            cityName: cityName,
+            attackerRulerName: attackerRulerName,
+            defenderRulerName: defenderRulerName,
+            source: source
+        };
+    }
+
     /** 战斗结算完成并回到主地图后执行一次自动处理。 */
-    function runPostBattleAutomation() {
+    function runPostBattleAutomation(battleSource) {
         if (!cheatState.postBattleAutomation) return;
         var context = gameContext();
         if (!context) {
@@ -846,11 +938,18 @@
         }
         var cityCount = maximizeOwnedCities(context);
         var recruited = recruitCaptives(context, context.ownedCities);
-        var searched = searchAllOwnedCities(context, '战后自动', recruited.cities);
+        var source = battleSource && battleSource.source ? battleSource.source : '战后自动';
+        var searched = searchAllOwnedCities(
+            context,
+            source,
+            recruited.cities,
+            battleSource || null
+        );
         if (recruited.count + searched.people + searched.tools === 0) return;
         postSystemNotice(
             true,
-            '战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' + recruited.count +
+            source + '，战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' +
+            recruited.count +
             ' 人，搜出隐藏人物 ' + searched.people + ' 名、隐藏物品 ' + searched.tools +
             ' 件；详细人物和物品请查看搜索记录'
         );
@@ -2632,6 +2731,7 @@
             cancelAutoBattleRun();
             cheatState.mainMapVisible = false;
             cheatState.mainMapRoadsVisible = false;
+            cheatState.postBattleSource = captureBattleSource();
         });
         installExpeditionFoodHook(hooks);
         installBattleUnitDrawing(hooks);
@@ -2644,7 +2744,9 @@
             global.requestAnimationFrame(colorizeCityIcons);
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
-                runPostBattleAutomation();
+                var battleSource = cheatState.postBattleSource;
+                cheatState.postBattleSource = null;
+                runPostBattleAutomation(battleSource);
             }
             return hookResult;
         };
@@ -2888,7 +2990,7 @@
                 );
             }
             if (action === 'sgby_search_city') {
-                var searchResult = searchAllOwnedCities(context, '手动搜索', []);
+                var searchResult = searchAllOwnedCities(context, '手动搜索', [], null);
                 return result(
                     true,
                     '搜索完成：' + formatSearchDetails(searchResult.cities)
@@ -2898,7 +3000,7 @@
                 var recruitCity = selectedOwnedCity(context);
                 if (!recruitCity) return result(false, '请先在主地图选中一座我方城池');
                 var recruited = recruitCaptives(context, [recruitCity]);
-                appendSearchHistory(context, '手动招降', recruited.cities);
+                appendSearchHistory(context, '手动招降', recruited.cities, null);
                 return result(
                     true,
                     '已招降当前城池全部俘虏，共 ' + recruited.count + ' 名，忠诚均为 100'
@@ -2908,6 +3010,7 @@
                 cheatState.postBattleAutomation = !cheatState.postBattleAutomation;
                 if (!cheatState.postBattleAutomation) {
                     cheatState.postBattleAutomationPending = false;
+                    cheatState.postBattleSource = null;
                 }
                 savePersistentCheatState();
                 return result(

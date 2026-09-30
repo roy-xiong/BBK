@@ -125,6 +125,8 @@ function createHarness(storage = new Map(), options = {}) {
       aiWorldActivity: 25,
     },
     g_FgtParam: {
+      Mode: 1,
+      CityIndex: 2,
       MProvender: 100,
       EProvender: 100,
       GenArray: [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 5, 6, 8],
@@ -709,6 +711,7 @@ function apply(api, action) {
   const {api, data, hooks, people, systemMessages} = createHarness();
   apply(api, 'sgby_generals');
   apply(api, 'sgby_post_battle_automation');
+  hooks.enterBattle({});
   hooks.exitBattle({});
   data.g_FgtOver = 1;
   hooks.didShowMainMap({});
@@ -728,8 +731,57 @@ function apply(api, action) {
   assert.match(systemMessages.at(-1).data.message, /自动处理完成/);
   assert.match(systemMessages.at(-1).data.message, /搜索记录/);
   const battleHistory = JSON.parse(api.getSearchHistory());
+  assert.equal(battleHistory.records[0].source, '我方进攻「武将4」所属的「城池2」');
+  assert.deepEqual(battleHistory.records[0].battle, {
+    direction: 'playerAttack',
+    cityName: '城池2',
+    attackerRulerName: '武将0',
+    defenderRulerName: '武将4',
+    source: '我方进攻「武将4」所属的「城池2」',
+  });
   assert.equal(battleHistory.records[0].recruitedCount, 1);
   assert.deepEqual(battleHistory.records[0].cities[0].recruited, ['武将3']);
+}
+
+{
+  const {api, data, hooks} = createHarness();
+  apply(api, 'sgby_post_battle_automation');
+  data.g_FgtParam.Mode = 0;
+  data.g_FgtParam.CityIndex = 0;
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].source, '「武将4」进攻我方「城池0」');
+  assert.deepEqual(history.records[0].battle, {
+    direction: 'playerDefence',
+    cityName: '城池0',
+    attackerRulerName: '武将4',
+    defenderRulerName: '武将0',
+    source: '「武将4」进攻我方「城池0」',
+  });
+}
+
+{
+  const {api, data, hooks} = createHarness();
+  apply(api, 'sgby_post_battle_automation');
+  data.g_FgtParam.Mode = 2;
+  data.g_FgtParam.CityIndex = 0;
+  data.g_FgtParam.GenArray[0] = 5;
+  data.g_Cities[0].Belong = 1;
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(
+    history.records[0].source,
+    '「武将4」进攻「武将0」所属的「城池0」',
+  );
+  assert.equal(history.records[0].battle.direction, 'auto');
 }
 
 {
