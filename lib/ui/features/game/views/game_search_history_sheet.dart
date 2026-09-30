@@ -156,6 +156,20 @@ class _SgbySearchHistorySheetState extends State<_SgbySearchHistorySheet> {
                         count: record.recruitedCount,
                         color: Theme.of(context).colorScheme.secondary,
                       ),
+                    if (record.executedCount > 0)
+                      _SearchCount(
+                        icon: Icons.gavel,
+                        label: '处斩',
+                        count: record.executedCount,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    if (record.exiledCount > 0)
+                      _SearchCount(
+                        icon: Icons.exit_to_app,
+                        label: '流放',
+                        count: record.exiledCount,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                   ],
                 ),
               ],
@@ -208,6 +222,22 @@ class _SgbySearchHistorySheetState extends State<_SgbySearchHistorySheet> {
                                 label: '招降',
                                 values: city.recruited,
                                 color: Theme.of(context).colorScheme.secondary,
+                              ),
+                            if (city.executed.isNotEmpty)
+                              _SearchResultLine(
+                                icon: Icons.gavel,
+                                label: '处斩',
+                                values: city.executed,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            if (city.exiled.isNotEmpty)
+                              _SearchResultLine(
+                                icon: Icons.exit_to_app,
+                                label: '流放',
+                                values: city.exiled,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                               ),
                           ],
                         ),

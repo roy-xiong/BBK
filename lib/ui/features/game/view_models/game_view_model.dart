@@ -209,6 +209,8 @@ class SgbySearchCityRecord {
     required this.people,
     required this.tools,
     required this.recruited,
+    required this.executed,
+    required this.exiled,
   });
 
   factory SgbySearchCityRecord.fromJson(Map<String, dynamic> json) {
@@ -224,6 +226,8 @@ class SgbySearchCityRecord {
       people: strings('people'),
       tools: strings('tools'),
       recruited: strings('recruited'),
+      executed: strings('executed'),
+      exiled: strings('exiled'),
     );
   }
 
@@ -231,6 +235,8 @@ class SgbySearchCityRecord {
   final List<String> people;
   final List<String> tools;
   final List<String> recruited;
+  final List<String> executed;
+  final List<String> exiled;
 }
 
 /// 三国霸业搜索记录对应的战斗方向。
@@ -295,6 +301,8 @@ class SgbySearchHistoryRecord {
     required this.peopleCount,
     required this.toolCount,
     required this.recruitedCount,
+    required this.executedCount,
+    required this.exiledCount,
     required this.cities,
     this.battleSource,
   });
@@ -319,6 +327,8 @@ class SgbySearchHistoryRecord {
       peopleCount: (json['peopleCount'] as num?)?.toInt() ?? 0,
       toolCount: (json['toolCount'] as num?)?.toInt() ?? 0,
       recruitedCount: (json['recruitedCount'] as num?)?.toInt() ?? 0,
+      executedCount: (json['executedCount'] as num?)?.toInt() ?? 0,
+      exiledCount: (json['exiledCount'] as num?)?.toInt() ?? 0,
       battleSource: battleSource,
       cities: rawCities is List
           ? rawCities
@@ -339,6 +349,8 @@ class SgbySearchHistoryRecord {
   final int peopleCount;
   final int toolCount;
   final int recruitedCount;
+  final int executedCount;
+  final int exiledCount;
   final List<SgbySearchCityRecord> cities;
   final SgbySearchBattleSource? battleSource;
 }

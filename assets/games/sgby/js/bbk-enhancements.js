@@ -18,6 +18,9 @@
     var BATTLE_MODE_PLAYER_ATTACK = 1;
     var BATTLE_MODE_AUTO = 2;
     var CAPTIVE_BELONG = 0xffff;
+    var CAPTIVE_ACTION_RECRUIT = 'recruit';
+    var CAPTIVE_ACTION_EXECUTE = 'execute';
+    var CAPTIVE_ACTION_EXILE = 'exile';
     var FOUND_GOODS_MASK = 0x8000;
     var MOVEMENT_TERRAIN_COST = 0x81;
     var BATTLE_COMMAND = 27;
@@ -83,6 +86,7 @@
         autoBattle: persistedCheatState.autoBattle === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
+        postBattleCaptiveAction: resolvePostBattleCaptiveAction(persistedCheatState),
         factionColors: typeof persistedCheatState.factionColors === 'boolean'
             ? persistedCheatState.factionColors
             : loadFactionColorSetting(),
@@ -182,11 +186,28 @@
         return state.battleSpeed2x === false ? 1 : 2;
     }
 
+    /**
+     * 兼容读取战后俘虏处理方式。旧状态没有该字段时保持原来的“全部招降”行为。
+     *
+     * @param {Object} state 本地持久状态。
+     * @return {string} recruit、execute 或 exile。
+     */
+    function resolvePostBattleCaptiveAction(state) {
+        var action = state.postBattleCaptiveAction;
+        if (
+            action === CAPTIVE_ACTION_RECRUIT || action === CAPTIVE_ACTION_EXECUTE ||
+            action === CAPTIVE_ACTION_EXILE
+        ) {
+            return action;
+        }
+        return CAPTIVE_ACTION_RECRUIT;
+    }
+
     /** 将持续作弊开关写入本地存储，不保存临时锁和 Hook 运行状态。 */
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 1,
+                version: 2,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -198,6 +219,7 @@
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
+                postBattleCaptiveAction: cheatState.postBattleCaptiveAction,
                 factionColors: cheatState.factionColors
             }));
         } catch (_) {
@@ -665,14 +687,23 @@
         function cityResult(cityName) {
             var existing = cityResultByName[cityName];
             if (existing) return existing;
-            var created = {cityName: cityName, people: [], tools: [], recruited: []};
+            var created = {
+                cityName: cityName,
+                people: [],
+                tools: [],
+                recruited: [],
+                executed: [],
+                exiled: []
+            };
             cityResultByName[cityName] = created;
             cityResults.push(created);
             return created;
         }
         (recruitedCities || []).forEach(function (entry) {
             var resultEntry = cityResult(entry.cityName);
-            resultEntry.recruited = entry.recruited.slice();
+            resultEntry.recruited = (entry.recruited || []).slice();
+            resultEntry.executed = (entry.executed || []).slice();
+            resultEntry.exiled = (entry.exiled || []).slice();
         });
         context.ownedCities.forEach(function (cityEntry) {
             var cityName = baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1));
@@ -725,12 +756,16 @@
         var peopleCount = 0;
         var toolCount = 0;
         var recruitedCount = 0;
+        var executedCount = 0;
+        var exiledCount = 0;
         cityResults.forEach(function (city) {
             peopleCount += (city.people || []).length;
             toolCount += (city.tools || []).length;
             recruitedCount += (city.recruited || []).length;
+            executedCount += (city.executed || []).length;
+            exiledCount += (city.exiled || []).length;
         });
-        if (peopleCount + toolCount + recruitedCount === 0) return;
+        if (peopleCount + toolCount + recruitedCount + executedCount + exiledCount === 0) return;
         records.unshift({
             id: String(now.getTime()),
             timestamp: now.toISOString(),
@@ -742,6 +777,8 @@
             peopleCount: peopleCount,
             toolCount: toolCount,
             recruitedCount: recruitedCount,
+            executedCount: executedCount,
+            exiledCount: exiledCount,
             cities: cityResults
         });
         saveSearchHistory(records);
@@ -791,11 +828,117 @@
                     cityName: baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1)),
                     people: [],
                     tools: [],
-                    recruited: recruitedNames
+                    recruited: recruitedNames,
+                    executed: [],
+                    exiled: []
                 });
             }
         });
         return {count: recruited, cities: cityResults};
+    }
+
+    /**
+     * 处斩指定我方城池中的全部俘虏，并按原版规则把装备收入俘虏所在城池。
+     * 人物队列会在删除时整体移动，因此每座城先读取稳定快照，再逐个删除。
+     *
+     * @return {{count:number,cities:Array<Object>,label:string}} 处理统计。
+     */
+    function executeCaptives(context, cityEntries) {
+        var count = 0;
+        var cityResults = [];
+        cityEntries.forEach(function (cityEntry) {
+            var executedNames = [];
+            cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
+                var captive = context.people[personIndex];
+                if (!captive || captive.Belong !== CAPTIVE_BELONG) return;
+                executedNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
+                if (captive.Tool1 > 0) {
+                    baye.putToolInCity(cityEntry.index, captive.Tool1 - 1, false);
+                }
+                if (captive.Tool2 > 0) {
+                    baye.putToolInCity(cityEntry.index, captive.Tool2 - 1, false);
+                }
+                baye.deletePersonInCity(cityEntry.index, personIndex);
+                count++;
+            });
+            if (executedNames.length) {
+                cityResults.push({
+                    cityName: baye.getCityName(cityEntry.index) ||
+                        ('城池 ' + (cityEntry.index + 1)),
+                    people: [],
+                    tools: [],
+                    recruited: [],
+                    executed: executedNames,
+                    exiled: []
+                });
+            }
+        });
+        return {count: count, cities: cityResults, label: '处斩'};
+    }
+
+    /**
+     * 流放指定我方城池中的全部俘虏。
+     *
+     * 优先放入非我方城池，避免紧接着执行的我方全城搜索把刚流放的人再次归属我方。
+     * 地图已没有非我方城池时保留俘虏，避免构造无法维持“在野”状态的伪流放。
+     *
+     * @return {{count:number,cities:Array<Object>,label:string}} 处理统计。
+     */
+    function exileCaptives(context, cityEntries) {
+        var destinations = [];
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            if (context.cities[cityIndex].Belong !== context.ruler) destinations.push(cityIndex);
+        }
+        if (!destinations.length) return {count: 0, cities: [], label: '流放'};
+        var occupiedDestinations = destinations.filter(function (cityIndex) {
+            return context.cities[cityIndex].Persons > 0;
+        });
+        if (occupiedDestinations.length) destinations = occupiedDestinations;
+
+        var count = 0;
+        var cityResults = [];
+        cityEntries.forEach(function (cityEntry) {
+            var exiledNames = [];
+            cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
+                var captive = context.people[personIndex];
+                if (!captive || captive.Belong !== CAPTIVE_BELONG) return;
+                exiledNames.push(
+                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
+                );
+                captive.Belong = 0;
+                baye.deletePersonInCity(cityEntry.index, personIndex);
+                var destination = destinations[Math.floor(Math.random() * destinations.length)];
+                baye.putPersonInCity(destination, personIndex);
+                count++;
+            });
+            if (exiledNames.length) {
+                cityResults.push({
+                    cityName: baye.getCityName(cityEntry.index) ||
+                        ('城池 ' + (cityEntry.index + 1)),
+                    people: [],
+                    tools: [],
+                    recruited: [],
+                    executed: [],
+                    exiled: exiledNames
+                });
+            }
+        });
+        return {count: count, cities: cityResults, label: '流放'};
+    }
+
+    /** 按持久化选择处理战后全部俘虏。 */
+    function processPostBattleCaptives(context) {
+        if (cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXECUTE) {
+            return executeCaptives(context, context.ownedCities);
+        }
+        if (cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXILE) {
+            return exileCaptives(context, context.ownedCities);
+        }
+        var recruited = recruitCaptives(context, context.ownedCities);
+        recruited.label = '招降';
+        return recruited;
     }
 
     /**
@@ -937,19 +1080,19 @@
             return;
         }
         var cityCount = maximizeOwnedCities(context);
-        var recruited = recruitCaptives(context, context.ownedCities);
+        var captiveResult = processPostBattleCaptives(context);
         var source = battleSource && battleSource.source ? battleSource.source : '战后自动';
         var searched = searchAllOwnedCities(
             context,
             source,
-            recruited.cities,
+            captiveResult.cities,
             battleSource || null
         );
-        if (recruited.count + searched.people + searched.tools === 0) return;
+        if (captiveResult.count + searched.people + searched.tools === 0) return;
         postSystemNotice(
             true,
-            source + '，战后自动处理完成：拉满 ' + cityCount + ' 座城池，招降 ' +
-            recruited.count +
+            source + '，战后自动处理完成：拉满 ' + cityCount + ' 座城池，' +
+            captiveResult.label + ' ' + captiveResult.count +
             ' 人，搜出隐藏人物 ' + searched.people + ' 名、隐藏物品 ' + searched.tools +
             ' 件；详细人物和物品请查看搜索记录'
         );
@@ -3020,20 +3163,30 @@
                         : '战后自动处理已关闭'
                 );
             }
+            if (action === 'sgby_post_battle_captive_action') {
+                var captiveAction = parameters.mode;
+                if (
+                    captiveAction !== CAPTIVE_ACTION_RECRUIT &&
+                    captiveAction !== CAPTIVE_ACTION_EXECUTE &&
+                    captiveAction !== CAPTIVE_ACTION_EXILE
+                ) {
+                    return result(false, '俘虏处理方式无效');
+                }
+                cheatState.postBattleCaptiveAction = captiveAction;
+                savePersistentCheatState();
+                var captiveActionLabel = captiveAction === CAPTIVE_ACTION_EXECUTE
+                    ? '处斩'
+                    : captiveAction === CAPTIVE_ACTION_EXILE ? '流放' : '招降';
+                return result(true, '战后俘虏处理方式已设为' + captiveActionLabel);
+            }
             if (action === 'sgby_execute_captives') {
                 var executeCity = selectedOwnedCity(context);
                 if (!executeCity) return result(false, '请先在主地图选中一座我方城池');
-                var captives = cityPersonIndexes(context, executeCity).filter(function (personIndex) {
-                    var person = context.people[personIndex];
-                    return person && person.Belong === CAPTIVE_BELONG;
-                });
-                captives.forEach(function (personIndex) {
-                    var captive = context.people[personIndex];
-                    if (captive.Tool1 > 0) baye.putToolInCity(executeCity.index, captive.Tool1 - 1, false);
-                    if (captive.Tool2 > 0) baye.putToolInCity(executeCity.index, captive.Tool2 - 1, false);
-                    baye.deletePersonInCity(executeCity.index, personIndex);
-                });
-                return result(true, '已处斩当前城池全部俘虏，共 ' + captives.length + ' 名，装备已收入城池');
+                var executed = executeCaptives(context, [executeCity]);
+                return result(
+                    true,
+                    '已处斩当前城池全部俘虏，共 ' + executed.count + ' 名，装备已收入城池'
+                );
             }
             if (action === 'sgby_invincible') {
                 cheatState.invincible = !cheatState.invincible;
@@ -3168,6 +3321,12 @@
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
             battleSpeed4x: cheatState.battleSpeedMultiplier === 4,
             postBattleAutomation: cheatState.postBattleAutomation,
+            postBattleCaptiveRecruit:
+                cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_RECRUIT,
+            postBattleCaptiveExecute:
+                cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXECUTE,
+            postBattleCaptiveExile:
+                cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXILE,
             factionColors: cheatState.factionColors
         });
     }

@@ -490,6 +490,11 @@ function apply(api, action) {
   apply(first.api, 'sgby_wide_group_attack');
   apply(first.api, 'sgby_max_all');
   apply(first.api, 'sgby_post_battle_automation');
+  const captiveActionResult = JSON.parse(first.api.applyCheat(
+    'sgby_post_battle_captive_action',
+    {mode: 'execute'},
+  ));
+  assert.equal(captiveActionResult.ok, true, captiveActionResult.message);
   const autoBattleResult = JSON.parse(first.api.handleControl('autoBattle'));
   assert.equal(autoBattleResult.ok, true, autoBattleResult.message);
   first.api.handleControl('toggleBattleSpeed');
@@ -504,12 +509,22 @@ function apply(api, action) {
   assert.equal(restoredState.wideGroupAttack, true);
   assert.equal(restoredState.autoMaxCities, true);
   assert.equal(restoredState.postBattleAutomation, true);
+  assert.equal(restoredState.postBattleCaptiveExecute, true);
+  assert.equal(restoredState.postBattleCaptiveRecruit, false);
   assert.equal(restoredState.autoBattle, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
   assert.equal(second.people[0].Force, 100);
   assert.equal(second.people[0].Arms, 65535);
+}
+
+{
+  const {api} = createHarness();
+  const state = JSON.parse(api.getCheatState());
+  assert.equal(state.postBattleCaptiveRecruit, true);
+  assert.equal(state.postBattleCaptiveExecute, false);
+  assert.equal(state.postBattleCaptiveExile, false);
 }
 
 {
@@ -870,12 +885,16 @@ function apply(api, action) {
     people: ['武将2'],
     tools: ['物品3'],
     recruited: [],
+    executed: [],
+    exiled: [],
   });
   assert.deepEqual(firstHistory.records[0].cities[1], {
     cityName: '城池3',
     people: ['武将6'],
     tools: ['物品7'],
     recruited: [],
+    executed: [],
+    exiled: [],
   });
 
   const restoredHarness = createHarness(sharedStorage);
@@ -1021,6 +1040,63 @@ function apply(api, action) {
   context.sendKey(0x27);
   context.sendKey(0x28);
   assert.deepEqual(sentKeys.slice(-2), [0x28, 0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people, returnedTools} = harness;
+  apply(api, 'sgby_post_battle_automation');
+  const actionResult = JSON.parse(api.applyCheat(
+    'sgby_post_battle_captive_action',
+    {mode: 'execute'},
+  ));
+  assert.equal(actionResult.ok, true, actionResult.message);
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  assert.equal(data.g_PersonsQueue.includes(3), false);
+  assert.equal(returnedTools.some((entry) => entry.tool === 4), true);
+  assert.equal(returnedTools.some((entry) => entry.tool === 5), true);
+  assert.equal(people[3].Belong, 0xffff);
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].executedCount, 1);
+  assert.deepEqual(history.records[0].cities[0].executed, ['武将3']);
+  assert.equal(history.records[0].recruitedCount, 0);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people} = harness;
+  apply(api, 'sgby_post_battle_automation');
+  const actionResult = JSON.parse(api.applyCheat(
+    'sgby_post_battle_captive_action',
+    {mode: 'exile'},
+  ));
+  assert.equal(actionResult.ok, true, actionResult.message);
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  assert.equal(people[3].Belong, 0);
+  const sourceCityPeople = data.g_PersonsQueue.slice(
+    data.g_Cities[0].PersonQueue,
+    data.g_Cities[0].PersonQueue + data.g_Cities[0].Persons,
+  );
+  assert.equal(sourceCityPeople.includes(3), false);
+  const destinationCities = data.g_Cities
+    .filter((city) => city.Belong !== 1)
+    .map((city) => data.g_PersonsQueue.slice(
+      city.PersonQueue,
+      city.PersonQueue + city.Persons,
+    ));
+  assert.equal(destinationCities.some((indexes) => indexes.includes(3)), true);
+  const history = JSON.parse(api.getSearchHistory());
+  assert.equal(history.records[0].exiledCount, 1);
+  assert.deepEqual(history.records[0].cities[0].exiled, ['武将3']);
+  assert.equal(history.records[0].recruitedCount, 0);
 }
 
 console.log('三国霸业增强回归测试通过');

@@ -22,6 +22,37 @@ class _CheatOption {
   final String? stateKey;
 }
 
+/// 战后自动处理使用的俘虏处置方式。
+enum _PostBattleCaptiveAction {
+  recruit('recruit', '招降', Icons.group_add_outlined, '全部归属我方，忠诚设为 100'),
+  execute('execute', '处斩', Icons.gavel, '永久移除俘虏，装备收入原所在城池'),
+  exile('exile', '流放', Icons.exit_to_app, '改为在野并移至非我方城池');
+
+  const _PostBattleCaptiveAction(
+    this.wireValue,
+    this.label,
+    this.icon,
+    this.description,
+  );
+
+  final String wireValue;
+  final String label;
+  final IconData icon;
+  final String description;
+}
+
+_PostBattleCaptiveAction _postBattleCaptiveActionFromState(
+  Map<String, bool> state,
+) {
+  if (state['postBattleCaptiveExecute'] == true) {
+    return _PostBattleCaptiveAction.execute;
+  }
+  if (state['postBattleCaptiveExile'] == true) {
+    return _PostBattleCaptiveAction.exile;
+  }
+  return _PostBattleCaptiveAction.recruit;
+}
+
 OverlayEntry? _activeCheatToast;
 Timer? _activeCheatToastTimer;
 
@@ -125,7 +156,7 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'sgby_post_battle_automation',
         title: '战后自动处理',
-        description: '每次战斗结算后自动拉满全部城池、招降全部俘虏并搜索全部隐藏内容',
+        description: '每次战斗结算后自动拉满全部城池，按所选方式处理俘虏并搜索隐藏内容',
         icon: Icons.auto_mode,
         stateKey: 'postBattleAutomation',
       ),
@@ -250,6 +281,7 @@ Future<void> showGameCheatSheet(
   };
 
   var cheatState = await viewModel.getCheatState();
+  var postBattleCaptiveAction = _postBattleCaptiveActionFromState(cheatState);
   if (!context.mounted) return;
   final hostContext = context;
 
@@ -261,6 +293,29 @@ Future<void> showGameCheatSheet(
       String? runningAction;
       return StatefulBuilder(
         builder: (sheetContext, setSheetState) {
+          Future<void> setPostBattleCaptiveAction(
+            _PostBattleCaptiveAction action,
+          ) async {
+            setSheetState(
+              () => runningAction = 'sgby_post_battle_captive_action',
+            );
+            final result = await viewModel.applyCheat(
+              'sgby_post_battle_captive_action',
+              parameters: <String, Object?>{'mode': action.wireValue},
+            );
+            if (!sheetContext.mounted) return;
+            final latestState = await viewModel.getCheatState();
+            if (!sheetContext.mounted) return;
+            setSheetState(() {
+              runningAction = null;
+              cheatState = latestState;
+              postBattleCaptiveAction = _postBattleCaptiveActionFromState(
+                latestState,
+              );
+            });
+            showCheatToast(hostContext, result);
+          }
+
           return SafeArea(
             top: false,
             child: ConstrainedBox(
@@ -341,6 +396,8 @@ Future<void> showGameCheatSheet(
                           setSheetState(() {
                             runningAction = null;
                             cheatState = latestState;
+                            postBattleCaptiveAction =
+                                _postBattleCaptiveActionFromState(latestState);
                           });
                           showCheatToast(
                             hostContext,
@@ -351,7 +408,7 @@ Future<void> showGameCheatSheet(
                           );
                         }
 
-                        return ListTile(
+                        final optionTile = ListTile(
                           leading: Icon(option.icon),
                           title: Text(option.title),
                           subtitle: Text(option.description),
@@ -372,6 +429,55 @@ Future<void> showGameCheatSheet(
                               : const Icon(Icons.chevron_right),
                           enabled: runningAction == null,
                           onTap: runOption,
+                        );
+                        if (option.action != 'sgby_post_battle_automation') {
+                          return optionTile;
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            optionTile,
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SegmentedButton<_PostBattleCaptiveAction>(
+                                    segments: _PostBattleCaptiveAction.values
+                                        .map(
+                                          (action) => ButtonSegment(
+                                            value: action,
+                                            icon: Icon(action.icon),
+                                            label: Text(action.label),
+                                          ),
+                                        )
+                                        .toList(growable: false),
+                                    selected: <_PostBattleCaptiveAction>{
+                                      postBattleCaptiveAction,
+                                    },
+                                    onSelectionChanged: runningAction == null
+                                        ? (selection) {
+                                            if (selection.isNotEmpty) {
+                                              unawaited(
+                                                setPostBattleCaptiveAction(
+                                                  selection.first,
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        : null,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    postBattleCaptiveAction.description,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         );
                       },
                     ),
@@ -834,7 +940,8 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['autoMaxGenerals'] == true) '武将自动满属性',
       if (state['autoMaxCities'] == true) '自动拉满与搜索',
       if (state['foodProtection'] == true) '粮草保护',
-      if (state['postBattleAutomation'] == true) '战后自动处理',
+      if (state['postBattleAutomation'] == true)
+        '战后自动处理（${_postBattleCaptiveActionFromState(state).label}）',
     ];
     return DecoratedBox(
       decoration: const BoxDecoration(
