@@ -55,6 +55,14 @@
     var PLAYER_UNIT_MARKER_ALPHA = 0x80;
     var PLAYER_UNIT_RED = [211, 47, 47];
     var CITY_ROAD_COLOR = [126, 132, 138];
+    var CITY_COUNT_COLOR = [255, 255, 255];
+    var CITY_COUNT_SHADOW_COLOR = [0, 0, 0];
+    // 3×5 点阵字体；每一项的低三位依次表示该行从左到右的三个像素。
+    var CITY_COUNT_DIGITS = [
+        [7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 7, 1, 7],
+        [5, 5, 7, 1, 1], [7, 4, 7, 1, 7], [7, 4, 7, 5, 7], [7, 1, 1, 1, 1],
+        [7, 5, 7, 5, 7], [7, 5, 7, 1, 7]
+    ];
     var ATTACK_SUBDUE_MODIFIERS = [
         [1.0, 1.2, 0.8, 1.0, 0.7, 1.3],
         [0.8, 1.0, 1.2, 1.0, 0.6, 1.2],
@@ -1791,6 +1799,111 @@
     }
 
     /**
+     * 统计一座城池中归属于该城势力的在任武将数量。
+     *
+     * `City.Persons` 还包含俘虏和隐藏在野人物，直接展示会夸大实际守城力量，也会泄露
+     * 尚未搜索到的人物。因此这里按城市人物队列和人物归属逐个计数；空城固定显示 0。
+     *
+     * @param {Object} context 地图数据上下文。
+     * @param {Object} city 城池数据。
+     * @return {number} 当前在任武将数量。
+     */
+    function cityGeneralCount(context, city) {
+        var belong = Number(city.Belong);
+        var queue = context.data.g_PersonsQueue;
+        var people = context.data.g_Persons;
+        if (!Number.isInteger(belong) || belong <= 0 || !queue || !people) return 0;
+        var start = Number(city.PersonQueue);
+        var total = Number(city.Persons);
+        if (!Number.isInteger(start) || !Number.isInteger(total) || start < 0 || total < 0) {
+            return 0;
+        }
+        var count = 0;
+        for (var offset = 0; offset < total; offset++) {
+            var personIndex = Number(queue[start + offset]);
+            var person = Number.isInteger(personIndex) ? people[personIndex] : null;
+            if (person && Number(person.Belong) === belong) count++;
+        }
+        return count;
+    }
+
+    /**
+     * 在每座可见城池图标上方绘制小号武将人数。
+     *
+     * 使用点阵而不是 Canvas 字体，保证不同 WebView、分辨率倍率和系统字体下字形稳定。
+     * 先绘制右下黑色阴影，再绘制白色正文；数字限制为三位，避免异常数据越过 16×16
+     * 城池网格。函数直接处理当前帧缓冲，不创建临时 Canvas，也不引入额外刷新任务。
+     *
+     * @return {number} 实际写入的物理像素数量。
+     */
+    function drawCityGeneralCounts(pixels, pixelWidth, pixelHeight, scaleX, scaleY) {
+        var context = mapContext();
+        if (!context || !context.data.g_PersonsQueue || !context.data.g_Persons) return 0;
+        var visibleColumns = Math.floor((global.lcdWidth + 1) / 16) - 2;
+        var visibleRows = Math.floor(global.lcdHeight / 16);
+        var viewport = context.data.g_CityPos;
+        var mapPixelWidth = Math.min(pixelWidth, Math.round(visibleColumns * 16 * scaleX));
+        var mapPixelHeight = Math.min(pixelHeight, Math.round(visibleRows * 16 * scaleY));
+        var painted = 0;
+
+        function paintLogicalPixel(logicalX, logicalY, color) {
+            var startX = Math.max(0, Math.floor(logicalX * scaleX));
+            var startY = Math.max(0, Math.floor(logicalY * scaleY));
+            var endX = Math.min(mapPixelWidth, Math.ceil((logicalX + 1) * scaleX));
+            var endY = Math.min(mapPixelHeight, Math.ceil((logicalY + 1) * scaleY));
+            for (var y = startY; y < endY; y++) {
+                for (var x = startX; x < endX; x++) {
+                    var pixelOffset = (y * pixelWidth + x) * 4;
+                    pixels[pixelOffset] = color[0];
+                    pixels[pixelOffset + 1] = color[1];
+                    pixels[pixelOffset + 2] = color[2];
+                    pixels[pixelOffset + 3] = 255;
+                    painted++;
+                }
+            }
+        }
+
+        function paintText(text, startX, startY, offsetX, offsetY, color) {
+            for (var digitIndex = 0; digitIndex < text.length; digitIndex++) {
+                var glyph = CITY_COUNT_DIGITS[Number(text.charAt(digitIndex))];
+                if (!glyph) continue;
+                for (var row = 0; row < glyph.length; row++) {
+                    for (var column = 0; column < 3; column++) {
+                        if (glyph[row] & (1 << (2 - column))) {
+                            paintLogicalPixel(
+                                startX + digitIndex * 4 + column + offsetX,
+                                startY + row + offsetY,
+                                color
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            var position = context.data.g_CityPositions[cityIndex];
+            if (!position) continue;
+            var relativeX = position.x - viewport.x;
+            var relativeY = position.y - viewport.y;
+            if (
+                relativeX < 0 || relativeY < 0 ||
+                relativeX >= visibleColumns || relativeY >= visibleRows
+            ) {
+                continue;
+            }
+            var count = Math.min(999, cityGeneralCount(context, context.cities[cityIndex]));
+            var text = String(count);
+            var textWidth = text.length * 3 + text.length - 1;
+            var startX = relativeX * 16 + Math.floor((16 - textWidth) / 2);
+            var startY = Math.max(0, relativeY * 16 - 2);
+            paintText(text, startX, startY, 1, 1, CITY_COUNT_SHADOW_COLOR);
+            paintText(text, startX, startY, 0, 0, CITY_COUNT_COLOR);
+        }
+        return painted;
+    }
+
+    /**
      * 将我方战场单位使用的专用灰阶标记转换为红色。
      *
      * 原引擎只有单色调色板。绘制我方单位时先使用不会出现在原版画面中的 0x80 调色值，
@@ -1864,6 +1977,15 @@
             }
             if (cheatState.factionColors) {
                 colorizePixelData(
+                    image.data,
+                    canvas.width,
+                    canvas.height,
+                    scaleX,
+                    scaleY
+                );
+            }
+            if (cheatState.mainMapRoadsVisible) {
+                drawCityGeneralCounts(
                     image.data,
                     canvas.width,
                     canvas.height,
@@ -2039,9 +2161,14 @@
             global.bayeFlushLcdBuffer = function (buffer) {
                 var shouldColorCities = cheatState.factionColors && cheatState.mainMapVisible;
                 var shouldDrawRoads = cheatState.mainMapVisible && cheatState.mainMapRoadsVisible;
+                var shouldDrawCityCounts = cheatState.mainMapVisible &&
+                    cheatState.mainMapRoadsVisible;
                 var shouldColorBattle = global.baye && baye.data && isBattleActive(baye.data);
                 if (
-                    (shouldColorCities || shouldDrawRoads || shouldColorBattle) &&
+                    (
+                        shouldColorCities || shouldDrawRoads ||
+                        shouldDrawCityCounts || shouldColorBattle
+                    ) &&
                     typeof wasmMemory !== 'undefined' &&
                     global.lcdWidth && global.lcdHeight && global.dotSize
                 ) {
@@ -2064,6 +2191,15 @@
                         }
                         if (shouldColorCities) {
                             colorizePixelData(
+                                pixels,
+                                width,
+                                height,
+                                global.dotSize,
+                                global.dotSize
+                            );
+                        }
+                        if (shouldDrawCityCounts) {
+                            drawCityGeneralCounts(
                                 pixels,
                                 width,
                                 height,

@@ -377,6 +377,19 @@ function createHarness(storage = new Map(), options = {}) {
     Array.from(pixels.slice(roadOutlineOffset, roadOutlineOffset + 4)),
     [0, 0, 0, 255],
   );
+  // 城池 0 的队列共有 4 人，但只有武将 0、1 归属该城势力；数字应显示为 2。
+  const cityCountTopOffset = (0 * 160 + 6) * 4;
+  const cityCountBottomLeftOffset = (3 * 160 + 6) * 4;
+  assert.deepEqual(
+    Array.from(pixels.slice(cityCountTopOffset, cityCountTopOffset + 4)),
+    [255, 255, 255, 255],
+  );
+  assert.deepEqual(
+    Array.from(
+      pixels.slice(cityCountBottomLeftOffset, cityCountBottomLeftOffset + 4),
+    ),
+    [255, 255, 255, 255],
+  );
 
   pixels.set([0, 0, 0, 255], cityOffset);
   context.sendKey(0x27);
