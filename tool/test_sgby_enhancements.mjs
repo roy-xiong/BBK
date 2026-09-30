@@ -123,6 +123,8 @@ function createHarness(storage = new Map(), options = {}) {
       maxLevel: 20,
       ratioOfFoodToArmsPerMouth: 50,
       aiWorldActivity: 25,
+      battleLoserOutcome: 0,
+      autoBattleDefense: 0,
     },
     g_FgtParam: {
       Mode: 1,
@@ -495,8 +497,20 @@ function apply(api, action) {
     {mode: 'execute'},
   ));
   assert.equal(captiveActionResult.ok, true, captiveActionResult.message);
+  const searchOutcomeResult = JSON.parse(first.api.applyCheat(
+    'sgby_search_outcome',
+    {mode: 'none'},
+  ));
+  assert.equal(searchOutcomeResult.ok, true, searchOutcomeResult.message);
+  const loserOutcomeResult = JSON.parse(first.api.applyCheat(
+    'sgby_battle_loser_outcome',
+    {mode: 'death'},
+  ));
+  assert.equal(loserOutcomeResult.ok, true, loserOutcomeResult.message);
   const autoBattleResult = JSON.parse(first.api.handleControl('autoBattle'));
   assert.equal(autoBattleResult.ok, true, autoBattleResult.message);
+  assert.equal(first.data.g_engineConfig.autoBattleDefense, 1);
+  assert.equal(first.data.g_engineConfig.battleLoserOutcome, 1);
   first.api.handleControl('toggleBattleSpeed');
 
   const second = createHarness(sharedStorage);
@@ -511,12 +525,18 @@ function apply(api, action) {
   assert.equal(restoredState.postBattleAutomation, true);
   assert.equal(restoredState.postBattleCaptiveExecute, true);
   assert.equal(restoredState.postBattleCaptiveRecruit, false);
+  assert.equal(restoredState.searchOutcomeNone, true);
+  assert.equal(restoredState.searchOutcomeAll, false);
+  assert.equal(restoredState.battleLoserOutcomeDeath, true);
+  assert.equal(restoredState.battleLoserOutcomeOriginal, false);
   assert.equal(restoredState.autoBattle, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
   assert.equal(second.people[0].Force, 100);
   assert.equal(second.people[0].Arms, 65535);
+  assert.equal(second.data.g_engineConfig.autoBattleDefense, 1);
+  assert.equal(second.data.g_engineConfig.battleLoserOutcome, 1);
 }
 
 {
@@ -525,6 +545,33 @@ function apply(api, action) {
   assert.equal(state.postBattleCaptiveRecruit, true);
   assert.equal(state.postBattleCaptiveExecute, false);
   assert.equal(state.postBattleCaptiveExile, false);
+  assert.equal(state.searchOutcomeAll, true);
+  assert.equal(state.searchOutcomeNone, false);
+  assert.equal(state.battleLoserOutcomeOriginal, true);
+  assert.equal(state.battleLoserOutcomeDeath, false);
+}
+
+{
+  const harness = createHarness();
+  const noneResult = JSON.parse(harness.api.applyCheat(
+    'sgby_search_outcome',
+    {mode: 'none'},
+  ));
+  assert.equal(noneResult.ok, true, noneResult.message);
+  apply(harness.api, 'sgby_search_city');
+  assert.equal(harness.people[2].Belong, 0);
+  assert.equal(harness.data.g_GoodsQueue[0], 3);
+  assert.equal(JSON.parse(harness.api.getSearchHistory()).records.length, 0);
+
+  const allResult = JSON.parse(harness.api.applyCheat(
+    'sgby_search_outcome',
+    {mode: 'all'},
+  ));
+  assert.equal(allResult.ok, true, allResult.message);
+  apply(harness.api, 'sgby_search_city');
+  assert.equal(harness.people[2].Belong, 1);
+  assert.equal(harness.data.g_GoodsQueue[0], 0x8003);
+  assert.equal(JSON.parse(harness.api.getSearchHistory()).records.length, 1);
 }
 
 {

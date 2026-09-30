@@ -21,6 +21,13 @@
     var CAPTIVE_ACTION_RECRUIT = 'recruit';
     var CAPTIVE_ACTION_EXECUTE = 'execute';
     var CAPTIVE_ACTION_EXILE = 'exile';
+    var SEARCH_OUTCOME_NONE = 'none';
+    var SEARCH_OUTCOME_ALL = 'all';
+    var BATTLE_LOSER_OUTCOME_ORIGINAL = 'original';
+    var BATTLE_LOSER_OUTCOME_DEATH = 'death';
+    var BATTLE_LOSER_OUTCOME_CAPTIVE = 'captive';
+    var BATTLE_LOSER_OUTCOME_ESCAPE = 'escape';
+    var BATTLE_LOSER_OUTCOME_WILD = 'wild';
     var FOUND_GOODS_MASK = 0x8000;
     var MOVEMENT_TERRAIN_COST = 0x81;
     var BATTLE_COMMAND = 27;
@@ -87,6 +94,8 @@
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
         postBattleCaptiveAction: resolvePostBattleCaptiveAction(persistedCheatState),
+        searchOutcome: resolveSearchOutcome(persistedCheatState),
+        battleLoserOutcome: resolveBattleLoserOutcome(persistedCheatState),
         factionColors: typeof persistedCheatState.factionColors === 'boolean'
             ? persistedCheatState.factionColors
             : loadFactionColorSetting(),
@@ -203,11 +212,65 @@
         return CAPTIVE_ACTION_RECRUIT;
     }
 
+    /**
+     * 兼容读取作弊搜索结果。旧版本固定搜出全部内容，因此缺失字段时保持原行为。
+     *
+     * @param {Object} state 本地持久状态。
+     * @return {string} none 或 all。
+     */
+    function resolveSearchOutcome(state) {
+        return state.searchOutcome === SEARCH_OUTCOME_NONE
+            ? SEARCH_OUTCOME_NONE
+            : SEARCH_OUTCOME_ALL;
+    }
+
+    /**
+     * 兼容读取战败武将处理方式。缺失或损坏的数据必须回退原版算法，避免静默改写存档。
+     *
+     * @param {Object} state 本地持久状态。
+     * @return {string} 已校验的战败处理方式。
+     */
+    function resolveBattleLoserOutcome(state) {
+        var outcome = state.battleLoserOutcome;
+        if (
+            outcome === BATTLE_LOSER_OUTCOME_DEATH ||
+            outcome === BATTLE_LOSER_OUTCOME_CAPTIVE ||
+            outcome === BATTLE_LOSER_OUTCOME_ESCAPE ||
+            outcome === BATTLE_LOSER_OUTCOME_WILD
+        ) {
+            return outcome;
+        }
+        return BATTLE_LOSER_OUTCOME_ORIGINAL;
+    }
+
+    /**
+     * 把需要在 C 核心生效的持续作弊同步到引擎配置。
+     *
+     * 字段检测允许新版增强脚本配合旧 WASM 启动；此时只是不启用核心作弊，不会写入
+     * 未知内存。自动守城与自动战斗共用一个持久开关，关闭后立即恢复手动选择守将。
+     */
+    function syncEngineCheatSettings() {
+        if (!global.baye || !baye.data || !baye.data.g_engineConfig) return;
+        var config = baye.data.g_engineConfig;
+        if (typeof config.autoBattleDefense !== 'undefined') {
+            config.autoBattleDefense = cheatState.autoBattle ? 1 : 0;
+        }
+        if (typeof config.battleLoserOutcome !== 'undefined') {
+            var values = {};
+            values[BATTLE_LOSER_OUTCOME_ORIGINAL] = 0;
+            values[BATTLE_LOSER_OUTCOME_DEATH] = 1;
+            values[BATTLE_LOSER_OUTCOME_CAPTIVE] = 2;
+            values[BATTLE_LOSER_OUTCOME_ESCAPE] = 3;
+            values[BATTLE_LOSER_OUTCOME_WILD] = 4;
+            config.battleLoserOutcome = values[cheatState.battleLoserOutcome] || 0;
+        }
+    }
+
     /** 将持续作弊开关写入本地存储，不保存临时锁和 Hook 运行状态。 */
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 2,
+                version: 3,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -220,6 +283,8 @@
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
                 postBattleCaptiveAction: cheatState.postBattleCaptiveAction,
+                searchOutcome: cheatState.searchOutcome,
+                battleLoserOutcome: cheatState.battleLoserOutcome,
                 factionColors: cheatState.factionColors
             }));
         } catch (_) {
@@ -678,7 +743,6 @@
      * @return {{people:number, tools:number, cities:Array<Object>}} 搜索结果统计。
      */
     function searchAllOwnedCities(context, source, recruitedCities, battleSource) {
-        materializeFutureGenerals(context);
         var foundPeople = 0;
         var foundTools = 0;
         var cityResults = [];
@@ -705,6 +769,11 @@
             resultEntry.executed = (entry.executed || []).slice();
             resultEntry.exiled = (entry.exiled || []).slice();
         });
+        if (cheatState.searchOutcome === SEARCH_OUTCOME_NONE) {
+            appendSearchHistory(context, source, cityResults, battleSource);
+            return {people: 0, tools: 0, cities: cityResults};
+        }
+        materializeFutureGenerals(context);
         context.ownedCities.forEach(function (cityEntry) {
             var cityName = baye.getCityName(cityEntry.index) || ('城池 ' + (cityEntry.index + 1));
             var personNames = [];
@@ -964,6 +1033,7 @@
 
     /** 在新开局、载入存档或脚本初始化后重新应用需要写入人物数据的持续作弊。 */
     function applyPersistentGeneralEffects() {
+        syncEngineCheatSettings();
         if (!cheatState.autoMaxGenerals) return;
         var context = gameContext();
         if (!context) return;
@@ -3011,6 +3081,7 @@
         if (action === 'autoBattle') {
             cheatState.autoBattle = !cheatState.autoBattle;
             syncAutoBattleChooseActionHook();
+            syncEngineCheatSettings();
             savePersistentCheatState();
             if (cheatState.autoBattle && cheatState.autoBattlePlayerStage) {
                 beginAutoBattlePlayerTurn();
@@ -3139,6 +3210,23 @@
                     '搜索完成：' + formatSearchDetails(searchResult.cities)
                 );
             }
+            if (action === 'sgby_search_outcome') {
+                var searchOutcome = parameters.mode;
+                if (
+                    searchOutcome !== SEARCH_OUTCOME_NONE &&
+                    searchOutcome !== SEARCH_OUTCOME_ALL
+                ) {
+                    return result(false, '搜索结果模式无效');
+                }
+                cheatState.searchOutcome = searchOutcome;
+                savePersistentCheatState();
+                return result(
+                    true,
+                    searchOutcome === SEARCH_OUTCOME_ALL
+                        ? '搜索结果已设为全部搜到'
+                        : '搜索结果已设为一个都搜不到'
+                );
+            }
             if (action === 'sgby_recruit_captives') {
                 var recruitCity = selectedOwnedCity(context);
                 if (!recruitCity) return result(false, '请先在主地图选中一座我方城池');
@@ -3178,6 +3266,28 @@
                     ? '处斩'
                     : captiveAction === CAPTIVE_ACTION_EXILE ? '流放' : '招降';
                 return result(true, '战后俘虏处理方式已设为' + captiveActionLabel);
+            }
+            if (action === 'sgby_battle_loser_outcome') {
+                var loserOutcome = parameters.mode;
+                if (
+                    loserOutcome !== BATTLE_LOSER_OUTCOME_ORIGINAL &&
+                    loserOutcome !== BATTLE_LOSER_OUTCOME_DEATH &&
+                    loserOutcome !== BATTLE_LOSER_OUTCOME_CAPTIVE &&
+                    loserOutcome !== BATTLE_LOSER_OUTCOME_ESCAPE &&
+                    loserOutcome !== BATTLE_LOSER_OUTCOME_WILD
+                ) {
+                    return result(false, '战败武将处理方式无效');
+                }
+                cheatState.battleLoserOutcome = loserOutcome;
+                syncEngineCheatSettings();
+                savePersistentCheatState();
+                var loserOutcomeLabels = {};
+                loserOutcomeLabels[BATTLE_LOSER_OUTCOME_ORIGINAL] = '原版算法';
+                loserOutcomeLabels[BATTLE_LOSER_OUTCOME_DEATH] = '必定战死';
+                loserOutcomeLabels[BATTLE_LOSER_OUTCOME_CAPTIVE] = '必定被俘';
+                loserOutcomeLabels[BATTLE_LOSER_OUTCOME_ESCAPE] = '必定逃跑';
+                loserOutcomeLabels[BATTLE_LOSER_OUTCOME_WILD] = '必定在野';
+                return result(true, '战败武将处理已设为' + loserOutcomeLabels[loserOutcome]);
             }
             if (action === 'sgby_execute_captives') {
                 var executeCity = selectedOwnedCity(context);
@@ -3327,6 +3437,18 @@
                 cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXECUTE,
             postBattleCaptiveExile:
                 cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXILE,
+            searchOutcomeAll: cheatState.searchOutcome === SEARCH_OUTCOME_ALL,
+            searchOutcomeNone: cheatState.searchOutcome === SEARCH_OUTCOME_NONE,
+            battleLoserOutcomeOriginal:
+                cheatState.battleLoserOutcome === BATTLE_LOSER_OUTCOME_ORIGINAL,
+            battleLoserOutcomeDeath:
+                cheatState.battleLoserOutcome === BATTLE_LOSER_OUTCOME_DEATH,
+            battleLoserOutcomeCaptive:
+                cheatState.battleLoserOutcome === BATTLE_LOSER_OUTCOME_CAPTIVE,
+            battleLoserOutcomeEscape:
+                cheatState.battleLoserOutcome === BATTLE_LOSER_OUTCOME_ESCAPE,
+            battleLoserOutcomeWild:
+                cheatState.battleLoserOutcome === BATTLE_LOSER_OUTCOME_WILD,
             factionColors: cheatState.factionColors
         });
     }

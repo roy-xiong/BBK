@@ -1,24 +1,28 @@
 diff --git a/src/baye/attribute.h b/src/baye/attribute.h
-index 3898b16..91b054d 100644
+index 3898b16..08c66b7 100644
 --- a/src/baye/attribute.h
 +++ b/src/baye/attribute.h
-@@ -238,6 +238,7 @@ typedef struct {
+@@ -238,6 +238,9 @@ typedef struct {
      U8 cacheCustomFont;     // 缓存自定义字体
  
      Theme theme; // 主题
 +    U8 aiWorldActivity;     // AI世界活跃度（0~100，25保持原版策略频率）
++    U8 battleLoserOutcome;  // 战败武将处理：0原版、1必死、2必被俘、3必逃跑、4必在野
++    U8 autoBattleDefense;   // 自动战斗开启时，敌军攻城自动选择首名守将
  } EngineConfig;
  
  extern EngineConfig g_engineConfig;
 diff --git a/src/bind-objects.c b/src/bind-objects.c
-index 5dbf5b4..0d96608 100644
+index 5dbf5b4..8449833 100644
 --- a/src/bind-objects.c
 +++ b/src/bind-objects.c
-@@ -445,6 +445,7 @@ void bind_init(void) {
+@@ -445,6 +445,9 @@ void bind_init(void) {
              _FIELD_RW(useCustomFont, U8),
              _FIELD_RW(useCustomFontEn, U8),
              _FIELD_RW(cacheCustomFont, U8),
 +            _FIELD_RW(aiWorldActivity, U8),
++            _FIELD_RW(battleLoserOutcome, U8),
++            _FIELD_RW(autoBattleDefense, U8),
          };
  
          static ObjectDef _obj_def = {
@@ -173,15 +177,251 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
+diff --git a/src/citycmdd.c b/src/citycmdd.c
+index bb23bde..683f154 100644
+--- a/src/citycmdd.c
++++ b/src/citycmdd.c
+@@ -23,6 +23,12 @@
+ #include "baye/enghead.h"
+ #include "baye/bind-objects.h"
+ 
++#define BATTLE_LOSER_OUTCOME_ORIGINAL 0
++#define BATTLE_LOSER_OUTCOME_DEATH 1
++#define BATTLE_LOSER_OUTCOME_CAPTIVE 2
++#define BATTLE_LOSER_OUTCOME_ESCAPE 3
++#define BATTLE_LOSER_OUTCOME_WILD 4
++
+ /******************************************************************************
+  * 函数名:BattleMake
+  * 说  明:“出征”命令生成
+@@ -239,7 +245,17 @@ FAR U8 BattleDrv(OrderType *Order)
+             g_FgtParam.MProvender = g_Cities[o].Food;
+             g_FgtParam.EProvender = Order->Food;
+             gam_memcpy(&genArray[10], fighters, 10*sizeof(PersonID));
+-            IF_HAS_HOOK("meetFight") {
++            if (g_engineConfig.autoBattleDefense)
++            {
++                /* 自动战斗只派城市人物队列中的第一名武将，避免停在手动选将界面。 */
++                pcount = GetCityPersons(o,pqptr);
++                if (pcount)
++                {
++                    genArray[0] = PID(pqptr[0] + 1);
++                    DelPerson(o,pqptr[0]);
++                }
++            }
++            else IF_HAS_HOOK("meetFight") {
+                 BIND_U8EX("city", &o);
+                 fight = CALL_HOOK_A();
+             } else for (i = 0;i < 10;i ++)
+@@ -422,6 +438,50 @@ FAR U8 BattleDrv(OrderType *Order)
+     return(1);
+ }
+ 
++/**
++ * 将战死武将的两件装备放回战斗城市，并按原版规则标记为已经发现。
++ */
++static void ReturnLoserEquipment(PersonID person,U8 city)
++{
++    ToolID *gptr = g_Persons[person].Equip;
++    if (gptr[0])
++    {
++        ToolID index = AddGoods(city,TID(gptr[0] - 1));
++        SetGoodsByIndex(TID(index - 1));
++    }
++    if (gptr[1])
++    {
++        ToolID index = AddGoods(city,TID(gptr[1] - 1));
++        SetGoodsByIndex(TID(index - 1));
++    }
++}
++
++/**
++ * 把人物标记为俘虏。是否加入城市队列由调用方决定，避免城内未参战人物重复入队。
++ */
++static void MarkLoserCaptive(PersonID person)
++{
++    PersonType *pptr = &g_Persons[person];
++    pptr->OldBelong = pptr->Belong;
++    pptr->Belong = PID(0xffff);
++    pptr->Arms = 0;
++    cavpdb = person;
++    cavps += 1;
++}
++
++/**
++ * 把战败人物改为在野。参战人物已离开城市队列，需要由调用方指定重新加入战斗城市。
++ */
++static void MakeLoserWild(PersonID person,U8 city,U8 addToCity)
++{
++    PersonType *pptr = &g_Persons[person];
++    pptr->OldBelong = pptr->Belong;
++    pptr->Belong = PID0;
++    pptr->Arms = 0;
++    if (addToCity)
++        AddPerson(city,person);
++}
++
+ /******************************************************************************
+  * 函数名:FightResultDeal
+  * 说  明:战斗结束处理
+@@ -545,7 +605,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+ {
+     SBUF str,astr;
+     U8 i;
+-    ToolID *gptr;
+     PersonID cking;
+     PersonID p;
+     U8 rnd;
+@@ -558,6 +617,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+         {
+             p = PID(lqueue[i] - 1);
+             pptr = &g_Persons[p];
++            if (BATTLE_LOSER_OUTCOME_DEATH == g_engineConfig.battleLoserOutcome)
++            {
++                if (pptr->Belong == lqueue[i])
++                    cking = p;
++                ReturnLoserEquipment(p,city);
++                if (FGT_AUTO != g_FgtParam.Mode)
++                {
++                    GetPersonName(p,str);
++                    ResLoadToMem(STRING_CONST,STR_PERSONOVER,astr);
++                    gam_strcat(str,astr);
++                    GamMsgBox(str,2);
++                }
++                continue;
++            }
++            if (BATTLE_LOSER_OUTCOME_CAPTIVE == g_engineConfig.battleLoserOutcome)
++            {
++                if (pptr->Belong == lqueue[i])
++                    cking = p;
++                HoldCaptive(p,city);
++                continue;
++            }
++            if (BATTLE_LOSER_OUTCOME_ESCAPE == g_engineConfig.battleLoserOutcome)
++            {
++                if (!LostEscape(p,city))
++                {
++                    if (pptr->Belong == lqueue[i])
++                        cking = p;
++                    /* 原势力无城可退时转为在野，保证不会退回已失守城市成为旧势力武将。 */
++                    MakeLoserWild(p,city,1);
++                }
++                continue;
++            }
++            if (BATTLE_LOSER_OUTCOME_WILD == g_engineConfig.battleLoserOutcome)
++            {
++                if (pptr->Belong == lqueue[i])
++                    cking = p;
++                MakeLoserWild(p,city,1);
++                continue;
++            }
+             rnd = gam_rand() % 100;
+             if (rnd > pptr->IQ)
+             {
+@@ -579,17 +677,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+                         continue;
+                     }
+ 
+-                    gptr = pptr->Equip;
+-                    if (gptr[0])
+-                    {
+-                        ToolID index = AddGoods(city,TID(gptr[0] - 1));
+-                        SetGoodsByIndex(TID(index-1));
+-                    }
+-                    if (gptr[1])
+-                    {
+-                        ToolID index = AddGoods(city,TID(gptr[1] - 1));
+-                        SetGoodsByIndex(TID(index-1));
+-                    }
++                    ReturnLoserEquipment(p,city);
+                     if (FGT_AUTO != g_FgtParam.Mode)
+                     {
+                         GetPersonName(p,str);
+@@ -619,14 +707,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+  ******************************************************************************/
+ void HoldCaptive(PersonID person,U8 city)
+ {
+-    PersonType *pptr;
+-
+-    pptr = &g_Persons[person];
+-    pptr->OldBelong = pptr->Belong;
+-    pptr->Belong = PID(0xffff);
+-    pptr->Arms = 0;
+-    cavpdb = person;
+-    cavps += 1;
++    MarkLoserCaptive(person);
+     AddPerson(city,person);
+ }
+ 
+@@ -677,19 +758,53 @@ PersonID BeOccupied(PersonID person,U8 city)
+ {
+     U32 i,pcount;
+     PersonID p, rev;
+-    PersonID *pqptr;
++    PersonID persons[PERSON_COUNT];
+     PersonType *pptr;
+ 
+-    pqptr = (PersonID*)SHARE_MEM;
+-    pcount = GetCityPersons(city,pqptr);
++    pcount = GetCityPersons(city,persons);
+     g_Cities[city].Belong = g_Persons[person].Belong;
+     g_Cities[city].SatrapId = PID(person + 1);
+     rev = PID(0xffff);
+     for (i = 0;i < pcount;i ++)
+     {
+-        p = pqptr[i];
++        p = persons[i];
+         pptr = &g_Persons[p];
+ 
++        if (BATTLE_LOSER_OUTCOME_DEATH == g_engineConfig.battleLoserOutcome)
++        {
++            if (pptr->Belong == (p + 1))
++                rev = p;
++            ReturnLoserEquipment(p,city);
++            DelPerson(city,p);
++            continue;
++        }
++        if (BATTLE_LOSER_OUTCOME_CAPTIVE == g_engineConfig.battleLoserOutcome)
++        {
++            if (pptr->Belong == (p + 1))
++                rev = p;
++            MarkLoserCaptive(p);
++            continue;
++        }
++        if (BATTLE_LOSER_OUTCOME_ESCAPE == g_engineConfig.battleLoserOutcome)
++        {
++            U8 isKing = pptr->Belong == (p + 1);
++            DelPerson(city,p);
++            if (!LostEscape(p,city))
++            {
++                if (isKing)
++                    rev = p;
++                MakeLoserWild(p,city,1);
++            }
++            continue;
++        }
++        if (BATTLE_LOSER_OUTCOME_WILD == g_engineConfig.battleLoserOutcome)
++        {
++            if (pptr->Belong == (p + 1))
++                rev = p;
++            MakeLoserWild(p,city,0);
++            continue;
++        }
++
+         if (pptr->Belong == (p + 1))
+         {
+             rev = p;
 diff --git a/src/gamEng.c b/src/gamEng.c
-index 824cab5..bdbdf9a 100644
+index 824cab5..8d07dc7 100644
 --- a/src/gamEng.c
 +++ b/src/gamEng.c
-@@ -1039,6 +1039,7 @@ EngineConfig g_engineConfig = {
+@@ -1039,6 +1039,9 @@ EngineConfig g_engineConfig = {
      .showStartMovie = 1, // 显示开场动画
      .compressCustomData = 0,
      .cacheCustomFont = 1,
 +    .aiWorldActivity = 50,
++    .battleLoserOutcome = 0,
++    .autoBattleDefense = 0,
      .theme = {
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,

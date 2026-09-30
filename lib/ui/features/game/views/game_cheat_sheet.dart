@@ -53,6 +53,56 @@ _PostBattleCaptiveAction _postBattleCaptiveActionFromState(
   return _PostBattleCaptiveAction.recruit;
 }
 
+/// 作弊搜索对隐藏人物和物品的统一处理方式。
+enum _SearchOutcome {
+  none('none', '全部搜不到', Icons.search_off, '不发现任何隐藏人物或隐藏物品'),
+  all('all', '全部搜到', Icons.manage_search, '发现我方全部城池中的隐藏人物和隐藏物品');
+
+  const _SearchOutcome(this.wireValue, this.label, this.icon, this.description);
+
+  final String wireValue;
+  final String label;
+  final IconData icon;
+  final String description;
+}
+
+/// 所有战败武将的强制结算方式，既覆盖参战人员，也覆盖失守城池内的未参战人员。
+enum _BattleLoserOutcome {
+  original('original', '原版算法', '参战武将按智力随机逃跑、被俘或战死，留守武将按原版占领规则处理'),
+  death('death', '必死', '所有战败方武将战死，装备留在战斗城市'),
+  captive('captive', '必被俘', '所有战败方武将成为战斗城市的俘虏'),
+  escape('escape', '必逃跑', '退往原势力随机城市；原势力无城可退时转为在野'),
+  wild('wild', '必在野', '所有战败方武将留在战斗城市并变为在野');
+
+  const _BattleLoserOutcome(this.wireValue, this.label, this.description);
+
+  final String wireValue;
+  final String label;
+  final String description;
+}
+
+_SearchOutcome _searchOutcomeFromState(Map<String, bool> state) {
+  return state['searchOutcomeNone'] == true
+      ? _SearchOutcome.none
+      : _SearchOutcome.all;
+}
+
+_BattleLoserOutcome _battleLoserOutcomeFromState(Map<String, bool> state) {
+  if (state['battleLoserOutcomeDeath'] == true) {
+    return _BattleLoserOutcome.death;
+  }
+  if (state['battleLoserOutcomeCaptive'] == true) {
+    return _BattleLoserOutcome.captive;
+  }
+  if (state['battleLoserOutcomeEscape'] == true) {
+    return _BattleLoserOutcome.escape;
+  }
+  if (state['battleLoserOutcomeWild'] == true) {
+    return _BattleLoserOutcome.wild;
+  }
+  return _BattleLoserOutcome.original;
+}
+
 OverlayEntry? _activeCheatToast;
 Timer? _activeCheatToastTimer;
 
@@ -133,6 +183,12 @@ Future<void> showGameCheatSheet(
         stateKey: 'autoMaxCities',
       ),
       _CheatOption(
+        action: 'sgby_search_outcome',
+        title: '隐藏内容搜索结果',
+        description: '控制作弊搜索、策略结束自动搜索和战后自动搜索',
+        icon: Icons.manage_search,
+      ),
+      _CheatOption(
         action: 'sgby_generals',
         title: '武将自动满属性',
         description: '开启时拉满现有武将，之后一键搜出或招降的武将也自动拉满',
@@ -159,6 +215,12 @@ Future<void> showGameCheatSheet(
         description: '每次战斗结算后自动拉满全部城池，按所选方式处理俘虏并搜索隐藏内容',
         icon: Icons.auto_mode,
         stateKey: 'postBattleAutomation',
+      ),
+      _CheatOption(
+        action: 'sgby_battle_loser_outcome',
+        title: '战败武将结局',
+        description: '同时作用于参战败将和失守城池内未参战武将，敌我双方均生效',
+        icon: Icons.rule,
       ),
       _CheatOption(
         action: 'sgby_search_city',
@@ -282,6 +344,8 @@ Future<void> showGameCheatSheet(
 
   var cheatState = await viewModel.getCheatState();
   var postBattleCaptiveAction = _postBattleCaptiveActionFromState(cheatState);
+  var searchOutcome = _searchOutcomeFromState(cheatState);
+  var battleLoserOutcome = _battleLoserOutcomeFromState(cheatState);
   if (!context.mounted) return;
   final hostContext = context;
 
@@ -312,6 +376,46 @@ Future<void> showGameCheatSheet(
               postBattleCaptiveAction = _postBattleCaptiveActionFromState(
                 latestState,
               );
+            });
+            showCheatToast(hostContext, result);
+          }
+
+          /// 保存搜索结果模式，并用脚本返回的真实状态重新校准控件。
+          Future<void> setSearchOutcome(_SearchOutcome outcome) async {
+            setSheetState(() => runningAction = 'sgby_search_outcome');
+            final result = await viewModel.applyCheat(
+              'sgby_search_outcome',
+              parameters: <String, Object?>{'mode': outcome.wireValue},
+            );
+            if (!sheetContext.mounted) return;
+            final latestState = await viewModel.getCheatState();
+            if (!sheetContext.mounted) return;
+            setSheetState(() {
+              runningAction = null;
+              cheatState = latestState;
+              searchOutcome = _searchOutcomeFromState(latestState);
+              battleLoserOutcome = _battleLoserOutcomeFromState(latestState);
+            });
+            showCheatToast(hostContext, result);
+          }
+
+          /// 保存战败结算模式，并立即同步到当前运行中的 WASM 引擎。
+          Future<void> setBattleLoserOutcome(
+            _BattleLoserOutcome outcome,
+          ) async {
+            setSheetState(() => runningAction = 'sgby_battle_loser_outcome');
+            final result = await viewModel.applyCheat(
+              'sgby_battle_loser_outcome',
+              parameters: <String, Object?>{'mode': outcome.wireValue},
+            );
+            if (!sheetContext.mounted) return;
+            final latestState = await viewModel.getCheatState();
+            if (!sheetContext.mounted) return;
+            setSheetState(() {
+              runningAction = null;
+              cheatState = latestState;
+              searchOutcome = _searchOutcomeFromState(latestState);
+              battleLoserOutcome = _battleLoserOutcomeFromState(latestState);
             });
             showCheatToast(hostContext, result);
           }
@@ -398,6 +502,12 @@ Future<void> showGameCheatSheet(
                             cheatState = latestState;
                             postBattleCaptiveAction =
                                 _postBattleCaptiveActionFromState(latestState);
+                            searchOutcome = _searchOutcomeFromState(
+                              latestState,
+                            );
+                            battleLoserOutcome = _battleLoserOutcomeFromState(
+                              latestState,
+                            );
                           });
                           showCheatToast(
                             hostContext,
@@ -405,6 +515,145 @@ Future<void> showGameCheatSheet(
                             duration: option.action == 'sgby_search_city'
                                 ? const Duration(seconds: 6)
                                 : const Duration(milliseconds: 2600),
+                          );
+                        }
+
+                        if (option.action == 'sgby_search_outcome') {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              ListTile(
+                                leading: Icon(option.icon),
+                                title: Text(option.title),
+                                subtitle: Text(option.description),
+                                trailing: isRunning
+                                    ? const SizedBox.square(
+                                        dimension: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SegmentedButton<_SearchOutcome>(
+                                      showSelectedIcon: false,
+                                      segments: _SearchOutcome.values
+                                          .map(
+                                            (outcome) => ButtonSegment(
+                                              value: outcome,
+                                              icon: Icon(outcome.icon),
+                                              label: Text(outcome.label),
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                      selected: <_SearchOutcome>{searchOutcome},
+                                      onSelectionChanged: runningAction == null
+                                          ? (selection) {
+                                              if (selection.isNotEmpty) {
+                                                unawaited(
+                                                  setSearchOutcome(
+                                                    selection.first,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      searchOutcome.description,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+
+                        if (option.action == 'sgby_battle_loser_outcome') {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              ListTile(
+                                leading: Icon(option.icon),
+                                title: Text(option.title),
+                                subtitle: Text(option.description),
+                                trailing: isRunning
+                                    ? const SizedBox.square(
+                                        dimension: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  12,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    DropdownButtonFormField<
+                                      _BattleLoserOutcome
+                                    >(
+                                      key: ValueKey<_BattleLoserOutcome>(
+                                        battleLoserOutcome,
+                                      ),
+                                      initialValue: battleLoserOutcome,
+                                      isExpanded: true,
+                                      decoration: const InputDecoration(
+                                        labelText: '处理方式',
+                                        prefixIcon: Icon(Icons.rule),
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: _BattleLoserOutcome.values
+                                          .map(
+                                            (outcome) => DropdownMenuItem(
+                                              value: outcome,
+                                              child: Text(outcome.label),
+                                            ),
+                                          )
+                                          .toList(growable: false),
+                                      onChanged: runningAction == null
+                                          ? (outcome) {
+                                              if (outcome != null) {
+                                                unawaited(
+                                                  setBattleLoserOutcome(
+                                                    outcome,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          : null,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      battleLoserOutcome.description,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           );
                         }
 
@@ -942,6 +1191,9 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['foodProtection'] == true) '粮草保护',
       if (state['postBattleAutomation'] == true)
         '战后自动处理（${_postBattleCaptiveActionFromState(state).label}）',
+      '搜索：${_searchOutcomeFromState(state).label}',
+      if (_battleLoserOutcomeFromState(state) != _BattleLoserOutcome.original)
+        '败方：${_battleLoserOutcomeFromState(state).label}',
     ];
     return DecoratedBox(
       decoration: const BoxDecoration(
