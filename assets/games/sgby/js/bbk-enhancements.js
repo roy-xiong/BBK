@@ -837,6 +837,63 @@
         return 'enemy';
     }
 
+    /** @return {number} 当前剧本真实人物数，旧引擎缺少接口时回退到绑定数组长度。 */
+    function gamePersonCount(context) {
+        var personCount = context.people.length;
+        if (typeof baye.getPersonCount !== 'function') return personCount;
+        var enginePersonCount = Number(baye.getPersonCount());
+        return Number.isInteger(enginePersonCount) && enginePersonCount >= 0 &&
+            enginePersonCount <= personCount
+            ? enginePersonCount
+            : personCount;
+    }
+
+    /**
+     * 返回与将领列表“当前在野”页完全一致的人物集合。
+     *
+     * 人物可能已经到登场年份，但因为旧版劝降、势力结算或队列异常暂时不在任何城市。
+     * 批量搜索和处死仍必须覆盖这些城外人物；尚未到登场年份的人物即使意外出现在城市
+     * 队列中，也必须继续归入“未来在野”，不能提前处理。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @return {Array<{index:number,value:Object,cityIndex:number,actualCityIndex:(number|null)}>} 当前在野人物。
+     */
+    function currentWildGeneralEntries(context) {
+        var conditions = generalSearchConditions(context);
+        var cityIndexes = personCityIndexes(context);
+        var cityCount = context.cities.length;
+        var entries = [];
+        var personCount = gamePersonCount(context);
+        for (var personIndex = 0; personIndex < personCount; personIndex++) {
+            var person = context.people[personIndex];
+            var personName = baye.getPersonName(personIndex);
+            var condition = conditions[personIndex];
+            if (
+                !person || typeof personName !== 'string' || !personName.trim() ||
+                generalRosterGroup(context, person, condition) !== 'currentWild'
+            ) {
+                continue;
+            }
+            var actualCityIndex = cityIndexes[personIndex];
+            var cityIndex = actualCityIndex;
+            if (cityIndex == null && condition && Number(condition.city) > 0) {
+                cityIndex = context.data.g_engineConfig.fixCityOffset
+                    ? Number(condition.city) - 1
+                    : Number(condition.city);
+            }
+            if (!Number.isInteger(cityIndex) || cityIndex < 0 || cityIndex >= cityCount) {
+                cityIndex = cityCount > 0 ? personIndex % cityCount : -1;
+            }
+            entries.push({
+                index: personIndex,
+                value: person,
+                cityIndex: cityIndex,
+                actualCityIndex: actualCityIndex == null ? null : actualCityIndex
+            });
+        }
+        return entries;
+    }
+
     /**
      * 返回当前剧本内可展示的我方、敌方、当前在野和未来在野武将。
      *
@@ -849,16 +906,7 @@
             var cityIndexes = personCityIndexes(context);
             var conditions = generalSearchConditions(context);
             var maxLevel = context.data.g_engineConfig.maxLevel || 20;
-            var personCount = context.people.length;
-            if (typeof baye.getPersonCount === 'function') {
-                var enginePersonCount = Number(baye.getPersonCount());
-                if (
-                    Number.isInteger(enginePersonCount) && enginePersonCount >= 0 &&
-                    enginePersonCount <= context.people.length
-                ) {
-                    personCount = enginePersonCount;
-                }
-            }
+            var personCount = gamePersonCount(context);
             var generals = [];
             for (var personIndex = 0; personIndex < personCount; personIndex++) {
                 var person = context.people[personIndex];
@@ -1215,82 +1263,89 @@
     }
 
     /**
-     * 处死全地图当前位于城市队列中的在野武将。
+     * 处死将领列表中的全部当前在野武将，包括已经到登场年份但尚未进入城市的人员。
      *
-     * 删除前把归属设为俘虏哨兵，防止未来武将补全逻辑把已处死人物再次加入地图；人物
-     * 不在任何城市队列中，因此不会被招降俘虏功能重新找到。
+     * 尚未到登场年份的未来武将不会处理。城外人物的装备放回原定出生城；随机出生人物
+     * 使用稳定城市映射。删除前改为俘虏哨兵，避免再次被自动登场或搜索逻辑加入地图。
      */
     function executeAllWildGenerals(context) {
-        var count = 0;
-        var cityResults = [];
-        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
-            var city = context.cities[cityIndex];
-            var executedNames = [];
-            var cityEntry = {index: cityIndex, value: city};
-            cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
-                var person = context.people[personIndex];
-                if (!person || person.Belong !== 0) return;
-                executedNames.push(
-                    baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
-                );
+        var groupedNames = {};
+        var entries = currentWildGeneralEntries(context);
+        entries.forEach(function (entry) {
+            var cityIndex = entry.cityIndex;
+            var person = entry.value;
+            if (cityIndex >= 0) {
                 returnPersonEquipment(cityIndex, person);
-                person.OldBelong = 0;
-                person.Belong = CAPTIVE_BELONG;
-                person.Arms = 0;
-                baye.deletePersonInCity(cityIndex, personIndex);
-                count++;
-            });
-            if (executedNames.length) {
-                cityResults.push({
-                    cityName: baye.getCityName(cityIndex) || ('城池 ' + (cityIndex + 1)),
-                    people: [],
-                    tools: [],
-                    recruited: [],
-                    executed: executedNames,
-                    exiled: []
-                });
+                var cityNames = groupedNames[cityIndex] || (groupedNames[cityIndex] = []);
+                cityNames.push(baye.getPersonName(entry.index) || ('武将 ' + (entry.index + 1)));
+            } else {
+                person.Tool1 = 0;
+                person.Tool2 = 0;
             }
-        }
+            person.OldBelong = 0;
+            person.Belong = CAPTIVE_BELONG;
+            person.Arms = 0;
+            if (entry.actualCityIndex != null) {
+                baye.deletePersonInCity(entry.actualCityIndex, entry.index);
+            }
+        });
+        var cityResults = Object.keys(groupedNames).map(function (key) {
+            var cityIndex = Number(key);
+            return {
+                cityName: baye.getCityName(cityIndex) || ('城池 ' + (cityIndex + 1)),
+                people: [],
+                tools: [],
+                recruited: [],
+                executed: groupedNames[key],
+                exiled: []
+            };
+        });
         appendSearchHistory(context, '全地图处死在野', cityResults, null);
-        return {count: count, cities: cityResults};
+        return {count: entries.length, cities: cityResults};
     }
 
     /**
-     * 搜出全地图所有城市队列中的在野武将。
+     * 搜出将领列表中的全部当前在野武将，包括已经到登场年份但尚未进入城市的人员。
      *
-     * 有主城池中的人物加入当地势力；空城以人物队列中的第一名在野武将为新主公，其他
-     * 人物加入该新势力。每座空城独立建国，不改变玩家君主，也不处理尚未进入地图队列
-     * 的未来年份人物。
+     * 有主城池中的人物加入当地势力；空城以首名当前在野武将为新主公，其他人物加入该
+     * 新势力。城外人物先按出生城或稳定随机城市落位。未来在野不会被提前搜出。
      */
     function searchAllWorldGenerals(context) {
         var found = 0;
         var newRulers = 0;
         var cityResults = [];
+        var groupedEntries = {};
+        currentWildGeneralEntries(context).forEach(function (entry) {
+            if (entry.cityIndex < 0) return;
+            var cityEntries = groupedEntries[entry.cityIndex] ||
+                (groupedEntries[entry.cityIndex] = []);
+            cityEntries.push(entry);
+        });
         for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
             var city = context.cities[cityIndex];
-            var cityEntry = {index: cityIndex, value: city};
-            var wildIndexes = cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
-                var person = context.people[personIndex];
-                return person && person.Belong === 0;
-            });
-            if (!wildIndexes.length) continue;
+            var wildEntries = groupedEntries[cityIndex] || [];
+            if (!wildEntries.length) continue;
 
             var targetBelong = Number(city.Belong) || 0;
             if (!targetBelong) {
-                targetBelong = wildIndexes[0] + 1;
+                targetBelong = wildEntries[0].index + 1;
                 city.Belong = targetBelong;
                 city.SatrapId = targetBelong;
                 newRulers++;
             }
             var personNames = [];
-            wildIndexes.forEach(function (personIndex) {
-                var person = context.people[personIndex];
+            wildEntries.forEach(function (entry) {
+                var personIndex = entry.index;
+                var person = entry.value;
                 personNames.push(
                     baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
                 );
                 person.OldBelong = 0;
                 person.Belong = targetBelong;
                 person.Devotion = 100;
+                if (entry.actualCityIndex == null) {
+                    baye.putPersonInCity(cityIndex, personIndex);
+                }
                 if (targetBelong === context.ruler && cheatState.autoMaxGenerals) {
                     maximizeGeneral(person, context.data);
                 }

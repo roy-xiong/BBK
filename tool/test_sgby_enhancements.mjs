@@ -1489,8 +1489,19 @@ function apply(api, action) {
 }
 
 {
-  const harness = createHarness();
+  const storage = new Map([['baye/libpath', 'libs/test.lib']]);
+  const conditions = Array.from({length: 9}, () => ({}));
+  conditions[6] = {birth: 220, city: 4};
+  conditions[7] = {birth: 160, city: 4};
+  conditions[8] = {birth: 160, city: 0};
+  const harness = createHarness(storage, {
+    libraryBytes: buildGeneralConditionsLibrary(conditions),
+  });
   const {api, data, people} = harness;
+  harness.context.baye.getPersonCount = () => 9;
+  people[5].Belong = 0;
+  people[7].Belong = 0;
+  people.push(person({Belong: 0}));
   // 真机 C 内存桥只暴露 length 和数字下标，不继承 Array.prototype。
   const cityValues = data.g_Cities;
   const boundCities = {length: cityValues.length};
@@ -1498,9 +1509,16 @@ function apply(api, action) {
     boundCities[index] = city;
   });
   data.g_Cities = boundCities;
-  // 敌方城池加入一名在野武将，空城则保留首名在野武将用于验证自立逻辑。
-  people[5].Belong = 0;
+  // 城内、城外和未来在野同时存在；全地图搜索必须与“当前在野”列表范围一致。
   boundCities[3].Belong = 0;
+  const before = JSON.parse(api.getCheatData());
+  const currentWild = before.generals.filter(
+    (general) => general.group === 'currentWild',
+  );
+  assert.deepEqual(
+    currentWild.map((general) => general.index),
+    [2, 5, 7, 8],
+  );
 
   const searchResult = JSON.parse(api.applyCheat(
     'sgby_search_world_generals',
@@ -1509,32 +1527,59 @@ function apply(api, action) {
   assert.equal(searchResult.ok, true, searchResult.message);
   assert.equal(people[2].Belong, 1);
   assert.equal(people[5].Belong, 5);
-  assert.equal(people[6].Belong, 7);
-  assert.equal(boundCities[3].Belong, 7);
-  assert.equal(boundCities[3].SatrapId, 7);
-  assert.match(searchResult.message, /搜出 3 名/);
+  assert.equal(people[6].Belong, 0, '未来在野武将不能被提前搜出');
+  assert.equal(people[7].Belong, 8);
+  assert.equal(people[8].Belong, 1);
+  assert.equal(boundCities[3].Belong, 8);
+  assert.equal(boundCities[3].SatrapId, 8);
+  assert.ok(data.g_PersonsQueue.includes(7));
+  assert.ok(data.g_PersonsQueue.includes(8));
+  assert.match(searchResult.message, /搜出 4 名/);
   assert.match(searchResult.message, /1 座空城建立新势力/);
   const history = JSON.parse(api.getSearchHistory());
   assert.equal(history.records[0].source, '全地图搜索');
-  assert.equal(history.records[0].peopleCount, 3);
+  assert.equal(history.records[0].peopleCount, 4);
 }
 
 {
-  const harness = createHarness();
+  const storage = new Map([['baye/libpath', 'libs/test.lib']]);
+  const conditions = Array.from({length: 9}, () => ({}));
+  conditions[6] = {birth: 220, city: 4};
+  conditions[7] = {birth: 160, city: 2};
+  conditions[8] = {birth: 160, city: 0};
+  const harness = createHarness(storage, {
+    libraryBytes: buildGeneralConditionsLibrary(conditions),
+  });
   const {api, data, people, returnedTools} = harness;
+  harness.context.baye.getPersonCount = () => 9;
+  people[7].Belong = 0;
+  people[7].Tool1 = 3;
+  people.push(person({Belong: 0, Tool1: 4}));
   people[2].Tool1 = 2;
+  const before = JSON.parse(api.getCheatData());
+  const currentWild = before.generals.filter(
+    (general) => general.group === 'currentWild',
+  );
+  assert.deepEqual(
+    currentWild.map((general) => general.index),
+    [2, 7, 8],
+  );
   const executeResult = JSON.parse(api.applyCheat(
     'sgby_execute_wild_generals',
     {},
   ));
   assert.equal(executeResult.ok, true, executeResult.message);
-  assert.match(executeResult.message, /2 名/);
+  assert.match(executeResult.message, /3 名/);
   assert.equal(data.g_PersonsQueue.includes(2), false);
-  assert.equal(data.g_PersonsQueue.includes(6), false);
+  assert.equal(data.g_PersonsQueue.includes(6), true);
   assert.equal(data.g_PersonsQueue.includes(3), true);
   assert.equal(people[2].Belong, 0xffff);
-  assert.equal(people[6].Belong, 0xffff);
+  assert.equal(people[6].Belong, 0, '未来在野武将不能被处死');
+  assert.equal(people[7].Belong, 0xffff);
+  assert.equal(people[8].Belong, 0xffff);
   assert.equal(returnedTools.some((entry) => entry.tool === 1), true);
+  assert.equal(returnedTools.some((entry) => entry.tool === 2), true);
+  assert.equal(returnedTools.some((entry) => entry.tool === 3), true);
 
   const searchResult = JSON.parse(api.applyCheat(
     'sgby_search_world_generals',
@@ -1543,7 +1588,7 @@ function apply(api, action) {
   assert.match(searchResult.message, /搜出 0 名/);
   const history = JSON.parse(api.getSearchHistory());
   assert.equal(history.records[0].source, '全地图处死在野');
-  assert.equal(history.records[0].executedCount, 2);
+  assert.equal(history.records[0].executedCount, 3);
 }
 
 {

@@ -252,13 +252,13 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'sgby_search_world_generals',
         title: '一键搜索全地图武将',
-        description: '所有在野武将加入当地势力；空城由第一名武将自立为主公',
+        description: '所有当前在野武将（含城外）加入对应城市；空城由第一名武将自立',
         icon: Icons.public,
       ),
       _CheatOption(
         action: 'sgby_execute_wild_generals',
         title: '处死全地图在野武将',
-        description: '永久移除所有城市中的在野武将，并回收其装备',
+        description: '永久移除所有当前在野武将（含城外），未来在野不受影响',
         icon: Icons.person_remove,
       ),
       _CheatOption(
