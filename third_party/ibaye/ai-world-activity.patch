@@ -1,28 +1,32 @@
 diff --git a/src/baye/attribute.h b/src/baye/attribute.h
-index 3898b16..08c66b7 100644
+index 3898b16..24159bc 100644
 --- a/src/baye/attribute.h
 +++ b/src/baye/attribute.h
-@@ -238,6 +238,9 @@ typedef struct {
+@@ -238,6 +238,11 @@ typedef struct {
      U8 cacheCustomFont;     // 缓存自定义字体
  
      Theme theme; // 主题
 +    U8 aiWorldActivity;     // AI世界活跃度（0~100，25保持原版策略频率）
 +    U8 battleLoserOutcome;  // 战败武将处理：0原版、1必死、2必被俘、3必逃跑、4必在野
 +    U8 autoBattleDefense;   // 自动战斗开启时，敌军攻城自动选择首名守将
++    U8 playerAttackAnyCity; // 玩家出征可忽略战略地图城市连接
++    U8 enemyEscapeRoute;    // 敌方战败逃跑只能沿原势力城市连线移动
  } EngineConfig;
  
  extern EngineConfig g_engineConfig;
 diff --git a/src/bind-objects.c b/src/bind-objects.c
-index 5dbf5b4..8449833 100644
+index 5dbf5b4..69466bd 100644
 --- a/src/bind-objects.c
 +++ b/src/bind-objects.c
-@@ -445,6 +445,9 @@ void bind_init(void) {
+@@ -445,6 +445,11 @@ void bind_init(void) {
              _FIELD_RW(useCustomFont, U8),
              _FIELD_RW(useCustomFontEn, U8),
              _FIELD_RW(cacheCustomFont, U8),
 +            _FIELD_RW(aiWorldActivity, U8),
 +            _FIELD_RW(battleLoserOutcome, U8),
 +            _FIELD_RW(autoBattleDefense, U8),
++            _FIELD_RW(playerAttackAnyCity, U8),
++            _FIELD_RW(enemyEscapeRoute, U8),
          };
  
          static ObjectDef _obj_def = {
@@ -178,10 +182,10 @@ index 4c06630..f7e8772 100644
          if (randint > rade)
              break;
 diff --git a/src/citycmdd.c b/src/citycmdd.c
-index bb23bde..683f154 100644
+index bb23bde..c566a86 100644
 --- a/src/citycmdd.c
 +++ b/src/citycmdd.c
-@@ -23,6 +23,12 @@
+@@ -23,6 +23,39 @@
  #include "baye/enghead.h"
  #include "baye/bind-objects.h"
  
@@ -191,10 +195,88 @@ index bb23bde..683f154 100644
 +#define BATTLE_LOSER_OUTCOME_ESCAPE 3
 +#define BATTLE_LOSER_OUTCOME_WILD 4
 +
++/**
++ * 按战略地图坐标计算目标城市看向出发城市的方向。
++ *
++ * 非相邻城市没有 CITY_LINKR 方向槽位；战场初始化仍要求 0～7 的合法方向，因此根据
++ * 两城相对位置生成最近的八方向，确保远程出征不会越界读取战场初始站位表。
++ */
++static U8 GetCityPositionDirect(U8 targetCity,U8 sourceCity)
++{
++    U8 *positions = ResLoadToCon(IFACE_CONID,dCityPos,g_CBnkPtr);
++    I16 dx = (I16)positions[sourceCity * 2] - (I16)positions[targetCity * 2];
++    I16 dy = (I16)positions[sourceCity * 2 + 1] - (I16)positions[targetCity * 2 + 1];
++
++    if (dy < 0)
++    {
++        if (dx < 0) return DIRECT_WN;
++        if (dx > 0) return DIRECT_EN;
++        return DIRECT_N;
++    }
++    if (dy > 0)
++    {
++        if (dx < 0) return DIRECT_WS;
++        if (dx > 0) return DIRECT_ES;
++        return DIRECT_S;
++    }
++    return dx < 0 ? DIRECT_W : DIRECT_E;
++}
++
  /******************************************************************************
   * 函数名:BattleMake
   * 说  明:“出征”命令生成
-@@ -239,7 +245,17 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -77,14 +110,26 @@ FAR U8 BattleMake(U8 city)
+     gam_memset(fpptr,0,10*sizeof(PersonID));
+     for (i = 0;i < 10;i ++)
+     {
++        I32 hookPerson = -1;
+         /*gam_clrlcd(WK_SX,WK_SY,WK_EX,WK_EY);*/
+         ShowMapClear();
+         if (pcode >= pcount) {
+             pcode = pcount-1;
+         }
+-        pcode = ShowPersonControl(pqptr,pcount,pcode,WK_SX + 4,WK_SY + 2,WK_EX - 4,WK_EY - 2);
++        IF_HAS_HOOK("battleChoosePerson")
++        {
++            BIND_U8EX("cityIndex", &city);
++            BIND_U8EX("selectionCount", &i);
++            BIND_U32EX("availableCount", &pcount);
++            hookPerson = CALL_HOOK_A();
++        }
++        pcode = hookPerson >= 0
++            ? PID(hookPerson)
++            : ShowPersonControl(pqptr,pcount,pcode,WK_SX + 4,WK_SY + 2,WK_EX - 4,WK_EY - 2);
+         if (0xffff != pcode)
+         {
++            if (pcode >= pcount)
++                break;
+             fpptr[i] = PID(pqptr[pcode] + 1);
+             DelPerson(city,pqptr[pcode]);
+         }
+@@ -134,6 +179,13 @@ FAR U8 BattleMake(U8 city)
+                     else
+                     {
+                         odis = AttackCityRoad(city,xs,ys,ocity,g_CityPos.setx,g_CityPos.sety);
++                        if (g_engineConfig.playerAttackAnyCity)
++                        {
++                            U32 dx = xs > g_CityPos.setx ? xs - g_CityPos.setx : g_CityPos.setx - xs;
++                            U32 dy = ys > g_CityPos.sety ? ys - g_CityPos.sety : g_CityPos.sety - ys;
++                            odis = dx + dy;
++                            if (!odis) odis = 1;
++                        }
+                         if (0xff != odis)
+                         {
+                             ShowConstStrMsg(STR_ARMOUT);
+@@ -213,6 +265,8 @@ FAR U8 BattleDrv(OrderType *Order)
+     ResItemGet(IFACE_CONID,dCityMapId,midx);
+     g_FgtParam.MapId = FIGHT_MAP + midx[o];
+     g_FgtParam.Way = GetDirect(o,Order->City);
++    if (g_FgtParam.Way >= 8 && g_engineConfig.playerAttackAnyCity && pb == (g_PlayerKing + 1))
++        g_FgtParam.Way = GetCityPositionDirect(o,Order->City);
+     g_FgtParam.CityIndex = o;
+ 
+     do
+@@ -239,7 +293,17 @@ FAR U8 BattleDrv(OrderType *Order)
              g_FgtParam.MProvender = g_Cities[o].Food;
              g_FgtParam.EProvender = Order->Food;
              gam_memcpy(&genArray[10], fighters, 10*sizeof(PersonID));
@@ -213,7 +295,7 @@ index bb23bde..683f154 100644
                  BIND_U8EX("city", &o);
                  fight = CALL_HOOK_A();
              } else for (i = 0;i < 10;i ++)
-@@ -422,6 +438,50 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -422,6 +486,50 @@ FAR U8 BattleDrv(OrderType *Order)
      return(1);
  }
  
@@ -264,7 +346,7 @@ index bb23bde..683f154 100644
  /******************************************************************************
   * 函数名:FightResultDeal
   * 说  明:战斗结束处理
-@@ -545,7 +605,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -545,7 +653,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
  {
      SBUF str,astr;
      U8 i;
@@ -272,7 +354,7 @@ index bb23bde..683f154 100644
      PersonID cking;
      PersonID p;
      U8 rnd;
-@@ -558,6 +617,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -558,6 +665,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
          {
              p = PID(lqueue[i] - 1);
              pptr = &g_Persons[p];
@@ -318,7 +400,7 @@ index bb23bde..683f154 100644
              rnd = gam_rand() % 100;
              if (rnd > pptr->IQ)
              {
-@@ -579,17 +677,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -579,17 +725,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
                          continue;
                      }
  
@@ -337,7 +419,7 @@ index bb23bde..683f154 100644
                      if (FGT_AUTO != g_FgtParam.Mode)
                      {
                          GetPersonName(p,str);
-@@ -619,14 +707,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -619,17 +755,58 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
   ******************************************************************************/
  void HoldCaptive(PersonID person,U8 city)
  {
@@ -353,7 +435,71 @@ index bb23bde..683f154 100644
      AddPerson(city,person);
  }
  
-@@ -677,19 +758,53 @@ PersonID BeOccupied(PersonID person,U8 city)
++/**
++ * 获取敌方战败人员沿原势力城市连线能够到达的撤退城市。
++ *
++ * 战斗城市无论结算时是否已经易主，都只作为路径起点；第一步和后续城市必须仍属于
++ * 逃跑人员原势力，因此不能穿过玩家、第三方或无人占领城市到达远方据点。
++ */
++static U8 GetRouteEscapeCities(PersonID person,U8 city,U8 *cities)
++{
++    PersonID belong;
++    U8 *links;
++    U8 *cityLinks;
++    U8 visited[CITY_MAX];
++    U8 queue[CITY_MAX];
++    U8 head,tail,count,current,next,i;
++
++    if (person >= PERSON_COUNT || city >= CITY_MAX || !cities)
++        return 0;
++    belong = g_Persons[person].Belong;
++    if (!belong || belong == PID(0xffff))
++        return 0;
++
++    links = ResLoadToCon(CITY_LINKR,1,g_CBnkPtr);
++    gam_memset(visited,0,sizeof(visited));
++    head = 0;
++    tail = 0;
++    count = 0;
++    visited[city] = 1;
++    queue[tail++] = city;
++
++    while (head < tail)
++    {
++        current = queue[head++];
++        cityLinks = links + current * 16;
++        for (i = 0;i < 8;i ++)
++        {
++            if (!cityLinks[i])
++                continue;
++            next = cityLinks[i] - 1;
++            if (next >= CITY_MAX || visited[next] || g_Cities[next].Belong != belong)
++                continue;
++            visited[next] = 1;
++            queue[tail++] = next;
++            cities[count++] = next;
++        }
++    }
++    return count;
++}
++
+ /******************************************************************************
+  * 函数名:LostEscape
+  * 说  明:逃跑处理
+@@ -650,7 +827,11 @@ U8 LostEscape(PersonID person,U8 city)
+     U8 *cqptr;
+ 
+     cqptr = SHARE_MEM;
+-    pcount = GetKingCitys(PID(g_Persons[person].Belong - 1),cqptr);
++    if (g_engineConfig.enemyEscapeRoute &&
++        g_Persons[person].Belong != PID(g_PlayerKing + 1))
++        pcount = GetRouteEscapeCities(person,city,cqptr);
++    else
++        pcount = GetKingCitys(PID(g_Persons[person].Belong - 1),cqptr);
+     if (pcount)
+     {
+         rnd = gam_rand() % pcount;
+@@ -677,19 +858,53 @@ PersonID BeOccupied(PersonID person,U8 city)
  {
      U32 i,pcount;
      PersonID p, rev;
@@ -412,24 +558,43 @@ index bb23bde..683f154 100644
          {
              rev = p;
 diff --git a/src/gamEng.c b/src/gamEng.c
-index 824cab5..8d07dc7 100644
+index 824cab5..ec3b159 100644
 --- a/src/gamEng.c
 +++ b/src/gamEng.c
-@@ -1039,6 +1039,9 @@ EngineConfig g_engineConfig = {
+@@ -1039,6 +1039,11 @@ EngineConfig g_engineConfig = {
      .showStartMovie = 1, // 显示开场动画
      .compressCustomData = 0,
      .cacheCustomFont = 1,
 +    .aiWorldActivity = 50,
 +    .battleLoserOutcome = 0,
 +    .autoBattleDefense = 0,
++    .playerAttackAnyCity = 0,
++    .enemyEscapeRoute = 0,
      .theme = {
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,
 diff --git a/src/tactic.c b/src/tactic.c
-index 1c792f8..da31295 100644
+index 1c792f8..e2ee7c2 100644
 --- a/src/tactic.c
 +++ b/src/tactic.c
-@@ -127,6 +127,21 @@ U8 PlayerTactic(void)
+@@ -93,7 +93,15 @@ U8 PlayerTactic(void)
+                 continue;
+             }
+ 
+-            cral = OrderMenu();
++            {
++                I32 hookCommand = -1;
++                IF_HAS_HOOK("playerCityCommand")
++                {
++                    BIND_U8EX("cityIndex", &cset);
++                    hookCommand = CALL_HOOK_A();
++                }
++                cral = hookCommand >= 0 ? (U8)hookCommand : OrderMenu();
++            }
+             switch (cral)
+             {
+                 case 0xff:
+@@ -127,6 +135,21 @@ U8 PlayerTactic(void)
  /*const U8 KingTacticOddsIH[5] = {50,40,30,20,10};
   const U8 KingTacticOddsD[5] = {80,70,70,40,20};*/
  
@@ -451,7 +616,7 @@ index 1c792f8..da31295 100644
  void ComputerTactic(void)
  {
      U32 i;
-@@ -172,6 +187,7 @@ void ComputerTactic(void)
+@@ -172,6 +195,7 @@ void ComputerTactic(void)
              cptr->Money /= 2;
          /*添加电脑策略代码*/
          rnd = gam_rand() % 100;
@@ -459,7 +624,7 @@ index 1c792f8..da31295 100644
          if (TacticOddsIH[g_Persons[b - 1].Character] > rnd)			/*执行内政、协调策略*/
          {
              ComputerTacticInterior(i);
-@@ -179,11 +195,28 @@ void ComputerTactic(void)
+@@ -179,11 +203,28 @@ void ComputerTactic(void)
          }
          else if (TacticOddsD[g_Persons[b - 1].Character] > rnd)		/*执行外交策略*/
          {
@@ -490,7 +655,7 @@ index 1c792f8..da31295 100644
          }
      }
  }
-@@ -302,6 +335,8 @@ void ComputerTacticDiplomatism(U8 city)
+@@ -302,6 +343,8 @@ void ComputerTacticDiplomatism(U8 city)
      for (i = 0;i < pcount;i ++)
      {
          rnd = gam_rand() % 8;
@@ -499,7 +664,7 @@ index 1c792f8..da31295 100644
          ecount = GetCityCaptives(city,eqptr);
          if (ecount)
          {
-@@ -518,6 +553,18 @@ void ComputerTacticArmament(U8 city)
+@@ -518,6 +561,18 @@ void ComputerTacticArmament(U8 city)
      U32 pcount,fpcount,fcount;
      OrderType order;
      PersonType *pptr;
@@ -518,7 +683,7 @@ index 1c792f8..da31295 100644
  
      pqptr = (PersonID*)SHARE_MEM;
      cqptr = (U8*)(pqptr + PERSON_COUNT);
-@@ -534,7 +581,17 @@ void ComputerTacticArmament(U8 city)
+@@ -534,7 +589,17 @@ void ComputerTacticArmament(U8 city)
      }
      for (i = 0;i < pcount;i ++)
      {
@@ -536,7 +701,7 @@ index 1c792f8..da31295 100644
          switch (rnd)
          {
              case 0:
-@@ -579,9 +636,12 @@ void ComputerTacticArmament(U8 city)
+@@ -579,9 +644,12 @@ void ComputerTacticArmament(U8 city)
                  {
                      continue;
                  }
@@ -552,7 +717,7 @@ index 1c792f8..da31295 100644
                  /*rnd = gam_rand() % fcount;
                   order.Object = cqptr[rnd];*/
                  order.Object = PID(GetWeekCity(fcount,cqptr));
-@@ -607,12 +667,12 @@ void ComputerTacticArmament(U8 city)
+@@ -607,12 +675,12 @@ void ComputerTacticArmament(U8 city)
                          }
                      }
  

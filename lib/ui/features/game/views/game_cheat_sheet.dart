@@ -210,6 +210,20 @@ Future<void> showGameCheatSheet(
         stateKey: 'foodProtection',
       ),
       _CheatOption(
+        action: 'sgby_attack_any_city',
+        title: '任意攻城',
+        description: '我方出征可攻击任意敌方或空城，忽略战略地图城市连线',
+        icon: Icons.alt_route,
+        stateKey: 'attackAnyCity',
+      ),
+      _CheatOption(
+        action: 'sgby_enemy_escape_route',
+        title: '敌军逃跑遵循路线',
+        description: '敌方君主和武将战败逃跑时，只能沿连线经过原势力城市撤退',
+        icon: Icons.route,
+        stateKey: 'enemyEscapeRoute',
+      ),
+      _CheatOption(
         action: 'sgby_post_battle_automation',
         title: '战后自动处理',
         description: '每次战斗结算后自动拉满全部城池，按所选方式处理俘虏并搜索隐藏内容',
@@ -1213,6 +1227,8 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['autoMaxGenerals'] == true) '武将自动满属性',
       if (state['autoMaxCities'] == true) '自动拉满与搜索',
       if (state['foodProtection'] == true) '粮草保护',
+      if (state['attackAnyCity'] == true) '任意攻城',
+      if (state['enemyEscapeRoute'] == true) '敌军逃跑遵循路线',
       if (state['postBattleAutomation'] == true)
         '战后自动处理（${_postBattleCaptiveActionFromState(state).label}）',
       '搜索：${_searchOutcomeFromState(state).label}',

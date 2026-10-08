@@ -243,7 +243,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
     }
   }
 
-  /// 打开按城池排序的我方将领列表，并防止重复叠加面板。
+  /// 打开按阵营和登场状态分类的将领列表，并防止重复叠加面板。
   Future<void> _showGeneralRoster() async {
     if (!mounted || _generalRosterSheetVisible) return;
     _generalRosterSheetVisible = true;
@@ -438,6 +438,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                     showSgbyUtilityButtons: widget.game.id == GameId.sgby,
                     battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
                     sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
+                    sgbyAutoEndTurnEnabled: _viewModel.sgbyAutoEndTurnEnabled,
                     onInput: _sendGameInput,
                   )
                 : ColoredBox(
@@ -466,6 +467,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             showSgbyUtilityButtons: widget.game.id == GameId.sgby,
             battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
             sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
+            sgbyAutoEndTurnEnabled: _viewModel.sgbyAutoEndTurnEnabled,
             onInput: _sendGameInput,
           ),
       ],

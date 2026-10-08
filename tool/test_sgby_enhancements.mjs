@@ -125,6 +125,8 @@ function createHarness(storage = new Map(), options = {}) {
       aiWorldActivity: 25,
       battleLoserOutcome: 0,
       autoBattleDefense: 0,
+      playerAttackAnyCity: 0,
+      enemyEscapeRoute: 0,
     },
     g_FgtParam: {
       Mode: 1,
@@ -505,6 +507,8 @@ function apply(api, action) {
   apply(first.api, 'sgby_wide_group_attack');
   apply(first.api, 'sgby_max_all');
   apply(first.api, 'sgby_post_battle_automation');
+  apply(first.api, 'sgby_attack_any_city');
+  apply(first.api, 'sgby_enemy_escape_route');
   const captiveActionResult = JSON.parse(first.api.applyCheat(
     'sgby_post_battle_captive_action',
     {mode: 'execute'},
@@ -524,6 +528,8 @@ function apply(api, action) {
   assert.equal(autoBattleResult.ok, true, autoBattleResult.message);
   assert.equal(first.data.g_engineConfig.autoBattleDefense, 1);
   assert.equal(first.data.g_engineConfig.battleLoserOutcome, 1);
+  assert.equal(first.data.g_engineConfig.playerAttackAnyCity, 1);
+  assert.equal(first.data.g_engineConfig.enemyEscapeRoute, 1);
   first.api.handleControl('toggleBattleSpeed');
 
   const second = createHarness(sharedStorage);
@@ -543,6 +549,8 @@ function apply(api, action) {
   assert.equal(restoredState.battleLoserOutcomeDeath, true);
   assert.equal(restoredState.battleLoserOutcomeOriginal, false);
   assert.equal(restoredState.autoBattle, true);
+  assert.equal(restoredState.attackAnyCity, true);
+  assert.equal(restoredState.enemyEscapeRoute, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
@@ -550,6 +558,8 @@ function apply(api, action) {
   assert.equal(second.people[0].Arms, 65535);
   assert.equal(second.data.g_engineConfig.autoBattleDefense, 1);
   assert.equal(second.data.g_engineConfig.battleLoserOutcome, 1);
+  assert.equal(second.data.g_engineConfig.playerAttackAnyCity, 1);
+  assert.equal(second.data.g_engineConfig.enemyEscapeRoute, 1);
 }
 
 {
@@ -562,6 +572,46 @@ function apply(api, action) {
   assert.equal(state.searchOutcomeNone, false);
   assert.equal(state.battleLoserOutcomeOriginal, true);
   assert.equal(state.battleLoserOutcomeDeath, false);
+  assert.equal(state.attackAnyCity, false);
+  assert.equal(state.enemyEscapeRoute, false);
+  assert.equal(state.autoEndTurn, false);
+}
+
+{
+  const sharedStorage = new Map();
+  const first = createHarness(sharedStorage);
+  const {api, data, hooks, scheduledTimers, sentKeys, systemMessages} = first;
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  const enabled = JSON.parse(api.handleControl('autoEndTurn'));
+  assert.equal(enabled.ok, true, enabled.message);
+  assert.equal(JSON.parse(api.getCheatState()).autoEndTurn, true);
+  assert.equal(sentKeys.at(-1), 0x28);
+  assert.equal(hooks.mainSystemMenu({}), 0);
+  assert.equal(hooks.tacticStageUser({}), 0);
+  assert.equal(hooks.mainSystemMenu({}), 0);
+
+  hooks.enterBattle({});
+  assert.equal(JSON.parse(api.getCheatState()).autoEndTurn, true);
+  assert.equal(typeof hooks.tacticStageUser, 'function');
+  assert.equal(typeof hooks.mainSystemMenu, 'function');
+  assert.equal(systemMessages.at(-1).type, 'sgby_control_state');
+  assert.equal(systemMessages.at(-1).data.autoEndTurn, true);
+
+  hooks.exitBattle({});
+  const keysBeforeReturningToMap = sentKeys.length;
+  hooks.didShowMainMap({});
+  const resumeTimer = scheduledTimers.find((timer) => timer.delay === 180);
+  assert.ok(resumeTimer, '战斗结束回到主地图后应安排继续自动策略');
+  resumeTimer.callback();
+  assert.equal(sentKeys.length, keysBeforeReturningToMap + 1);
+  assert.equal(sentKeys.at(-1), 0x28);
+
+  const second = createHarness(sharedStorage);
+  assert.equal(JSON.parse(second.api.getCheatState()).autoEndTurn, true);
+  assert.equal(typeof second.hooks.tacticStageUser, 'function');
+  assert.equal(typeof second.hooks.mainSystemMenu, 'function');
 }
 
 {
@@ -668,6 +718,41 @@ function apply(api, action) {
   runNextTimer(harness);
   runNextTimer(harness);
   assert.deepEqual(sentKeys, [0x27]);
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  apply(api, 'sgby_wide_group_attack');
+  api.handleControl('autoBattle');
+  data.g_GenPos[0].x = 4;
+  data.g_GenPos[0].y = 4;
+  data.g_FoucsX = 4;
+  data.g_FoucsY = 4;
+  data.g_GenPos[10].x = 4;
+  data.g_GenPos[10].y = 6;
+  data.g_GenPos[11].x = 8;
+  data.g_GenPos[11].y = 7;
+  data.g_GenPos[12].x = 9;
+  data.g_GenPos[12].y = 7;
+  data.g_FightPath.fill(0xff);
+  data.g_FightPath[4 + 4 * 15] = 0;
+  data.g_FightPath[4 + 5 * 15] = 0;
+  data.g_FightPath[7 + 5 * 15] = 0;
+
+  hooks.battleStage2({});
+  runNextTimer(harness);
+  runNextTimer(harness);
+  hooks.countMoveRange({generalIndex: 0});
+  for (let index = 0; index < 20 && harness.scheduledTimers.length; index++) {
+    runNextTimer(harness);
+  }
+
+  assert.deepEqual(
+    sentKeys.slice(-6),
+    [0x27, 0x25, 0x25, 0x25, 0x23, 0x27],
+    '扩大群攻应移动到可覆盖三名敌将的落点',
+  );
 }
 
 {
@@ -1012,14 +1097,42 @@ function apply(api, action) {
 }
 
 {
-  const {api, people} = createHarness();
-  people[6].Belong = 1;
-  const cheatData = JSON.parse(api.getCheatData());
+  const storage = new Map([['baye/libpath', 'libs/test.lib']]);
+  const conditions = Array.from({length: 8}, () => ({}));
+  conditions[2] = {birth: 160, city: 1};
+  conditions[6] = {birth: 180, city: 4};
+  const harness = createHarness(storage, {
+    libraryBytes: buildGeneralConditionsLibrary(conditions),
+  });
+  harness.context.baye.getPersonCount = () => 8;
+  harness.context.baye.getPersonName = (index) =>
+    index < 8 ? `武将${index}` : '';
+  harness.people.push(person());
+  const cheatData = JSON.parse(harness.api.getCheatData());
   assert.equal(cheatData.ok, true);
-  assert.deepEqual(
-    cheatData.generals.map((general) => general.cityIndex),
-    [0, 0, 3],
+  assert.equal(
+    cheatData.generals.some((general) => general.index >= 8),
+    false,
+    '固定容量人物数组中的未使用无名槽位不能进入将领列表',
   );
+  assert.deepEqual(
+    cheatData.generals.map((general) => general.group),
+    [
+      'player',
+      'player',
+      'enemy',
+      'enemy',
+      'enemy',
+      'currentWild',
+      'futureWild',
+    ],
+  );
+  const futureGeneral = cheatData.generals.find(
+    (general) => general.group === 'futureWild',
+  );
+  assert.equal(futureGeneral.index, 6);
+  assert.equal(futureGeneral.appearanceYear, 196);
+  assert.equal(futureGeneral.cityName, '城池3');
 }
 
 {
@@ -1104,6 +1217,51 @@ function apply(api, action) {
 
 {
   const harness = createHarness();
+  const {api, data, hooks, sentKeys} = harness;
+  data.g_FgtOver = 1;
+  data.g_Cities[0].Food = 6000;
+  hooks.didShowMainMap({});
+
+  const result = JSON.parse(api.handleControl('quickExpedition'));
+  assert.equal(result.ok, true, result.message);
+  assert.equal(sentKeys.at(-1), 0x27);
+  assert.equal(hooks.playerCityCommand({cityIndex: 0}), 27);
+  assert.equal(hooks.cityMakeCommand({cityIndex: 0, commandIndex: 27}), 2);
+  assert.equal(
+    hooks.battleChoosePerson({
+      cityIndex: 0,
+      selectionCount: 0,
+      availableCount: 2,
+    }),
+    0,
+  );
+  assert.equal(
+    hooks.battleChoosePerson({
+      cityIndex: 0,
+      selectionCount: 1,
+      availableCount: 1,
+    }),
+    0xffff,
+  );
+  assert.equal(hooks.playerCityCommand({cityIndex: 0}), -1);
+  runNextTimer(harness);
+  assert.deepEqual(sentKeys.slice(-5), [0x24, 0x24, 0x24, 0x23, 0x27]);
+}
+
+{
+  const {api, data, hooks, sentKeys} = createHarness();
+  data.g_FgtOver = 1;
+  data.g_CityPos.setx = 2;
+  hooks.didShowMainMap({});
+  const before = sentKeys.length;
+  const result = JSON.parse(api.handleControl('quickExpedition'));
+  assert.equal(result.ok, false);
+  assert.match(result.message, /我方城市/);
+  assert.equal(sentKeys.length, before);
+}
+
+{
+  const harness = createHarness();
   const {api, data, hooks, people, returnedTools} = harness;
   apply(api, 'sgby_post_battle_automation');
   const actionResult = JSON.parse(api.applyCheat(
@@ -1162,9 +1320,16 @@ function apply(api, action) {
 {
   const harness = createHarness();
   const {api, data, people} = harness;
+  // 真机 C 内存桥只暴露 length 和数字下标，不继承 Array.prototype。
+  const cityValues = data.g_Cities;
+  const boundCities = {length: cityValues.length};
+  cityValues.forEach((city, index) => {
+    boundCities[index] = city;
+  });
+  data.g_Cities = boundCities;
   // 敌方城池加入一名在野武将，空城则保留首名在野武将用于验证自立逻辑。
   people[5].Belong = 0;
-  data.g_Cities[3].Belong = 0;
+  boundCities[3].Belong = 0;
 
   const searchResult = JSON.parse(api.applyCheat(
     'sgby_search_world_generals',
@@ -1174,8 +1339,8 @@ function apply(api, action) {
   assert.equal(people[2].Belong, 1);
   assert.equal(people[5].Belong, 5);
   assert.equal(people[6].Belong, 7);
-  assert.equal(data.g_Cities[3].Belong, 7);
-  assert.equal(data.g_Cities[3].SatrapId, 7);
+  assert.equal(boundCities[3].Belong, 7);
+  assert.equal(boundCities[3].SatrapId, 7);
   assert.match(searchResult.message, /搜出 3 名/);
   assert.match(searchResult.message, /1 座空城建立新势力/);
   const history = JSON.parse(api.getSearchHistory());

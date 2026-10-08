@@ -28,11 +28,30 @@ class SaveMenuResult {
   final String message;
 }
 
-/// 三国霸业单个我方武将的可编辑属性快照。
+/// 三国霸业将领列表固定分组。
+enum SgbyGeneralGroup {
+  player,
+  enemy,
+  currentWild,
+  futureWild;
+
+  /// 解析增强脚本返回的白名单值；未知值按敌方只读处理，避免误开放属性修改。
+  static SgbyGeneralGroup fromWireValue(String? value) {
+    for (final group in values) {
+      if (group.name == value) return group;
+    }
+    return enemy;
+  }
+}
+
+/// 三国霸业单个武将的属性与列表归属快照。
 class SgbyGeneralCheatInfo {
   const SgbyGeneralCheatInfo({
     required this.index,
     required this.name,
+    required this.group,
+    required this.factionName,
+    required this.appearanceYear,
     required this.cityIndex,
     required this.cityName,
     required this.level,
@@ -58,6 +77,9 @@ class SgbyGeneralCheatInfo {
     return SgbyGeneralCheatInfo(
       index: integer('index'),
       name: json['name'] as String? ?? '未知武将',
+      group: SgbyGeneralGroup.fromWireValue(json['group'] as String?),
+      factionName: json['factionName'] as String? ?? '未知势力',
+      appearanceYear: integer('appearanceYear'),
       cityIndex: integer('cityIndex'),
       cityName: json['cityName'] as String? ?? '未知城池',
       level: integer('level'),
@@ -80,6 +102,9 @@ class SgbyGeneralCheatInfo {
 
   final int index;
   final String name;
+  final SgbyGeneralGroup group;
+  final String factionName;
+  final int appearanceYear;
   final int cityIndex;
   final String cityName;
   final int level;
@@ -415,6 +440,7 @@ class GameViewModel extends ChangeNotifier {
   int _sgbyWorldActivity;
   int _sgbyBattleSpeedMultiplier = 2;
   bool _sgbyAutoBattleEnabled = false;
+  bool _sgbyAutoEndTurnEnabled = false;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
@@ -422,6 +448,7 @@ class GameViewModel extends ChangeNotifier {
   bool get isReady => _isReady;
   int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
   bool get sgbyAutoBattleEnabled => _sgbyAutoBattleEnabled;
+  bool get sgbyAutoEndTurnEnabled => _sgbyAutoEndTurnEnabled;
   Object? get error => _error;
 
   Future<void> initialize() async {
@@ -498,6 +525,14 @@ class GameViewModel extends ChangeNotifier {
       unawaited(_toggleSgbyAutoBattle());
       return;
     }
+    if (input == GameInput.autoEndTurn) {
+      unawaited(_toggleSgbyAutoEndTurn());
+      return;
+    }
+    if (input == GameInput.quickExpedition) {
+      unawaited(_startSgbyQuickExpedition());
+      return;
+    }
     final wireValue = jsonEncode(input.name);
     if (input == GameInput.toggleBattleSpeed) {
       _sgbyBattleSpeedMultiplier = _sgbyBattleSpeedMultiplier >= 4
@@ -555,6 +590,75 @@ class GameViewModel extends ChangeNotifier {
       notifyListeners();
       _onNoticeRequested(
         const CheatResult(isSuccess: false, message: '无法切换自动战斗'),
+      );
+    }
+  }
+
+  /// 切换战略地图连续自动结束策略，并以增强脚本返回值校准按钮状态。
+  ///
+  /// 脚本只允许在战略地图开启；战斗期间保留开关状态并暂停推进，战斗结束回到主地图
+  /// 后继续自动结束策略。Flutter 同时监听 `sgby_control_state`，确保按钮状态与脚本一致。
+  Future<void> _toggleSgbyAutoEndTurn() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || !_isReady || controller == null) return;
+    final previous = _sgbyAutoEndTurnEnabled;
+    _sgbyAutoEndTurnEnabled = !previous;
+    notifyListeners();
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkSendInput ? window.bbkSendInput("autoEndTurn") : '
+        'JSON.stringify({ok:false,message:"自动策略模块尚未加载"});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is! Map || decoded['ok'] != true) {
+        _sgbyAutoEndTurnEnabled = previous;
+        notifyListeners();
+        _onNoticeRequested(
+          CheatResult(
+            isSuccess: false,
+            message: decoded is Map && decoded['message'] is String
+                ? decoded['message'] as String
+                : '无法切换自动策略结束',
+          ),
+        );
+        return;
+      }
+      final state = await getCheatState();
+      final actual = state['autoEndTurn'];
+      if (actual != null && actual != _sgbyAutoEndTurnEnabled) {
+        _sgbyAutoEndTurnEnabled = actual;
+        notifyListeners();
+      }
+    } on Object {
+      _sgbyAutoEndTurnEnabled = previous;
+      notifyListeners();
+      _onNoticeRequested(
+        const CheatResult(isSuccess: false, message: '无法切换自动策略结束'),
+      );
+    }
+  }
+
+  /// 从战略地图当前我方城市启动一键出征，并展示脚本返回的明确结果。
+  Future<void> _startSgbyQuickExpedition() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || !_isReady || controller == null) return;
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkSendInput ? window.bbkSendInput("quickExpedition") : '
+        'JSON.stringify({ok:false,message:"一键出征模块尚未加载"});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      _onNoticeRequested(
+        CheatResult(
+          isSuccess: decoded is Map && decoded['ok'] == true,
+          message: decoded is Map && decoded['message'] is String
+              ? decoded['message'] as String
+              : '无法启动一键出征',
+        ),
+      );
+    } on Object {
+      _onNoticeRequested(
+        const CheatResult(isSuccess: false, message: '无法启动一键出征'),
       );
     }
   }
@@ -827,6 +931,12 @@ class GameViewModel extends ChangeNotifier {
               message: data['message'] as String? ?? '自动处理已完成',
             ),
           );
+        } else if (type == 'sgby_control_state' && data is Map) {
+          final autoEndTurn = data['autoEndTurn'];
+          if (autoEndTurn is bool && autoEndTurn != _sgbyAutoEndTurnEnabled) {
+            _sgbyAutoEndTurnEnabled = autoEndTurn;
+            notifyListeners();
+          }
         }
       } on FormatException {
         // 游戏可能发送未来版本的普通文本消息；无法识别时静默忽略。
@@ -848,12 +958,15 @@ class GameViewModel extends ChangeNotifier {
         ? 2
         : 1;
     final restoredAutoBattle = state['autoBattle'] == true;
+    final restoredAutoEndTurn = state['autoEndTurn'] == true;
     if (restoredSpeed == _sgbyBattleSpeedMultiplier &&
-        restoredAutoBattle == _sgbyAutoBattleEnabled) {
+        restoredAutoBattle == _sgbyAutoBattleEnabled &&
+        restoredAutoEndTurn == _sgbyAutoEndTurnEnabled) {
       return;
     }
     _sgbyBattleSpeedMultiplier = restoredSpeed;
     _sgbyAutoBattleEnabled = restoredAutoBattle;
+    _sgbyAutoEndTurnEnabled = restoredAutoEndTurn;
     notifyListeners();
   }
 

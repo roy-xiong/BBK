@@ -28,6 +28,8 @@ enum GameInput {
   endTurn,
   battleInfo,
   autoBattle,
+  autoEndTurn,
+  quickExpedition,
   toggleBattleSpeed,
   searchHistory,
   generalRoster;

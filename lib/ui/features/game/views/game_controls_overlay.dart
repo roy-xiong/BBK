@@ -14,6 +14,7 @@ class GameControlsOverlay extends StatelessWidget {
     this.showSgbyUtilityButtons = false,
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
+    this.sgbyAutoEndTurnEnabled = false,
   });
 
   final bool hapticsEnabled;
@@ -21,6 +22,7 @@ class GameControlsOverlay extends StatelessWidget {
   final bool showSgbyUtilityButtons;
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
+  final bool sgbyAutoEndTurnEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +52,7 @@ class GameControlsOverlay extends StatelessWidget {
                   hapticsEnabled: hapticsEnabled,
                   battleSpeedMultiplier: battleSpeedMultiplier,
                   autoBattleEnabled: sgbyAutoBattleEnabled,
+                  autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
                   onInput: onInput,
                 ),
               ),
@@ -83,6 +86,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
     this.showSgbyUtilityButtons = false,
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
+    this.sgbyAutoEndTurnEnabled = false,
   });
 
   final bool isDarkTheme;
@@ -91,6 +95,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
   final bool showSgbyUtilityButtons;
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
+  final bool sgbyAutoEndTurnEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -127,6 +132,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
                                   hapticsEnabled: hapticsEnabled,
                                   battleSpeedMultiplier: battleSpeedMultiplier,
                                   autoBattleEnabled: sgbyAutoBattleEnabled,
+                                  autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
                                   onInput: onInput,
                                 ),
                                 const SizedBox(height: 14),
@@ -178,6 +184,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
     required this.hapticsEnabled,
     required this.battleSpeedMultiplier,
     required this.autoBattleEnabled,
+    required this.autoEndTurnEnabled,
     required this.onInput,
   });
 
@@ -185,6 +192,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
   final bool hapticsEnabled;
   final int battleSpeedMultiplier;
   final bool autoBattleEnabled;
+  final bool autoEndTurnEnabled;
   final ValueChanged<GameInput> onInput;
 
   @override
@@ -229,7 +237,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               button(
-                tooltip: '查看我方将领',
+                tooltip: '查看将领列表',
                 input: GameInput.generalRoster,
                 width: 104,
                 child: const Row(
@@ -238,7 +246,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
                     Icon(Icons.groups, color: iconColor, size: 21),
                     SizedBox(width: 5),
                     Text(
-                      '我方将领',
+                      '将领列表',
                       style: TextStyle(
                         color: iconColor,
                         fontSize: 13,
@@ -260,6 +268,27 @@ class _SgbyUtilityButtons extends StatelessWidget {
                     SizedBox(width: 5),
                     Text(
                       '搜索记录',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              button(
+                tooltip: '从当前我方城市一键出征',
+                input: GameInput.quickExpedition,
+                width: 112,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.outbound, color: iconColor, size: 21),
+                    SizedBox(width: 5),
+                    Text(
+                      '一键出征',
                       style: TextStyle(
                         color: iconColor,
                         fontSize: 13,
@@ -351,6 +380,30 @@ class _SgbyUtilityButtons extends StatelessWidget {
                         color: iconColor,
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              button(
+                tooltip: autoEndTurnEnabled ? '关闭自动策略结束' : '开启自动策略结束',
+                input: GameInput.autoEndTurn,
+                width: 110,
+                active: autoEndTurnEnabled,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.fast_forward, color: iconColor, size: 22),
+                    const SizedBox(width: 5),
+                    Text(
+                      '自动策略',
+                      style: TextStyle(
+                        color: iconColor,
+                        fontSize: 13,
+                        fontWeight: autoEndTurnEnabled
+                            ? FontWeight.w900
+                            : FontWeight.w700,
                       ),
                     ),
                   ],

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../view_models/game_view_model.dart';
 import 'game_cheat_sheet.dart';
 
-/// 展示按城池顺序排列的我方将领列表。
+/// 展示按阵营与登场状态分类的将领列表。
 Future<void> showSgbyGeneralRosterSheet(
   BuildContext context, {
   required GameViewModel viewModel,
@@ -19,7 +19,7 @@ Future<void> showSgbyGeneralRosterSheet(
   );
 }
 
-/// 我方将领列表状态，支持人物名和城池名实时过滤。
+/// 将领列表状态，支持分组浏览以及人物名、城池名和势力名实时过滤。
 class _SgbyGeneralRosterSheet extends StatefulWidget {
   const _SgbyGeneralRosterSheet({required this.viewModel});
 
@@ -30,7 +30,8 @@ class _SgbyGeneralRosterSheet extends StatefulWidget {
       _SgbyGeneralRosterSheetState();
 }
 
-class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
+class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet>
+    with SingleTickerProviderStateMixin {
   static const List<String> _armsTypeNames = <String>[
     '骑兵',
     '步兵',
@@ -39,8 +40,15 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
     '极兵',
     '玄兵',
   ];
+  static const List<SgbyGeneralGroup> _groups = <SgbyGeneralGroup>[
+    SgbyGeneralGroup.player,
+    SgbyGeneralGroup.enemy,
+    SgbyGeneralGroup.currentWild,
+    SgbyGeneralGroup.futureWild,
+  ];
 
   final TextEditingController _searchController = TextEditingController();
+  late final TabController _tabController;
   SgbyCheatData? _data;
   bool _loading = false;
   int? _changingGeneralIndex;
@@ -49,11 +57,13 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: _groups.length, vsync: this);
     _load();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -69,25 +79,39 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
     });
   }
 
-  List<SgbyGeneralCheatInfo> get _filteredGenerals {
+  List<SgbyGeneralCheatInfo> _filteredGenerals(SgbyGeneralGroup group) {
     final query = _query.trim().toLowerCase();
-    final generals = _data?.generals ?? const <SgbyGeneralCheatInfo>[];
-    if (query.isEmpty) return generals;
+    final generals = (_data?.generals ?? const <SgbyGeneralCheatInfo>[]).where(
+      (general) => general.group == group,
+    );
+    if (query.isEmpty) return generals.toList(growable: false);
     return generals
         .where(
           (general) =>
               general.name.toLowerCase().contains(query) ||
-              general.cityName.toLowerCase().contains(query),
+              general.cityName.toLowerCase().contains(query) ||
+              general.factionName.toLowerCase().contains(query),
         )
         .toList(growable: false);
   }
+
+  String _groupLabel(SgbyGeneralGroup group) => switch (group) {
+    SgbyGeneralGroup.player => '我方将领',
+    SgbyGeneralGroup.enemy => '敌方将领',
+    SgbyGeneralGroup.currentWild => '当前在野',
+    SgbyGeneralGroup.futureWild => '未来在野',
+  };
 
   /// 点击将领后选择新的基础兵种，并复用作弊面板已有的白名单修改动作。
   ///
   /// 对话框只返回固定的 0~5 兵种序号，不接受任意脚本内容。修改期间锁定对应行，等待
   /// WebView 返回后重新读取列表，确保装备覆盖兵种等实际状态与游戏引擎保持一致。
   Future<void> _changeArmsType(SgbyGeneralCheatInfo general) async {
-    if (_changingGeneralIndex != null || !mounted) return;
+    if (general.group != SgbyGeneralGroup.player ||
+        _changingGeneralIndex != null ||
+        !mounted) {
+      return;
+    }
     final selectedArmsType = await showDialog<int>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
@@ -137,7 +161,10 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
   @override
   Widget build(BuildContext context) {
     final data = _data;
-    final generals = _filteredGenerals;
+    final visibleCount = _groups.fold<int>(
+      0,
+      (count, group) => count + _filteredGenerals(group).length,
+    );
     return SafeArea(
       top: false,
       child: Column(
@@ -148,7 +175,7 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               children: [
                 Expanded(
                   child: Text(
-                    '我方将领 · ${generals.length} 人',
+                    '将领列表 · $visibleCount 人',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -171,7 +198,7 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               controller: _searchController,
               onChanged: (value) => setState(() => _query = value),
               decoration: InputDecoration(
-                hintText: '搜索武将或城池',
+                hintText: '搜索武将、城池或势力',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _query.isEmpty
                     ? null
@@ -187,8 +214,30 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               ),
             ),
           ),
+          TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabs: _groups
+                .map(
+                  (group) => Tab(
+                    text:
+                        '${_groupLabel(group)} ${_filteredGenerals(group).length}',
+                  ),
+                )
+                .toList(growable: false),
+          ),
           const Divider(height: 1),
-          Expanded(child: _buildContent(data, generals)),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: _groups
+                  .map(
+                    (group) =>
+                        _buildContent(data, group, _filteredGenerals(group)),
+                  )
+                  .toList(growable: false),
+            ),
+          ),
         ],
       ),
     );
@@ -196,6 +245,7 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
 
   Widget _buildContent(
     SgbyCheatData? data,
+    SgbyGeneralGroup group,
     List<SgbyGeneralCheatInfo> generals,
   ) {
     if (data == null) {
@@ -207,7 +257,11 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
       );
     }
     if (generals.isEmpty) {
-      return Center(child: Text(_query.isEmpty ? '当前没有我方将领' : '没有匹配的武将或城池'));
+      return Center(
+        child: Text(
+          _query.isEmpty ? '当前没有${_groupLabel(group)}' : '没有匹配的武将、城池或势力',
+        ),
+      );
     }
 
     final rows = <Object>[];
@@ -232,10 +286,11 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
           );
         }
         final general = row as SgbyGeneralCheatInfo;
+        final editable = general.group == SgbyGeneralGroup.player;
         final changing = _changingGeneralIndex == general.index;
         return ListTile(
-          enabled: _changingGeneralIndex == null,
-          onTap: () => _changeArmsType(general),
+          enabled: !editable || _changingGeneralIndex == null,
+          onTap: editable ? () => _changeArmsType(general) : null,
           leading: CircleAvatar(
             child: Text(
               general.name.isEmpty ? '?' : general.name.characters.first,
@@ -248,6 +303,13 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
               spacing: 8,
               runSpacing: 4,
               children: [
+                if (general.group == SgbyGeneralGroup.enemy)
+                  Text('势力 ${general.factionName}'),
+                if (general.group == SgbyGeneralGroup.currentWild)
+                  const Text('当前在野'),
+                if (general.group == SgbyGeneralGroup.futureWild &&
+                    general.appearanceYear > 0)
+                  Text('登场 ${general.appearanceYear} 年'),
                 Text('等级 ${general.level}'),
                 Text('武力 ${general.force}'),
                 Text('智力 ${general.iq}'),
@@ -262,7 +324,9 @@ class _SgbyGeneralRosterSheetState extends State<_SgbyGeneralRosterSheet> {
                   dimension: 22,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Tooltip(message: '修改兵种', child: Icon(Icons.swap_horiz)),
+              : editable
+              ? const Tooltip(message: '修改兵种', child: Icon(Icons.swap_horiz))
+              : null,
         );
       },
     );

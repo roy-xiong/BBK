@@ -99,6 +99,9 @@
         autoMaxCities: persistedCheatState.autoMaxCities === true,
         foodProtection: persistedCheatState.foodProtection === true,
         autoBattle: persistedCheatState.autoBattle === true,
+        autoEndTurn: persistedCheatState.autoEndTurn === true,
+        attackAnyCity: persistedCheatState.attackAnyCity === true,
+        enemyEscapeRoute: persistedCheatState.enemyEscapeRoute === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
         postBattleCaptiveAction: resolvePostBattleCaptiveAction(persistedCheatState),
@@ -123,6 +126,7 @@
         groupAttackTargeting: null,
         selfGroupTouchInstalled: false,
         expeditionFoodSelection: null,
+        quickExpedition: null,
         autoBattlePlayerStage: false,
         autoBattleRunId: 0,
         autoBattleGeneralIndex: -1,
@@ -137,6 +141,12 @@
     var autoBattleHooks = null;
     var autoBattleOriginalChooseAction = null;
     var autoBattleChooseActionHook = null;
+    var autoEndTurnHooks = null;
+    var autoEndTurnOriginalTacticStageUser = null;
+    var autoEndTurnOriginalMainSystemMenu = null;
+    var autoEndTurnTacticStageUserHook = null;
+    var autoEndTurnMainSystemMenuHook = null;
+    var engineSendKey = null;
 
     /**
      * 构造供 Flutter 解析的统一返回值。
@@ -264,6 +274,12 @@
         if (typeof config.autoBattleDefense !== 'undefined') {
             config.autoBattleDefense = cheatState.autoBattle ? 1 : 0;
         }
+        if (typeof config.playerAttackAnyCity !== 'undefined') {
+            config.playerAttackAnyCity = cheatState.attackAnyCity ? 1 : 0;
+        }
+        if (typeof config.enemyEscapeRoute !== 'undefined') {
+            config.enemyEscapeRoute = cheatState.enemyEscapeRoute ? 1 : 0;
+        }
         if (typeof config.battleLoserOutcome !== 'undefined') {
             var values = {};
             values[BATTLE_LOSER_OUTCOME_ORIGINAL] = 0;
@@ -279,7 +295,7 @@
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 3,
+                version: 5,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -288,6 +304,9 @@
                 autoMaxCities: cheatState.autoMaxCities,
                 foodProtection: cheatState.foodProtection,
                 autoBattle: cheatState.autoBattle,
+                autoEndTurn: cheatState.autoEndTurn,
+                attackAnyCity: cheatState.attackAnyCity,
+                enemyEscapeRoute: cheatState.enemyEscapeRoute,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
@@ -638,7 +657,31 @@
     }
 
     /**
-     * 返回当前我方武将及可编辑属性。
+     * 返回人物的将领列表分组。
+     *
+     * 当前在野和未来在野都要求人物仍为无所属；登场年份按原版资源中的出生年加 16
+     * 计算。俘虏和已处死人物共用 0xffff 哨兵，不混入敌方或在野列表。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @param {Object} person 人物数据。
+     * @param {Object|null|undefined} condition 人物登场条件。
+     * @return {string|null} Flutter 使用的固定分组值；不展示时返回 null。
+     */
+    function generalRosterGroup(context, person, condition) {
+        if (person.Belong === context.ruler) return 'player';
+        if (person.Belong === 0) {
+            var birth = condition ? Number(condition.birth) || 0 : 0;
+            var appearanceYear = birth > 0 ? birth + 16 : 0;
+            return appearanceYear > Number(context.data.g_YearDate || 0)
+                ? 'futureWild'
+                : 'currentWild';
+        }
+        if (person.Belong === 0xffff) return null;
+        return 'enemy';
+    }
+
+    /**
+     * 返回当前剧本内可展示的我方、敌方、当前在野和未来在野武将。
      *
      * @return {string} JSON 数据。
      */
@@ -647,19 +690,65 @@
         if (!context) return result(false, '请先开始或载入一局游戏');
         try {
             var cityIndexes = personCityIndexes(context);
+            var conditions = generalSearchConditions(context);
             var maxLevel = context.data.g_engineConfig.maxLevel || 20;
-            var generals = context.ownedPeople.map(function (entry) {
-                var person = entry.value;
-                var cityIndex = cityIndexes[entry.index];
-                var battleIndex = battleIndexOf(context.data, entry.index);
+            var personCount = context.people.length;
+            if (typeof baye.getPersonCount === 'function') {
+                var enginePersonCount = Number(baye.getPersonCount());
+                if (
+                    Number.isInteger(enginePersonCount) && enginePersonCount >= 0 &&
+                    enginePersonCount <= context.people.length
+                ) {
+                    personCount = enginePersonCount;
+                }
+            }
+            var generals = [];
+            for (var personIndex = 0; personIndex < personCount; personIndex++) {
+                var person = context.people[personIndex];
+                var personName = baye.getPersonName(personIndex);
+                if (typeof personName !== 'string' || !personName.trim()) continue;
+                var condition = conditions[personIndex];
+                var group = person ? generalRosterGroup(context, person, condition) : null;
+                if (!group) continue;
+                var cityIndex = cityIndexes[personIndex];
+                var cityName = cityIndex == null
+                    ? '城外'
+                    : (baye.getCityName(cityIndex) || '未知城池');
+                if (
+                    cityIndex == null &&
+                    (group === 'currentWild' || group === 'futureWild') && condition
+                ) {
+                    if (condition.city === 0) {
+                        cityName = '随机城池';
+                    } else {
+                        var conditionCityIndex = context.data.g_engineConfig.fixCityOffset
+                            ? condition.city - 1
+                            : condition.city;
+                        if (
+                            Number.isInteger(conditionCityIndex) && conditionCityIndex >= 0 &&
+                            conditionCityIndex < context.cities.length
+                        ) {
+                            cityIndex = conditionCityIndex;
+                            cityName = baye.getCityName(cityIndex) || '未知城池';
+                        }
+                    }
+                }
+                var birth = condition ? Number(condition.birth) || 0 : 0;
+                var appearanceYear = birth > 0 ? birth + 16 : 0;
+                var battleIndex = battleIndexOf(context.data, personIndex);
                 var position = battleIndex >= 0
                     ? context.data.g_GenPos[battleIndex]
                     : null;
-                return {
-                    index: entry.index,
-                    name: baye.getPersonName(entry.index) || ('武将 ' + (entry.index + 1)),
+                generals.push({
+                    index: personIndex,
+                    name: personName,
+                    group: group,
+                    factionName: group === 'player' || group === 'enemy'
+                        ? rulerNameForBelong(context.data, person.Belong)
+                        : '在野',
+                    appearanceYear: appearanceYear,
                     cityIndex: cityIndex == null ? 65535 : cityIndex,
-                    cityName: cityIndex == null ? '城外' : (baye.getCityName(cityIndex) || '未知城池'),
+                    cityName: cityName,
                     level: person.Level,
                     force: person.Force,
                     iq: person.IQ,
@@ -668,17 +757,24 @@
                     experience: person.Experience,
                     arms: person.Arms,
                     baseArmsType: person.ArmsType,
-                    effectiveArmsType: baye.getArmType(entry.index),
+                    effectiveArmsType: baye.getArmType(personIndex),
                     inBattle: battleIndex >= 0,
                     battleMove: position ? position.move : 0,
                     battleHp: position ? position.hp : 0,
                     battleMp: position ? position.mp : 0,
                     battleState: position ? position.state : 0,
                     canAct: position ? position.active === 0 : false
-                };
-            });
+                });
+            }
+            var groupOrder = {player: 0, enemy: 1, currentWild: 2, futureWild: 3};
             generals.sort(function (left, right) {
+                if (groupOrder[left.group] !== groupOrder[right.group]) {
+                    return groupOrder[left.group] - groupOrder[right.group];
+                }
                 if (left.cityIndex !== right.cityIndex) return left.cityIndex - right.cityIndex;
+                if (left.appearanceYear !== right.appearanceYear) {
+                    return left.appearanceYear - right.appearanceYear;
+                }
                 return left.name.localeCompare(right.name, 'zh-CN');
             });
             return JSON.stringify({ok: true, maxLevel: maxLevel, generals: generals});
@@ -966,7 +1062,8 @@
     function executeAllWildGenerals(context) {
         var count = 0;
         var cityResults = [];
-        context.cities.forEach(function (city, cityIndex) {
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            var city = context.cities[cityIndex];
             var executedNames = [];
             var cityEntry = {index: cityIndex, value: city};
             cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
@@ -992,7 +1089,7 @@
                     exiled: []
                 });
             }
-        });
+        }
         appendSearchHistory(context, '全地图处死在野', cityResults, null);
         return {count: count, cities: cityResults};
     }
@@ -1008,13 +1105,14 @@
         var found = 0;
         var newRulers = 0;
         var cityResults = [];
-        context.cities.forEach(function (city, cityIndex) {
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            var city = context.cities[cityIndex];
             var cityEntry = {index: cityIndex, value: city};
             var wildIndexes = cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
                 var person = context.people[personIndex];
                 return person && person.Belong === 0;
             });
-            if (!wildIndexes.length) return;
+            if (!wildIndexes.length) continue;
 
             var targetBelong = Number(city.Belong) || 0;
             if (!targetBelong) {
@@ -1045,7 +1143,7 @@
                 executed: [],
                 exiled: []
             });
-        });
+        }
         appendSearchHistory(context, '全地图搜索', cityResults, null);
         return {count: found, newRulers: newRulers, cities: cityResults};
     }
@@ -1156,6 +1254,19 @@
         global.BbkSystemChannel.postMessage(JSON.stringify({
             type: 'sgby_notice',
             data: {ok: ok, message: message}
+        }));
+    }
+
+    /** 把会影响游戏控制面板的脚本状态主动同步给 Flutter。 */
+    function postControlState() {
+        if (!global.BbkSystemChannel) return;
+        global.BbkSystemChannel.postMessage(JSON.stringify({
+            type: 'sgby_control_state',
+            data: {
+                autoBattle: cheatState.autoBattle,
+                autoEndTurn: cheatState.autoEndTurn,
+                battleSpeedMultiplier: cheatState.battleSpeedMultiplier
+            }
         }));
     }
 
@@ -1464,6 +1575,69 @@
             } : null;
             return hookResult == null ? 2 : hookResult;
         };
+    }
+
+    /**
+     * 安装一键出征命令和选将 Hook。
+     *
+     * 普通流程返回 -1 交还原版菜单；仅按钮发起的一次流程跳过命令菜单，并在选将阶段
+     * 选择第一名武将后立即结束。粮草仍复用既有数字框输入算法，目标城市不接管。
+     */
+    function installQuickExpeditionHooks(hooks) {
+        var originalCityCommand = hooks.playerCityCommand;
+        var originalChoosePerson = hooks.battleChoosePerson;
+        hooks.playerCityCommand = function (context) {
+            var quick = cheatState.quickExpedition;
+            if (quick && Number(context.cityIndex) === quick.cityIndex) {
+                return BATTLE_COMMAND;
+            }
+            return originalCityCommand ? originalCityCommand(context) : -1;
+        };
+        hooks.battleChoosePerson = function (context) {
+            var quick = cheatState.quickExpedition;
+            if (!quick || Number(context.cityIndex) !== quick.cityIndex) {
+                return originalChoosePerson ? originalChoosePerson(context) : -1;
+            }
+            if (Number(context.selectionCount) === 0 && Number(context.availableCount) > 0) {
+                return 0;
+            }
+
+            cheatState.quickExpedition = null;
+            var expedition = cheatState.expeditionFoodSelection;
+            if (expedition && typeof engineSendKey === 'function') {
+                expedition.selectedCount = 1;
+                cheatState.expeditionFoodSelection = null;
+                global.setTimeout(function () {
+                    submitExpeditionFood(engineSendKey, expedition);
+                }, 120);
+            }
+            return 0xffff;
+        };
+    }
+
+    /** 从当前光标所在我方城市启动一键出征。 */
+    function startQuickExpedition() {
+        var context = gameContext();
+        if (!context || !cheatState.mainMapVisible || isBattleActive(context.data)) {
+            return result(false, '请回到战略地图后使用一键出征');
+        }
+        var cityEntry = selectedOwnedCity(context);
+        if (!cityEntry) return result(false, '请先在战略地图选中一座我方城市');
+        var availablePeople = cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
+            var person = context.people[personIndex];
+            return person && person.Belong === context.ruler;
+        });
+        if (!availablePeople.length) return result(false, '当前城市没有可出征武将');
+
+        if (cheatState.autoEndTurn) {
+            cheatState.autoEndTurn = false;
+            syncAutoEndTurnHooks();
+            savePersistentCheatState();
+            postControlState();
+        }
+        cheatState.quickExpedition = {cityIndex: cityEntry.index};
+        sendKey(VK_ENTER);
+        return result(true, '已选择第一名武将和自动粮草，请手动选择目标城市');
     }
 
     /**
@@ -2388,6 +2562,7 @@
 
         var originalSendKey = global.sendKey;
         if (typeof originalSendKey === 'function') {
+            engineSendKey = originalSendKey;
             global.sendKey = function (key) {
                 if (
                     key === VK_ENTER && cheatState.groupAttackTargeting &&
@@ -2609,10 +2784,29 @@
         global.setTimeout(sendNext, autoBattleKeyDelay());
     }
 
+    /** 返回指定落点使用 7×7 扩大群攻时可覆盖的存活敌将数量。 */
+    function groupAttackCoverageAt(data, enemies, mapX, mapY) {
+        var count = 0;
+        enemies.forEach(function (enemyIndex) {
+            var enemy = data.g_GenPos[enemyIndex];
+            var deltaX = Math.abs(enemy.x - mapX);
+            var deltaY = Math.abs(enemy.y - mapY);
+            if (
+                (deltaX > 0 || deltaY > 0) &&
+                deltaX <= NORMAL_ATTACK_DISTANCE && deltaY <= NORMAL_ATTACK_DISTANCE
+            ) {
+                count++;
+            }
+        });
+        return count;
+    }
+
     /**
-     * 从引擎刚计算出的 15x15 可移动路径中选择最接近任意敌人的落点。
+     * 从引擎刚计算出的 15x15 可移动路径中选择自动战斗落点。
      *
-     * 不直接修改坐标，只返回目标格；后续仍通过方向键和确认键完成原版移动流程。
+     * 扩大群攻开启时优先选择 7×7 内覆盖敌将最多的位置；覆盖数相同时再比较最近敌人
+     * 距离和实际移动距离。普通攻击继续沿用最接近敌人的原算法。函数不直接修改坐标，
+     * 后续仍通过方向键和确认键完成原版移动流程。
      */
     function chooseAutoBattleMove(data, generalIndex) {
         var position = data.g_GenPos[generalIndex];
@@ -2622,6 +2816,7 @@
             return position ? {x: position.x, y: position.y} : null;
         }
         var best = {x: position.x, y: position.y};
+        var bestCoverage = -1;
         var bestEnemyDistance = Number.MAX_SAFE_INTEGER;
         var bestTravelDistance = -1;
         var pathStartX = Number(data.g_PathSX) || 0;
@@ -2647,12 +2842,25 @@
                         battleDistance(mapX, mapY, enemy.x, enemy.y)
                     );
                 });
+                var coverage = cheatState.wideGroupAttack
+                    ? groupAttackCoverageAt(data, enemies, mapX, mapY)
+                    : 0;
                 var travelDistance = battleDistance(position.x, position.y, mapX, mapY);
                 if (
-                    nearestEnemyDistance < bestEnemyDistance ||
-                    (nearestEnemyDistance === bestEnemyDistance && travelDistance > bestTravelDistance)
+                    coverage > bestCoverage ||
+                    (
+                        coverage === bestCoverage &&
+                        (
+                            nearestEnemyDistance < bestEnemyDistance ||
+                            (
+                                nearestEnemyDistance === bestEnemyDistance &&
+                                travelDistance > bestTravelDistance
+                            )
+                        )
+                    )
                 ) {
                     best = {x: mapX, y: mapY};
+                    bestCoverage = coverage;
                     bestEnemyDistance = nearestEnemyDistance;
                     bestTravelDistance = travelDistance;
                 }
@@ -2966,6 +3174,57 @@
     }
 
     /**
+     * 按自动策略开关安装或恢复玩家策略和系统菜单 Hook。
+     *
+     * 开启后 `tacticStageUser` 跳过 PlayerTactic，随后 `mainSystemMenu` 固定选择“结束策略”；
+     * 关闭时必须恢复原 Hook 或删除字段，否则 C 核心会误判为脚本已经接管玩家策略。
+     */
+    function syncAutoEndTurnHooks() {
+        if (!autoEndTurnHooks || !autoEndTurnTacticStageUserHook || !autoEndTurnMainSystemMenuHook) {
+            return;
+        }
+        if (cheatState.autoEndTurn) {
+            autoEndTurnHooks.tacticStageUser = autoEndTurnTacticStageUserHook;
+            autoEndTurnHooks.mainSystemMenu = autoEndTurnMainSystemMenuHook;
+            return;
+        }
+        if (autoEndTurnHooks.tacticStageUser === autoEndTurnTacticStageUserHook) {
+            if (autoEndTurnOriginalTacticStageUser) {
+                autoEndTurnHooks.tacticStageUser = autoEndTurnOriginalTacticStageUser;
+            } else {
+                delete autoEndTurnHooks.tacticStageUser;
+            }
+        }
+        if (autoEndTurnHooks.mainSystemMenu === autoEndTurnMainSystemMenuHook) {
+            if (autoEndTurnOriginalMainSystemMenu) {
+                autoEndTurnHooks.mainSystemMenu = autoEndTurnOriginalMainSystemMenu;
+            } else {
+                delete autoEndTurnHooks.mainSystemMenu;
+            }
+        }
+    }
+
+    /** 安装自动策略所需 Hook；重复初始化时只复用同一组函数。 */
+    function installAutoEndTurnHooks(hooks) {
+        autoEndTurnHooks = hooks;
+        autoEndTurnOriginalTacticStageUser = hooks.tacticStageUser || null;
+        autoEndTurnOriginalMainSystemMenu = hooks.mainSystemMenu || null;
+        autoEndTurnTacticStageUserHook = function (context) {
+            if (cheatState.autoEndTurn) return 0;
+            return autoEndTurnOriginalTacticStageUser
+                ? autoEndTurnOriginalTacticStageUser(context)
+                : -1;
+        };
+        autoEndTurnMainSystemMenuHook = function (context) {
+            if (cheatState.autoEndTurn) return 0;
+            return autoEndTurnOriginalMainSystemMenu
+                ? autoEndTurnOriginalMainSystemMenu(context)
+                : 0xff;
+        };
+        syncAutoEndTurnHooks();
+    }
+
+    /**
      * 安装自动战斗所需 Hook。
      *
      * 移动、选目标和确认均通过 sendKey 驱动；唯一直接返回的是原版动作菜单中的“攻击”
@@ -3149,6 +3408,8 @@
         installSystemFont(hooks);
         installNormalAttackHook(hooks);
         installAutoBattleHooks(hooks);
+        installAutoEndTurnHooks(hooks);
+        installQuickExpeditionHooks(hooks);
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);
         });
@@ -3238,6 +3499,8 @@
             }
         });
         installObserverHook(hooks, 'enterBattle', function () {
+            // 自动策略 Hook 只作用于战略阶段。战斗期间无需关闭开关，回到主地图后
+            // didShowMainMap 会继续安排结束当前策略，避免一次战斗永久中断连续推进。
             cheatState.autoBattlePlayerStage = false;
             cancelAutoBattleRun();
             cheatState.mainMapVisible = false;
@@ -3253,8 +3516,12 @@
             var hookResult = originalMapHook ? originalMapHook(context) : 1;
             cheatState.mainMapVisible = true;
             cheatState.mainMapRoadsVisible = true;
+            if (cheatState.quickExpedition) cheatState.quickExpedition = null;
             executeDefeatedCityCaptives();
             global.requestAnimationFrame(colorizeCityIcons);
+            if (cheatState.autoEndTurn && !cheatState.endTurnPending) {
+                global.setTimeout(requestAutoEndCurrentTurn, 180);
+            }
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
                 var battleSource = cheatState.postBattleSource;
@@ -3352,6 +3619,7 @@
                 delete hooks[hookName];
             }
             cheatState.endTurnPending = false;
+            syncAutoEndTurnHooks();
         };
         oneShotHook = function () {
             restore();
@@ -3359,6 +3627,20 @@
         };
         hooks[hookName] = oneShotHook;
         global.setTimeout(restore, 2000);
+        return true;
+    }
+
+    /** 结束当前正在显示的玩家策略月，后续月份由持久 Hook 直接跳过。 */
+    function requestAutoEndCurrentTurn() {
+        if (
+            !cheatState.autoEndTurn || !cheatState.mainMapVisible ||
+            cheatState.endTurnPending || cheatState.quickSavePending
+        ) {
+            return false;
+        }
+        cheatState.endTurnPending = true;
+        installOneShotMenuSelection('mainSystemMenu', 0);
+        sendKey(VK_EXIT);
         return true;
     }
 
@@ -3395,6 +3677,25 @@
                     : '自动战斗已关闭'
             );
         }
+
+        if (action === 'autoEndTurn') {
+            if (!cheatState.autoEndTurn && !cheatState.mainMapVisible) {
+                return result(false, '请回到战略地图后开启自动策略结束');
+            }
+            cheatState.autoEndTurn = !cheatState.autoEndTurn;
+            syncAutoEndTurnHooks();
+            savePersistentCheatState();
+            postControlState();
+            if (cheatState.autoEndTurn) requestAutoEndCurrentTurn();
+            return result(
+                true,
+                cheatState.autoEndTurn
+                    ? '自动策略结束已开启，战斗结束后将自动继续'
+                    : '自动策略结束已关闭'
+            );
+        }
+
+        if (action === 'quickExpedition') return startQuickExpedition();
 
         var context = gameContext();
         if (!context) return result(false, '请先开始或载入一局游戏');
@@ -3501,6 +3802,28 @@
                     cheatState.foodProtection
                         ? '粮草保护已开启：战斗不耗我方粮草，城池缺粮不再减兵'
                         : '粮草保护已关闭'
+                );
+            }
+            if (action === 'sgby_attack_any_city') {
+                cheatState.attackAnyCity = !cheatState.attackAnyCity;
+                syncEngineCheatSettings();
+                savePersistentCheatState();
+                return result(
+                    true,
+                    cheatState.attackAnyCity
+                        ? '任意攻城已开启：我方出征可忽略城市连线'
+                        : '任意攻城已关闭：恢复原版相邻路线限制'
+                );
+            }
+            if (action === 'sgby_enemy_escape_route') {
+                cheatState.enemyEscapeRoute = !cheatState.enemyEscapeRoute;
+                syncEngineCheatSettings();
+                savePersistentCheatState();
+                return result(
+                    true,
+                    cheatState.enemyEscapeRoute
+                        ? '敌军逃跑路线限制已开启：只能沿原势力城市连线撤退'
+                        : '敌军逃跑路线限制已关闭：恢复原版随机退往势力城市'
                 );
             }
             if (action === 'sgby_search_city') {
@@ -3742,6 +4065,9 @@
             autoMaxCities: cheatState.autoMaxCities,
             foodProtection: cheatState.foodProtection,
             autoBattle: cheatState.autoBattle,
+            autoEndTurn: cheatState.autoEndTurn,
+            attackAnyCity: cheatState.attackAnyCity,
+            enemyEscapeRoute: cheatState.enemyEscapeRoute,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
             battleSpeed4x: cheatState.battleSpeedMultiplier === 4,
