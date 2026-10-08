@@ -69,8 +69,8 @@ enum _SearchOutcome {
 /// 所有战败武将的强制结算方式，既覆盖参战人员，也覆盖失守城池内的未参战人员。
 enum _BattleLoserOutcome {
   original('original', '原版算法', '参战武将按智力随机逃跑、被俘或战死，留守武将按原版占领规则处理'),
-  death('death', '必死', '所有战败方武将战死，装备留在战斗城市'),
-  captive('captive', '必被俘', '所有战败方武将成为战斗城市的俘虏'),
+  death('death', '必死', '三种战斗方向的所有败方武将战死，装备留在战斗城市'),
+  captive('captive', '必被俘', '三种战斗方向的所有败方武将成为实际胜方的俘虏'),
   escape('escape', '必逃跑', '退往原势力随机城市；原势力无城可退时转为在野'),
   wild('wild', '必在野', '所有战败方武将留在战斗城市并变为在野');
 
@@ -233,14 +233,14 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'sgby_post_battle_automation',
         title: '战后自动处理',
-        description: '每次战斗结算后自动拉满全部城池，按所选方式处理俘虏并搜索隐藏内容',
+        description: '每次战斗后按所选方式处理实际胜方俘虏；我方城池继续自动拉满和搜索',
         icon: Icons.auto_mode,
         stateKey: 'postBattleAutomation',
       ),
       _CheatOption(
         action: 'sgby_battle_loser_outcome',
         title: '战败武将结局',
-        description: '同时作用于参战败将和失守城池内未参战武将，敌我双方均生效',
+        description: '覆盖参战和留守败将；我攻敌、敌攻我、敌敌互战均生效',
         icon: Icons.rule,
       ),
       _CheatOption(
@@ -258,7 +258,7 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'sgby_execute_wild_generals',
         title: '处死全地图在野武将',
-        description: '永久移除所有当前在野武将（含城外），未来在野不受影响',
+        description: '永久移除所有当前与未来在野武将，城内城外全部处理',
         icon: Icons.person_remove,
       ),
       _CheatOption(

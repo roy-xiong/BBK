@@ -67,6 +67,14 @@ assert.ok(
   corePatchSource.includes('+    .checkRedundantOnAddPerson = 1,'),
   '核心人物入城应启用跨城市去重保护',
 );
+for (const outcome of ['DEATH', 'CAPTIVE', 'ESCAPE', 'WILD']) {
+  const branch = `BATTLE_LOSER_OUTCOME_${outcome} == ` +
+    'g_engineConfig.battleLoserOutcome';
+  assert.ok(
+    corePatchSource.split(branch).length - 1 >= 2,
+    `${outcome} 必须同时覆盖参战败将和失守城市留守武将`,
+  );
+}
 
 /**
  * 创建最小可运行的三国霸业脚本环境。
@@ -1000,6 +1008,7 @@ function apply(api, action) {
   apply(api, 'sgby_generals');
   apply(api, 'sgby_post_battle_automation');
   hooks.enterBattle({});
+  data.g_Cities[2].Belong = 1;
   hooks.exitBattle({});
   data.g_FgtOver = 1;
   hooks.didShowMainMap({});
@@ -1441,6 +1450,7 @@ function apply(api, action) {
   ));
   assert.equal(actionResult.ok, true, actionResult.message);
   hooks.enterBattle({});
+  data.g_Cities[2].Belong = 1;
   hooks.exitBattle({});
   data.g_FgtOver = 1;
   hooks.didShowMainMap({});
@@ -1457,6 +1467,55 @@ function apply(api, action) {
 
 {
   const harness = createHarness();
+  const {api, context, data, hooks, people} = harness;
+  apply(api, 'sgby_post_battle_automation');
+  data.g_FgtParam.Mode = 1;
+  data.g_FgtParam.CityIndex = 2;
+  hooks.enterBattle({});
+  context.baye.deletePersonInCity(0, 1);
+  people[1].Belong = 0xffff;
+  context.baye.putPersonInCity(2, 1);
+  hooks.exitBattle({});
+  data.g_FgtOver = 2;
+  hooks.didShowMainMap({});
+
+  assert.equal(
+    people[1].Belong,
+    5,
+    '我方进攻失败后，俘虏应由实际胜方势力招降',
+  );
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people, returnedTools} = harness;
+  apply(api, 'sgby_post_battle_automation');
+  const actionResult = JSON.parse(api.applyCheat(
+    'sgby_post_battle_captive_action',
+    {mode: 'execute'},
+  ));
+  assert.equal(actionResult.ok, true, actionResult.message);
+  people[1].Tool1 = 2;
+  data.g_FgtParam.Mode = 0;
+  data.g_FgtParam.CityIndex = 0;
+  data.g_FgtParam.GenArray[10] = 5;
+  hooks.enterBattle({});
+  data.g_Cities[0].Belong = 5;
+  people[1].Belong = 0xffff;
+  hooks.exitBattle({});
+  data.g_FgtOver = 2;
+  hooks.didShowMainMap({});
+
+  assert.equal(
+    data.g_PersonsQueue.includes(1),
+    false,
+    '敌方攻城成功后，实际胜方的处斩设置应删除我方俘虏',
+  );
+  assert.equal(returnedTools.some((entry) => entry.tool === 1), true);
+}
+
+{
+  const harness = createHarness();
   const {api, data, hooks, people} = harness;
   apply(api, 'sgby_post_battle_automation');
   const actionResult = JSON.parse(api.applyCheat(
@@ -1464,7 +1523,51 @@ function apply(api, action) {
     {mode: 'exile'},
   ));
   assert.equal(actionResult.ok, true, actionResult.message);
+  const searchResult = JSON.parse(api.applyCheat(
+    'sgby_search_outcome',
+    {mode: 'none'},
+  ));
+  assert.equal(searchResult.ok, true, searchResult.message);
+  people[7].Belong = 8;
+  data.g_FgtParam.Mode = 2;
+  data.g_FgtParam.CityIndex = 2;
+  data.g_FgtParam.GenArray[0] = 8;
   hooks.enterBattle({});
+  data.g_Cities[2].Belong = 8;
+  people[5].Belong = 0xffff;
+  hooks.exitBattle({});
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  const battleCityPeople = data.g_PersonsQueue.slice(
+    data.g_Cities[2].PersonQueue,
+    data.g_Cities[2].PersonQueue + data.g_Cities[2].Persons,
+  );
+  assert.equal(people[5].Belong, 0);
+  assert.equal(battleCityPeople.includes(5), false);
+  assert.equal(
+    data.g_PersonsQueue.includes(5),
+    true,
+    '敌军互战后的流放人物应进入非胜方城市',
+  );
+}
+
+{
+  const harness = createHarness();
+  const {api, data, hooks, people} = harness;
+  apply(api, 'sgby_post_battle_automation');
+  const actionResult = JSON.parse(api.applyCheat(
+    'sgby_post_battle_captive_action',
+    {mode: 'exile'},
+  ));
+  assert.equal(actionResult.ok, true, actionResult.message);
+  const searchOutcomeResult = JSON.parse(api.applyCheat(
+    'sgby_search_outcome',
+    {mode: 'none'},
+  ));
+  assert.equal(searchOutcomeResult.ok, true, searchOutcomeResult.message);
+  hooks.enterBattle({});
+  data.g_Cities[2].Belong = 1;
   hooks.exitBattle({});
   data.g_FgtOver = 1;
   hooks.didShowMainMap({});
@@ -1569,12 +1672,12 @@ function apply(api, action) {
     {},
   ));
   assert.equal(executeResult.ok, true, executeResult.message);
-  assert.match(executeResult.message, /3 名/);
+  assert.match(executeResult.message, /4 名/);
   assert.equal(data.g_PersonsQueue.includes(2), false);
-  assert.equal(data.g_PersonsQueue.includes(6), true);
+  assert.equal(data.g_PersonsQueue.includes(6), false);
   assert.equal(data.g_PersonsQueue.includes(3), true);
   assert.equal(people[2].Belong, 0xffff);
-  assert.equal(people[6].Belong, 0, '未来在野武将不能被处死');
+  assert.equal(people[6].Belong, 0xffff, '一键处死必须同时覆盖未来在野武将');
   assert.equal(people[7].Belong, 0xffff);
   assert.equal(people[8].Belong, 0xffff);
   assert.equal(returnedTools.some((entry) => entry.tool === 1), true);
@@ -1588,7 +1691,7 @@ function apply(api, action) {
   assert.match(searchResult.message, /搜出 0 名/);
   const history = JSON.parse(api.getSearchHistory());
   assert.equal(history.records[0].source, '全地图处死在野');
-  assert.equal(history.records[0].executedCount, 3);
+  assert.equal(history.records[0].executedCount, 4);
 }
 
 {

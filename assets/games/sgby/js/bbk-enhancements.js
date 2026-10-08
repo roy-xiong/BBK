@@ -121,6 +121,7 @@
         cityFoodConsumptionSnapshot: null,
         postBattleAutomationPending: false,
         postBattleSource: null,
+        postBattleResolution: null,
         battleCaptiveSnapshot: null,
         initializationTimer: null,
         mainMapVisible: false,
@@ -849,16 +850,16 @@
     }
 
     /**
-     * 返回与将领列表“当前在野”页完全一致的人物集合。
+     * 返回与将领列表在野分页一致的人物集合。
      *
-     * 人物可能已经到登场年份，但因为旧版劝降、势力结算或队列异常暂时不在任何城市。
-     * 批量搜索和处死仍必须覆盖这些城外人物；尚未到登场年份的人物即使意外出现在城市
-     * 队列中，也必须继续归入“未来在野”，不能提前处理。
+     * 人物可能因为旧版劝降、势力结算或队列异常暂时不在任何城市。批量操作仍覆盖这些
+     * 城外人物；搜索仅选择当前在野，一键处死则通过参数同时选择当前和未来在野。
      *
      * @param {Object} context 当前游戏上下文。
-     * @return {Array<{index:number,value:Object,cityIndex:number,actualCityIndex:(number|null)}>} 当前在野人物。
+     * @param {boolean} includeFuture 是否同时返回未来在野。
+     * @return {Array<{index:number,value:Object,cityIndex:number,actualCityIndex:(number|null)}>} 在野人物。
      */
-    function currentWildGeneralEntries(context) {
+    function wildGeneralEntries(context, includeFuture) {
         var conditions = generalSearchConditions(context);
         var cityIndexes = personCityIndexes(context);
         var cityCount = context.cities.length;
@@ -868,10 +869,9 @@
             var person = context.people[personIndex];
             var personName = baye.getPersonName(personIndex);
             var condition = conditions[personIndex];
-            if (
-                !person || typeof personName !== 'string' || !personName.trim() ||
-                generalRosterGroup(context, person, condition) !== 'currentWild'
-            ) {
+            var group = person ? generalRosterGroup(context, person, condition) : null;
+            if (!person || typeof personName !== 'string' || !personName.trim() ||
+                (group !== 'currentWild' && !(includeFuture && group === 'futureWild'))) {
                 continue;
             }
             var actualCityIndex = cityIndexes[personIndex];
@@ -892,6 +892,11 @@
             });
         }
         return entries;
+    }
+
+    /** @return {Array<Object>} 与将领列表“当前在野”页一致的人物集合。 */
+    function currentWildGeneralEntries(context) {
+        return wildGeneralEntries(context, false);
     }
 
     /**
@@ -1182,13 +1187,15 @@
     }
 
     /**
-     * 招降指定我方城池集合内的全部俘虏。
+     * 招降指定势力城市集合内的全部俘虏。
      *
      * @param {Object} context 当前游戏上下文。
-     * @param {Array<{index:number,value:Object}>} cityEntries 需要处理的我方城池。
+     * @param {Array<{index:number,value:Object}>} cityEntries 需要处理的胜方城池。
+     * @param {number=} targetBelong 招降后的目标归属；省略时使用玩家势力。
      * @return {{count:number,cities:Array<Object>}} 招降统计和逐城名单。
      */
-    function recruitCaptives(context, cityEntries) {
+    function recruitCaptives(context, cityEntries, targetBelong) {
+        targetBelong = Number(targetBelong) || context.ruler;
         var recruited = 0;
         var cityResults = [];
         cityEntries.forEach(function (cityEntry) {
@@ -1199,9 +1206,11 @@
                 recruitedNames.push(
                     baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
                 );
-                captive.Belong = context.ruler;
+                captive.Belong = targetBelong;
                 captive.Devotion = 100;
-                if (cheatState.autoMaxGenerals) maximizeGeneral(captive, context.data);
+                if (targetBelong === context.ruler && cheatState.autoMaxGenerals) {
+                    maximizeGeneral(captive, context.data);
+                }
                 recruited++;
             });
             if (recruitedNames.length) {
@@ -1263,14 +1272,14 @@
     }
 
     /**
-     * 处死将领列表中的全部当前在野武将，包括已经到登场年份但尚未进入城市的人员。
+     * 处死将领列表中的全部当前和未来在野武将，城内、城外人员均处理。
      *
-     * 尚未到登场年份的未来武将不会处理。城外人物的装备放回原定出生城；随机出生人物
-     * 使用稳定城市映射。删除前改为俘虏哨兵，避免再次被自动登场或搜索逻辑加入地图。
+     * 城外人物的装备放回原定出生城；随机出生人物使用稳定城市映射。删除前改为俘虏
+     * 哨兵，避免再次被自动登场或搜索逻辑加入地图。
      */
     function executeAllWildGenerals(context) {
         var groupedNames = {};
-        var entries = currentWildGeneralEntries(context);
+        var entries = wildGeneralEntries(context, true);
         entries.forEach(function (entry) {
             var cityIndex = entry.cityIndex;
             var person = entry.value;
@@ -1365,18 +1374,24 @@
     }
 
     /**
-     * 流放指定我方城池中的全部俘虏。
+     * 流放指定胜方城池中的全部俘虏。
      *
-     * 优先放入非我方城池，避免紧接着执行的我方全城搜索把刚流放的人再次归属我方。
-     * 地图已没有非我方城池时保留俘虏，避免构造无法维持“在野”状态的伪流放。
+     * 优先放入既不属于胜方也不属于玩家的城市，避免紧接着执行的我方全城搜索把刚流放
+     * 的人物再次归属我方。地图没有其他城市时保留俘虏，避免构造伪流放。
      *
      * @return {{count:number,cities:Array<Object>,label:string}} 处理统计。
      */
-    function exileCaptives(context, cityEntries) {
+    function exileCaptives(context, cityEntries, sourceBelong) {
+        sourceBelong = Number(sourceBelong) || context.ruler;
         var destinations = [];
+        var fallbackDestinations = [];
         for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
-            if (context.cities[cityIndex].Belong !== context.ruler) destinations.push(cityIndex);
+            var belong = Number(context.cities[cityIndex].Belong) || 0;
+            if (belong === sourceBelong) continue;
+            fallbackDestinations.push(cityIndex);
+            if (belong !== context.ruler) destinations.push(cityIndex);
         }
+        if (!destinations.length) destinations = fallbackDestinations;
         if (!destinations.length) return {count: 0, cities: [], label: '流放'};
         var occupiedDestinations = destinations.filter(function (cityIndex) {
             return context.cities[cityIndex].Persons > 0;
@@ -1414,15 +1429,26 @@
         return {count: count, cities: cityResults, label: '流放'};
     }
 
-    /** 按持久化选择处理战后全部俘虏。 */
-    function processPostBattleCaptives(context) {
+    /** 按持久化选择处理实际胜方全部城市中的俘虏。 */
+    function processPostBattleCaptives(context, battleResolution) {
+        var winnerBelong = context.ruler;
+        if (battleResolution && Number.isInteger(battleResolution.cityIndex) &&
+            battleResolution.cityIndex >= 0 && battleResolution.cityIndex < context.cities.length) {
+            winnerBelong = Number(context.cities[battleResolution.cityIndex].Belong) || winnerBelong;
+        }
+        var winnerCities = [];
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            if (Number(context.cities[cityIndex].Belong) === winnerBelong) {
+                winnerCities.push({index: cityIndex, value: context.cities[cityIndex]});
+            }
+        }
         if (cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXECUTE) {
-            return executeCaptives(context, context.ownedCities);
+            return executeCaptives(context, winnerCities);
         }
         if (cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_EXILE) {
-            return exileCaptives(context, context.ownedCities);
+            return exileCaptives(context, winnerCities, winnerBelong);
         }
-        var recruited = recruitCaptives(context, context.ownedCities);
+        var recruited = recruitCaptives(context, winnerCities, winnerBelong);
         recruited.label = '招降';
         return recruited;
     }
@@ -1582,6 +1608,39 @@
     }
 
     /**
+     * 快照战斗目标城和战前双方归属，战后以目标城最终归属确定实际胜方。
+     *
+     * @return {{cityIndex:number,mode:number,attackerBelong:number,defenderBelong:number}|null}
+     */
+    function captureBattleResolution() {
+        if (!global.baye || !baye.data || !baye.data.g_FgtParam) return null;
+        var data = baye.data;
+        var battle = data.g_FgtParam;
+        var cityIndex = Number(battle.CityIndex);
+        if (!Number.isInteger(cityIndex) || cityIndex < 0 ||
+            !data.g_Cities || cityIndex >= data.g_Cities.length) {
+            return null;
+        }
+        var mode = Number(battle.Mode);
+        var attackerBelong = 0;
+        if (mode === BATTLE_MODE_PLAYER_ATTACK) {
+            attackerBelong = Number(data.g_PlayerKing) + 1;
+        } else if (mode === BATTLE_MODE_PLAYER_DEFENCE) {
+            attackerBelong = battleGeneralBelong(data, PLAYER_GENERAL_LIMIT);
+        } else if (mode === BATTLE_MODE_AUTO) {
+            attackerBelong = battleGeneralBelong(data, 0);
+        } else {
+            return null;
+        }
+        return {
+            cityIndex: cityIndex,
+            mode: mode,
+            attackerBelong: attackerBelong,
+            defenderBelong: Number(data.g_Cities[cityIndex].Belong) || 0
+        };
+    }
+
+    /**
      * 保存战斗开始前已经关押在目标城市的俘虏。
      *
      * 核心的 `GetCityPersons` 只返回在任武将，必死模式不会触及这些既有俘虏；增强层在
@@ -1649,7 +1708,7 @@
     }
 
     /** 战斗结算完成并回到主地图后执行一次自动处理。 */
-    function runPostBattleAutomation(battleSource) {
+    function runPostBattleAutomation(battleSource, battleResolution) {
         if (!cheatState.postBattleAutomation) return;
         var context = gameContext();
         if (!context) {
@@ -1657,7 +1716,7 @@
             return;
         }
         var cityCount = maximizeOwnedCities(context);
-        var captiveResult = processPostBattleCaptives(context);
+        var captiveResult = processPostBattleCaptives(context, battleResolution);
         var source = battleSource && battleSource.source ? battleSource.source : '战后自动';
         var searched = searchAllOwnedCities(
             context,
@@ -3735,6 +3794,7 @@
             cheatState.mainMapVisible = false;
             cheatState.mainMapRoadsVisible = false;
             cheatState.postBattleSource = captureBattleSource();
+            cheatState.postBattleResolution = captureBattleResolution();
             cheatState.battleCaptiveSnapshot = captureBattleCityCaptives();
         });
         installExpeditionFoodHook(hooks);
@@ -3754,8 +3814,13 @@
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
                 var battleSource = cheatState.postBattleSource;
+                var battleResolution = cheatState.postBattleResolution;
                 cheatState.postBattleSource = null;
-                runPostBattleAutomation(battleSource);
+                cheatState.postBattleResolution = null;
+                runPostBattleAutomation(battleSource, battleResolution);
+            } else {
+                cheatState.postBattleSource = null;
+                cheatState.postBattleResolution = null;
             }
             return hookResult;
         };
@@ -4120,6 +4185,7 @@
                 if (!cheatState.postBattleAutomation) {
                     cheatState.postBattleAutomationPending = false;
                     cheatState.postBattleSource = null;
+                    cheatState.postBattleResolution = null;
                 }
                 savePersistentCheatState();
                 return result(
