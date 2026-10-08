@@ -574,7 +574,7 @@ index 824cab5..ec3b159 100644
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,
 diff --git a/src/tactic.c b/src/tactic.c
-index 1c792f8..e2ee7c2 100644
+index 1c792f8..8f2b41e 100644
 --- a/src/tactic.c
 +++ b/src/tactic.c
 @@ -93,7 +93,15 @@ U8 PlayerTactic(void)
@@ -664,12 +664,13 @@ index 1c792f8..e2ee7c2 100644
          ecount = GetCityCaptives(city,eqptr);
          if (ecount)
          {
-@@ -518,6 +561,18 @@ void ComputerTacticArmament(U8 city)
+@@ -518,6 +561,23 @@ void ComputerTacticArmament(U8 city)
      U32 pcount,fpcount,fcount;
      OrderType order;
      PersonType *pptr;
 +    U8 forceExpedition;
 +    U8 minGenerals = 4;
++    U8 reserveGenerals = 1;
 +    U16 minArms = 1000;
 +    U8 activity = AiWorldActivity();
 +
@@ -679,11 +680,15 @@ index 1c792f8..e2ee7c2 100644
 +        minArms = 800;
 +    }
 +    if (activity >= 80)
-+        minArms = 600;
++    {
++        minGenerals = 1;
++        reserveGenerals = 0;
++        minArms = 0;
++    }
  
      pqptr = (PersonID*)SHARE_MEM;
      cqptr = (U8*)(pqptr + PERSON_COUNT);
-@@ -534,7 +589,17 @@ void ComputerTacticArmament(U8 city)
+@@ -534,7 +594,17 @@ void ComputerTacticArmament(U8 city)
      }
      for (i = 0;i < pcount;i ++)
      {
@@ -701,7 +706,7 @@ index 1c792f8..e2ee7c2 100644
          switch (rnd)
          {
              case 0:
-@@ -579,9 +644,12 @@ void ComputerTacticArmament(U8 city)
+@@ -579,9 +649,12 @@ void ComputerTacticArmament(U8 city)
                  {
                      continue;
                  }
@@ -717,12 +722,12 @@ index 1c792f8..e2ee7c2 100644
                  /*rnd = gam_rand() % fcount;
                   order.Object = cqptr[rnd];*/
                  order.Object = PID(GetWeekCity(fcount,cqptr));
-@@ -607,12 +675,12 @@ void ComputerTacticArmament(U8 city)
+@@ -607,12 +680,12 @@ void ComputerTacticArmament(U8 city)
                          }
                      }
  
 -                    if (g_Persons[pqptr[0]].Arms < 1000)
-+                    if (g_Persons[pqptr[0]].Arms < minArms)
++                    if (minArms && g_Persons[pqptr[0]].Arms < minArms)
                      {
                          continue;
                      }
@@ -732,3 +737,12 @@ index 1c792f8..e2ee7c2 100644
                      {
                          continue;
                      }
+@@ -621,7 +694,7 @@ void ComputerTacticArmament(U8 city)
+                         /*添加出征命今生成代码*/
+                         order.OrderId = BATTLE;
+                         gam_memset(fp,0,10*sizeof(PersonID));
+-                        fpcount -= 1;
++                        fpcount -= reserveGenerals;
+                         if (fpcount > 10)
+                         {
+                             fpcount = 10;

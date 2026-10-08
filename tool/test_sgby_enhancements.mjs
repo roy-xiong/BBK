@@ -6,6 +6,33 @@ const enhancementSource = readFileSync(
   new URL('../assets/games/sgby/js/bbk-enhancements.js', import.meta.url),
   'utf8',
 );
+const corePatchSource = readFileSync(
+  new URL('../third_party/ibaye/ai-world-activity.patch', import.meta.url),
+  'utf8',
+);
+
+assert.ok(
+  corePatchSource.includes('+        minGenerals = 1;'),
+  '活跃度 80 以上应允许单将城池出征',
+);
+assert.ok(
+  corePatchSource.includes('+        minArms = 0;'),
+  '活跃度 80 以上不应检查最强武将兵力',
+);
+assert.ok(
+  corePatchSource.includes('+        reserveGenerals = 0;'),
+  '活跃度 80 以上不应强制保留守将',
+);
+assert.ok(
+  corePatchSource.includes(
+    '+                    if (minArms && g_Persons[pqptr[0]].Arms < minArms)',
+  ),
+  '兵力门槛为零时应跳过最强武将兵力判断',
+);
+assert.ok(
+  corePatchSource.includes('+                        fpcount -= reserveGenerals;'),
+  '出征人数应按当前活跃度的守将保留数计算',
+);
 
 /**
  * 创建最小可运行的三国霸业脚本环境。
