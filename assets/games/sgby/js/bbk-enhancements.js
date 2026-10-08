@@ -103,6 +103,7 @@
         autoEndTurn: persistedCheatState.autoEndTurn === true,
         attackAnyCity: persistedCheatState.attackAnyCity === true,
         enemyEscapeRoute: persistedCheatState.enemyEscapeRoute === true,
+        animationsDisabled: persistedCheatState.animationsDisabled === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
         postBattleCaptiveAction: resolvePostBattleCaptiveAction(persistedCheatState),
@@ -304,7 +305,7 @@
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 5,
+                version: 6,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -316,6 +317,7 @@
                 autoEndTurn: cheatState.autoEndTurn,
                 attackAnyCity: cheatState.attackAnyCity,
                 enemyEscapeRoute: cheatState.enemyEscapeRoute,
+                animationsDisabled: cheatState.animationsDisabled,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
                 postBattleAutomation: cheatState.postBattleAutomation,
@@ -663,6 +665,152 @@
             }
         }
         return mapping;
+    }
+
+    /**
+     * 读取当前正在执行命令的城外人物。
+     *
+     * 普通命令直接保存人物序号；出征命令的 `Person` 字段保存 30 组出征队列的槽位，
+     * 每组由 10 个小端序 `PersonID` 组成，值为“人物序号 + 1”。旧存档修复必须排除
+     * 这些正常暂离城市的人物，避免把执行命令者误判成幽灵人物。
+     *
+     * @param {Object} context 当前游戏上下文。
+     * @return {Object<string, boolean>} 正在执行命令的人物序号集合。
+     */
+    function activeOrderPeople(context) {
+        var active = {};
+        var orders = context.data.g_OrderQueue;
+        if (!orders || typeof orders.length !== 'number') return active;
+        var personCount = context.people.length;
+        if (typeof baye.getPersonCount === 'function') {
+            var engineCount = Number(baye.getPersonCount());
+            if (Number.isInteger(engineCount) && engineCount >= 0 && engineCount <= personCount) {
+                personCount = engineCount;
+            }
+        }
+        for (var orderIndex = 0; orderIndex < orders.length; orderIndex++) {
+            var order = orders[orderIndex];
+            if (!order || Number(order.OrderId) === 0xff) continue;
+            if (Number(order.OrderId) !== BATTLE_COMMAND) {
+                var personIndex = Number(order.Person);
+                if (Number.isInteger(personIndex) && personIndex >= 0 && personIndex < personCount) {
+                    active[personIndex] = true;
+                }
+                continue;
+            }
+            var slot = Number(order.Person);
+            var fighters = context.data.FIGHTERS;
+            if (!Number.isInteger(slot) || slot < 0 || slot >= 30 || !fighters) continue;
+            var byteOffset = slot * PLAYER_GENERAL_LIMIT * 2;
+            for (var fighterIndex = 0; fighterIndex < PLAYER_GENERAL_LIMIT; fighterIndex++) {
+                var low = Number(fighters[byteOffset + fighterIndex * 2]) || 0;
+                var high = Number(fighters[byteOffset + fighterIndex * 2 + 1]) || 0;
+                var personId = low | (high << 8);
+                personIndex = personId - 1;
+                if (personId > 0 && personIndex < personCount) active[personIndex] = true;
+            }
+        }
+        return active;
+    }
+
+    /**
+     * 修复旧版本已经写入存档的人物队列和归属不一致。
+     *
+     * 修复严格依赖可证明的不变量：同一人物只能位于一座城市；有阵营但既不在城市、
+     * 也不在命令队列的人物属于旧版战死残留；无主或君主引用失效的城市，仅在城内存在
+     * 明确同阵营在任武将时恢复归属。完全空城被旧版清掉的原归属无法可靠反推，因此不
+     * 猜测势力。修复后的太守立即按本城同阵营人物智力重算。
+     */
+    function repairLoadedGameState() {
+        var context = gameContext();
+        if (!context || typeof baye.deletePersonInCity !== 'function') return;
+        var active = activeOrderPeople(context);
+        var seen = {};
+        var duplicateCount = 0;
+        var repairedCityCount = 0;
+        var orphanCount = 0;
+
+        for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            var cityEntry = {index: cityIndex, value: context.cities[cityIndex]};
+            cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
+                if (!Number.isInteger(personIndex) || personIndex < 0 ||
+                    personIndex >= context.people.length) return;
+                if (seen[personIndex]) {
+                    baye.deletePersonInCity(cityIndex, personIndex);
+                    duplicateCount++;
+                    return;
+                }
+                seen[personIndex] = true;
+            });
+        }
+
+        for (cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
+            var city = context.cities[cityIndex];
+            cityEntry = {index: cityIndex, value: city};
+            var indexes = cityPersonIndexes(context, cityEntry);
+            var owner = Number(city.Belong) || 0;
+            var ownerIndex = owner - 1;
+            var ownerValid = owner > 0 && ownerIndex < context.people.length &&
+                context.people[ownerIndex] && context.people[ownerIndex].Belong === owner;
+            if (!ownerValid) {
+                var counts = {};
+                indexes.forEach(function (personIndex) {
+                    var person = context.people[personIndex];
+                    var belong = person ? Number(person.Belong) || 0 : 0;
+                    if (belong > 0 && belong !== CAPTIVE_BELONG && belong <= context.people.length) {
+                        counts[belong] = (counts[belong] || 0) + 1;
+                    }
+                });
+                var inferredOwner = 0;
+                var inferredCount = 0;
+                Object.keys(counts).forEach(function (key) {
+                    if (counts[key] > inferredCount) {
+                        inferredOwner = Number(key);
+                        inferredCount = counts[key];
+                    }
+                });
+                if (!inferredOwner && ownerIndex >= 0 && ownerIndex < context.people.length) {
+                    var ruler = context.people[ownerIndex];
+                    var rulerBelong = ruler ? Number(ruler.Belong) || 0 : 0;
+                    if (rulerBelong > 0 && rulerBelong !== CAPTIVE_BELONG &&
+                        rulerBelong <= context.people.length) {
+                        inferredOwner = rulerBelong;
+                    }
+                }
+                if (inferredOwner > 0) {
+                    city.Belong = inferredOwner;
+                    owner = inferredOwner;
+                    repairedCityCount++;
+                }
+            }
+            var satrap = -1;
+            indexes.forEach(function (personIndex) {
+                var person = context.people[personIndex];
+                if (!person || person.Belong !== owner) return;
+                if (satrap < 0 || person.IQ > context.people[satrap].IQ) satrap = personIndex;
+            });
+            city.SatrapId = satrap < 0 ? 0 : satrap + 1;
+        }
+
+        for (var personIndex = 0; personIndex < context.people.length; personIndex++) {
+            var person = context.people[personIndex];
+            if (!person || seen[personIndex] || active[personIndex]) continue;
+            var belong = Number(person.Belong) || 0;
+            if (belong <= 0 || belong === CAPTIVE_BELONG || belong > context.people.length) continue;
+            person.OldBelong = belong;
+            person.Belong = CAPTIVE_BELONG;
+            person.Arms = 0;
+            person.Tool1 = 0;
+            person.Tool2 = 0;
+            orphanCount++;
+        }
+        if (duplicateCount || repairedCityCount || orphanCount) {
+            postSystemNotice(
+                true,
+                '旧存档一致性修复：去重 ' + duplicateCount + ' 人，恢复 ' +
+                repairedCityCount + ' 座城池归属，清理 ' + orphanCount + ' 名幽灵人物'
+            );
+        }
     }
 
     /**
@@ -1062,6 +1210,8 @@
     function returnPersonEquipment(cityIndex, person) {
         if (person.Tool1 > 0) baye.putToolInCity(cityIndex, person.Tool1 - 1, false);
         if (person.Tool2 > 0) baye.putToolInCity(cityIndex, person.Tool2 - 1, false);
+        person.Tool1 = 0;
+        person.Tool2 = 0;
     }
 
     /**
@@ -1243,9 +1393,19 @@
         }
     }
 
-    /** 在新开局、载入存档或脚本初始化后重新应用需要写入人物数据的持续作弊。 */
+    /** 把“关闭动效”映射到原引擎的三个战斗显示选项。 */
+    function applyAnimationSetting() {
+        if (!global.baye || !baye.data) return;
+        var enabled = cheatState.animationsDisabled ? 0 : 1;
+        baye.data.g_LookEnemy = enabled;
+        baye.data.g_LookMovie = enabled;
+        baye.data.g_MoveSpeed = enabled;
+    }
+
+    /** 在新开局、载入存档或脚本初始化后重新应用需要写入引擎数据的持续作弊。 */
     function applyPersistentGeneralEffects() {
         syncEngineCheatSettings();
+        applyAnimationSetting();
         if (!cheatState.autoMaxGenerals) return;
         var context = gameContext();
         if (!context) return;
@@ -3501,7 +3661,10 @@
             runAutoCityMaintenance('策略结束自动', true);
         });
         installObserverHook(hooks, 'didOpenNewGame', applyPersistentGeneralEffects);
-        installObserverHook(hooks, 'didLoadGame', applyPersistentGeneralEffects);
+        installObserverHook(hooks, 'didLoadGame', function () {
+            repairLoadedGameState();
+            applyPersistentGeneralEffects();
+        });
         installObserverHook(hooks, 'exitBattle', function () {
             cheatState.autoBattlePlayerStage = false;
             cancelAutoBattleRun();
@@ -3837,6 +4000,17 @@
                         : '敌军逃跑路线限制已关闭：恢复原版随机退往势力城市'
                 );
             }
+            if (action === 'sgby_disable_animations') {
+                cheatState.animationsDisabled = !cheatState.animationsDisabled;
+                applyAnimationSetting();
+                savePersistentCheatState();
+                return result(
+                    true,
+                    cheatState.animationsDisabled
+                        ? '过程动效已关闭：跳过敌方移动展示和战斗动画'
+                        : '过程动效已恢复'
+                );
+            }
             if (action === 'sgby_search_city') {
                 var searchResult = searchAllOwnedCities(context, '手动搜索', [], null);
                 return result(
@@ -4079,6 +4253,7 @@
             autoEndTurn: cheatState.autoEndTurn,
             attackAnyCity: cheatState.attackAnyCity,
             enemyEscapeRoute: cheatState.enemyEscapeRoute,
+            animationsDisabled: cheatState.animationsDisabled,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
             battleSpeed4x: cheatState.battleSpeedMultiplier === 4,

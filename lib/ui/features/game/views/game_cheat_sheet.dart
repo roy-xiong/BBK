@@ -224,6 +224,13 @@ Future<void> showGameCheatSheet(
         stateKey: 'enemyEscapeRoute',
       ),
       _CheatOption(
+        action: 'sgby_disable_animations',
+        title: '关闭过程动效',
+        description: '跳过敌方移动展示和战斗动画，并使用最快的敌军移动速度',
+        icon: Icons.motion_photos_off_outlined,
+        stateKey: 'animationsDisabled',
+      ),
+      _CheatOption(
         action: 'sgby_post_battle_automation',
         title: '战后自动处理',
         description: '每次战斗结算后自动拉满全部城池，按所选方式处理俘虏并搜索隐藏内容',
@@ -1229,6 +1236,7 @@ class _SgbyCheatStatus extends StatelessWidget {
       if (state['foodProtection'] == true) '粮草保护',
       if (state['attackAnyCity'] == true) '任意攻城',
       if (state['enemyEscapeRoute'] == true) '敌军逃跑遵循路线',
+      if (state['animationsDisabled'] == true) '关闭过程动效',
       if (state['postBattleAutomation'] == true)
         '战后自动处理（${_postBattleCaptiveActionFromState(state).label}）',
       '搜索：${_searchOutcomeFromState(state).label}',

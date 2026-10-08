@@ -31,10 +31,10 @@ index 5dbf5b4..69466bd 100644
  
          static ObjectDef _obj_def = {
 diff --git a/src/citycmd.c b/src/citycmd.c
-index 4c06630..f7e8772 100644
+index 4c06630..7f52b07 100644
 --- a/src/citycmd.c
 +++ b/src/citycmd.c
-@@ -46,6 +46,34 @@
+@@ -46,6 +46,73 @@
   FAR U8 GetCitySet(CitySetType *pos);
   FAR U8 SearchRoad(U8 sc,U8 xs,U8 ys,U8 ob,U8 xo,U8 yo);*/
  
@@ -53,12 +53,12 @@ index 4c06630..f7e8772 100644
 +    return ((U32)(activity - 25) * 20) / 75;
 +}
 +
-+static U32 AddChanceBonus(U32 chance,U32 bonus)
++static U32 AddChanceBonus(I32 chance,U32 bonus)
 +{
-+    if (!bonus)
-+        return chance;
-+    chance += bonus;
-+    return chance > 100 ? 100 : chance;
++    I32 adjusted = chance + (I32)bonus;
++    if (adjusted <= 0)
++        return 0;
++    return adjusted > 100 ? 100 : (U32)adjusted;
 +}
 +
 +static U32 ReduceDevotion(U32 devotion,U32 bonus)
@@ -66,18 +66,156 @@ index 4c06630..f7e8772 100644
 +    return devotion > bonus ? devotion - bonus : 0;
 +}
 +
++/**
++ * 命令结束后把执行者放回仍属于其当前势力的城市。
++ *
++ * 外交、战斗和君主更替可能在命令执行期间改变原城市或人物归属。人物已经被其他
++ * 逻辑放入城市时不重复添加；原城市已易主时改投当前势力的首座城市；势力确实已经
++ * 无城时才转为在野并留在原城市，避免旧势力人物重新塞回敌方城市。
++ */
++static void ReturnOrderPerson(OrderType *Order,PersonID person)
++{
++    U8 cities[CITY_MAX];
++    U8 cityCount;
++    PersonID belong;
++    PersonType *pptr;
++
++    if (!Order || person >= PERSON_COUNT || GetPersonCity(person) != 0xff)
++        return;
++    pptr = &g_Persons[person];
++    belong = pptr->Belong;
++    if (!belong || belong == PID(0xffff))
++        return;
++    if (Order->City < CITY_MAX && g_Cities[Order->City].Belong == belong)
++    {
++        AddPerson(Order->City,person);
++        return;
++    }
++    cityCount = GetKingCitys(PID(belong - 1),cities);
++    if (cityCount)
++    {
++        AddPerson(cities[0],person);
++        return;
++    }
++    if (Order->City < CITY_MAX)
++    {
++        pptr->OldBelong = belong;
++        pptr->Belong = PID0;
++        AddPerson(Order->City,person);
++    }
++}
++
  /******************************************************************************
   * 函数名:AppointDrv
   * 说  明:“任命”命令驱动
-@@ -562,6 +590,7 @@ U8 AlienateDrv(OrderType *Order)
+@@ -80,13 +147,13 @@
+  ******************************************************************************/
+ U8 AssartDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+ U8 NopDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -105,7 +172,7 @@ U8 NopDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 AccractbusinessDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -299,7 +366,7 @@ U8 SearchDrv(OrderType *Order)
+         break;
+     }
+ 
+-    AddPerson(Order->City,person);
++    ReturnOrderPerson(Order,person);
+     return(1);
+ }
+ 
+@@ -318,7 +385,7 @@ U8 SearchDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 FatherDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -337,7 +404,7 @@ U8 FatherDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 InspectionDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -357,7 +424,7 @@ U8 InspectionDrv(OrderType *Order)
+ U8 SurrenderDrv(OrderType *Order)
  {
      U8 randint;
-     U8 rade;
+-    U8 rade;
++    I32 rade;
+     U8 dev;
+     PersonID p, ob;
+     U8 flag;
+@@ -372,7 +439,7 @@ U8 SurrenderDrv(OrderType *Order)
+     {
+         if (pptr->Belong == g_Persons[p].Belong)
+         {
+-            AddPerson(Order->City,p);
++            ReturnOrderPerson(Order,p);
+             return(1);
+         }
+ 
+@@ -439,7 +506,7 @@ U8 SurrenderDrv(OrderType *Order)
+         }
+     }
+ 
+-    AddPerson(Order->City,p);
++    ReturnOrderPerson(Order,p);
+     return(1);
+ }
+ 
+@@ -458,7 +525,7 @@ U8 SurrenderDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 ExchangeDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -504,7 +571,7 @@ U8 TransportationDrv(OrderType *Order)
+     ShowGReport(Order->Person,str);
+ 
+ 
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -561,7 +628,8 @@ U8 MoveDrv(OrderType *Order)
+ U8 AlienateDrv(OrderType *Order)
+ {
+     U8 randint;
+-    U8 rade;
++    I32 rade;
 +    U32 activityBonus = AiDiplomacyBonus(Order->Person);
      PersonID ob;
      static const char* sucessDialogs[] = {
          /* 主多疑而不用，吾当如何处之！ */
-@@ -589,12 +618,13 @@ U8 AlienateDrv(OrderType *Order)
+@@ -589,12 +657,13 @@ U8 AlienateDrv(OrderType *Order)
      {
          rade = g_Persons[Order->Person].IQ - g_Persons[ob].IQ;
          rade += 50;
@@ -92,7 +230,7 @@ index 4c06630..f7e8772 100644
              break;
  
          switch (g_Persons[ob].Character)
-@@ -615,6 +645,7 @@ U8 AlienateDrv(OrderType *Order)
+@@ -615,6 +684,7 @@ U8 AlienateDrv(OrderType *Order)
                  rade = ALIENATE_TEMERITY;
                  break;
          }
@@ -100,7 +238,23 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
-@@ -679,15 +710,17 @@ U8 CanvassDrv(OrderType *Order)
+@@ -653,7 +723,7 @@ U8 AlienateDrv(OrderType *Order)
+         ShowDialog(Order->Person, ob, (U8*)failDialogs[ind]);
+     }
+ tagRet:
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -673,21 +743,23 @@ tagRet:
+ U8 CanvassDrv(OrderType *Order)
+ {
+     U8 randint;
+-    U8 rade;
++    I32 rade;
+     U8 c;
+     PersonID o,p;
  
      o = Order->Object;
      p = Order->Person;
@@ -119,7 +273,7 @@ index 4c06630..f7e8772 100644
              break;
  
          switch (g_Persons[o].Character)
-@@ -708,6 +741,7 @@ U8 CanvassDrv(OrderType *Order)
+@@ -708,6 +780,7 @@ U8 CanvassDrv(OrderType *Order)
                  rade = CANVASS_TEMERITY;
                  break;
          }
@@ -127,7 +281,21 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
-@@ -773,18 +807,20 @@ U8 CounterespiongeDrv(OrderType *Order)
+@@ -749,7 +822,7 @@ U8 CanvassDrv(OrderType *Order)
+         ShowDialogRandom(Order->Person, o, (U8 **)dialogs, sizeof(dialogs)/sizeof(*dialogs));
+     }
+ ret:
+-    AddPerson(Order->City,p);
++    ReturnOrderPerson(Order,p);
+     return(1);
+ }
+ 
+@@ -769,22 +842,24 @@ ret:
+ U8 CounterespiongeDrv(OrderType *Order)
+ {
+     U32 randint;
+-    U32 rade;
++    I32 rade;
      PersonID *pqptr;
      U32 i,pcount,c;
      PersonID o;
@@ -149,7 +317,7 @@ index 4c06630..f7e8772 100644
              break;
  
          switch (g_Persons[o].Character)
-@@ -805,6 +841,7 @@ U8 CounterespiongeDrv(OrderType *Order)
+@@ -805,6 +880,7 @@ U8 CounterespiongeDrv(OrderType *Order)
                  rade = COUNTERESPIONGE_TEMERITY;
                  break;
          }
@@ -157,15 +325,41 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
-@@ -891,6 +928,7 @@ U8 InduceDrv(OrderType *Order)
+@@ -843,7 +919,7 @@ U8 CounterespiongeDrv(OrderType *Order)
+         };
+         ShowDialogRandom(Order->Person, o, (U8 **)dialogs, sizeof(dialogs)/sizeof(*dialogs));
+     }
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -882,7 +958,7 @@ U8 InduceDrv(OrderType *Order)
+ {
+     SBUF str, astr;
+     U32 randint;
+-    U32 rade;
++    I32 rade;
+     U8 wf;
+     U8 *cqptr;
+     PersonID *pqptr;
+@@ -891,13 +967,14 @@ U8 InduceDrv(OrderType *Order)
  
      p = Order->Person;
      o = Order->Object;
 +    U32 activityBonus = AiDiplomacyBonus(p);
++    pb = g_Persons[p].Belong;
      wf = 0;
      cqptr = SHARE_MEM;
      do
-@@ -905,6 +943,7 @@ U8 InduceDrv(OrderType *Order)
+     {
+         if (o == g_PlayerKing)
+             break;
+-        pb = g_Persons[p].Belong;
+         if (pb == g_PlayerKing + 1 && g_engineDebug)
+             goto suc;
+         if (GetKingCitys(PID(pb - 1),cqptr) < (GetKingCitys(PID(g_Persons[o].Belong - 1),cqptr) * 2))
+@@ -905,6 +982,7 @@ U8 InduceDrv(OrderType *Order)
  
          rade = g_Persons[p].IQ - g_Persons[o].IQ;
          rade += 50;
@@ -173,7 +367,7 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
-@@ -931,6 +970,7 @@ U8 InduceDrv(OrderType *Order)
+@@ -931,6 +1009,7 @@ U8 InduceDrv(OrderType *Order)
                  rade = PERSUADE_RASH;
                  break;
          }
@@ -181,11 +375,47 @@ index 4c06630..f7e8772 100644
          randint = gam_rand() % 100;
          if (randint > rade)
              break;
+@@ -992,7 +1071,7 @@ U8 InduceDrv(OrderType *Order)
+     }
+     
+     
+-    AddPerson(Order->City,p);
++    ReturnOrderPerson(Order,p);
+     return(1);
+ }
+ 
+@@ -1029,7 +1108,7 @@ U8 InduceDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 ReconnoitreDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -1048,7 +1127,7 @@ U8 ReconnoitreDrv(OrderType *Order)
+  ******************************************************************************/
+ U8 ConscriptionDrv(OrderType *Order)
+ {
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
+@@ -1099,7 +1178,7 @@ U8 DepredateDrv(OrderType *Order)
+         ShowGReport(Order->Person,str);
+     }
+     
+-    AddPerson(Order->City,Order->Person);
++    ReturnOrderPerson(Order,Order->Person);
+     return(1);
+ }
+ 
 diff --git a/src/citycmdd.c b/src/citycmdd.c
-index bb23bde..c566a86 100644
+index bb23bde..29e4f8c 100644
 --- a/src/citycmdd.c
 +++ b/src/citycmdd.c
-@@ -23,6 +23,39 @@
+@@ -23,6 +23,48 @@
  #include "baye/enghead.h"
  #include "baye/bind-objects.h"
  
@@ -194,6 +424,15 @@ index bb23bde..c566a86 100644
 +#define BATTLE_LOSER_OUTCOME_CAPTIVE 2
 +#define BATTLE_LOSER_OUTCOME_ESCAPE 3
 +#define BATTLE_LOSER_OUTCOME_WILD 4
++#define FIGHTERS_PER_ORDER 10
++
++/** 返回指定出征命令槽位的 10 人队列，非法槽位返回空指针。 */
++static PersonID *FightOrderPersons(U8 orderIndex)
++{
++    if (orderIndex >= FIGHT_ORDER_MAX)
++        return NULL;
++    return &((PersonID*)FIGHTERS)[orderIndex * FIGHTERS_PER_ORDER];
++}
 +
 +/**
 + * 按战略地图坐标计算目标城市看向出发城市的方向。
@@ -225,7 +464,7 @@ index bb23bde..c566a86 100644
  /******************************************************************************
   * 函数名:BattleMake
   * 说  明:“出征”命令生成
-@@ -77,14 +110,26 @@ FAR U8 BattleMake(U8 city)
+@@ -77,14 +119,26 @@ FAR U8 BattleMake(U8 city)
      gam_memset(fpptr,0,10*sizeof(PersonID));
      for (i = 0;i < 10;i ++)
      {
@@ -253,7 +492,7 @@ index bb23bde..c566a86 100644
              fpptr[i] = PID(pqptr[pcode] + 1);
              DelPerson(city,pqptr[pcode]);
          }
-@@ -134,6 +179,13 @@ FAR U8 BattleMake(U8 city)
+@@ -134,6 +188,13 @@ FAR U8 BattleMake(U8 city)
                      else
                      {
                          odis = AttackCityRoad(city,xs,ys,ocity,g_CityPos.setx,g_CityPos.sety);
@@ -267,7 +506,29 @@ index bb23bde..c566a86 100644
                          if (0xff != odis)
                          {
                              ShowConstStrMsg(STR_ARMOUT);
-@@ -213,6 +265,8 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -186,7 +247,6 @@ FAR U8 BattleMake(U8 city)
+ FAR U8 BattleDrv(OrderType *Order)
+ {
+     PersonID *pqptr;
+-    U16 clen;
+     U32 pcount,fcount;
+     PersonID pcode, t;
+     U32 i;
+@@ -200,10 +260,9 @@ FAR U8 BattleDrv(OrderType *Order)
+     midx = SHARE_MEM;
+     fgtidx = FIGHTERS_IDX;
+     fgtidx[Order->Person] = 0;
+-    clen = 10*sizeof(PersonID);
+-    clen *= Order->Person;
+-    fighters = (PersonID*)FIGHTERS;
+-    fighters = &fighters[clen];
++    fighters = FightOrderPersons((U8)Order->Person);
++    if (!fighters)
++        return 0;
+     genArray = g_FgtParam.GenArray;
+     gam_memset(genArray,0,20*sizeof(PersonID));
+     o = Order->Object;
+@@ -213,6 +272,8 @@ FAR U8 BattleDrv(OrderType *Order)
      ResItemGet(IFACE_CONID,dCityMapId,midx);
      g_FgtParam.MapId = FIGHT_MAP + midx[o];
      g_FgtParam.Way = GetDirect(o,Order->City);
@@ -276,7 +537,7 @@ index bb23bde..c566a86 100644
      g_FgtParam.CityIndex = o;
  
      do
-@@ -239,7 +293,17 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -239,7 +300,17 @@ FAR U8 BattleDrv(OrderType *Order)
              g_FgtParam.MProvender = g_Cities[o].Food;
              g_FgtParam.EProvender = Order->Food;
              gam_memcpy(&genArray[10], fighters, 10*sizeof(PersonID));
@@ -295,7 +556,7 @@ index bb23bde..c566a86 100644
                  BIND_U8EX("city", &o);
                  fight = CALL_HOOK_A();
              } else for (i = 0;i < 10;i ++)
-@@ -422,6 +486,50 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -422,6 +493,62 @@ FAR U8 BattleDrv(OrderType *Order)
      return(1);
  }
  
@@ -315,6 +576,18 @@ index bb23bde..c566a86 100644
 +        ToolID index = AddGoods(city,TID(gptr[1] - 1));
 +        SetGoodsByIndex(TID(index - 1));
 +    }
++    gptr[0] = 0;
++    gptr[1] = 0;
++}
++
++/** 回收装备并彻底清理战死人物，避免仍被识别为旧势力君主或重复生成装备。 */
++static void MarkPersonDead(PersonID person,U8 city)
++{
++    PersonType *pptr = &g_Persons[person];
++    ReturnLoserEquipment(person,city);
++    pptr->OldBelong = pptr->Belong;
++    pptr->Belong = PID(0xffff);
++    pptr->Arms = 0;
 +}
 +
 +/**
@@ -346,7 +619,7 @@ index bb23bde..c566a86 100644
  /******************************************************************************
   * 函数名:FightResultDeal
   * 说  明:战斗结束处理
-@@ -545,7 +653,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -545,7 +672,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
  {
      SBUF str,astr;
      U8 i;
@@ -354,7 +627,7 @@ index bb23bde..c566a86 100644
      PersonID cking;
      PersonID p;
      U8 rnd;
-@@ -558,6 +665,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -558,6 +684,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
          {
              p = PID(lqueue[i] - 1);
              pptr = &g_Persons[p];
@@ -362,7 +635,7 @@ index bb23bde..c566a86 100644
 +            {
 +                if (pptr->Belong == lqueue[i])
 +                    cking = p;
-+                ReturnLoserEquipment(p,city);
++                MarkPersonDead(p,city);
 +                if (FGT_AUTO != g_FgtParam.Mode)
 +                {
 +                    GetPersonName(p,str);
@@ -400,7 +673,7 @@ index bb23bde..c566a86 100644
              rnd = gam_rand() % 100;
              if (rnd > pptr->IQ)
              {
-@@ -579,17 +725,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -579,17 +744,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
                          continue;
                      }
  
@@ -415,11 +688,11 @@ index bb23bde..c566a86 100644
 -                        ToolID index = AddGoods(city,TID(gptr[1] - 1));
 -                        SetGoodsByIndex(TID(index-1));
 -                    }
-+                    ReturnLoserEquipment(p,city);
++                    MarkPersonDead(p,city);
                      if (FGT_AUTO != g_FgtParam.Mode)
                      {
                          GetPersonName(p,str);
-@@ -619,17 +755,58 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -619,17 +774,58 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
   ******************************************************************************/
  void HoldCaptive(PersonID person,U8 city)
  {
@@ -486,7 +759,7 @@ index bb23bde..c566a86 100644
  /******************************************************************************
   * 函数名:LostEscape
   * 说  明:逃跑处理
-@@ -650,7 +827,11 @@ U8 LostEscape(PersonID person,U8 city)
+@@ -650,7 +846,11 @@ U8 LostEscape(PersonID person,U8 city)
      U8 *cqptr;
  
      cqptr = SHARE_MEM;
@@ -499,7 +772,7 @@ index bb23bde..c566a86 100644
      if (pcount)
      {
          rnd = gam_rand() % pcount;
-@@ -677,19 +858,53 @@ PersonID BeOccupied(PersonID person,U8 city)
+@@ -677,19 +877,53 @@ PersonID BeOccupied(PersonID person,U8 city)
  {
      U32 i,pcount;
      PersonID p, rev;
@@ -523,7 +796,7 @@ index bb23bde..c566a86 100644
 +        {
 +            if (pptr->Belong == (p + 1))
 +                rev = p;
-+            ReturnLoserEquipment(p,city);
++            MarkPersonDead(p,city);
 +            DelPerson(city,p);
 +            continue;
 +        }
@@ -557,13 +830,178 @@ index bb23bde..c566a86 100644
          if (pptr->Belong == (p + 1))
          {
              rev = p;
+@@ -707,6 +941,59 @@ PersonID BeOccupied(PersonID person,U8 city)
+     return (rev);
+ }
+ 
++/**
++ * 收集指定势力全部可继承人物，包括驻城人物、执行普通命令者和出征队伍。
++ *
++ * 原版只统计驻城人物，势力所有将领恰好都在执行命令时会被误判为无人继承，进而把
++ * 未被攻击的城市全部清为无主。这里按人物编号去重，并以人物当前归属作为最终依据。
++ */
++static U32 GetKingPersonsWithOrders(PersonID king,PersonID *persons)
++{
++    U8 seen[PERSON_MAX];
++    OrderType *orders = (OrderType*)ORDERQUEUE;
++    U32 count,i,j;
++    PersonID belong = PID(king + 1);
++
++    gam_memset(seen,0,sizeof(seen));
++    count = GetKingPersons(king,persons);
++    for (i = 0;i < count;i ++)
++    {
++        if (persons[i] < PERSON_COUNT)
++            seen[persons[i]] = 1;
++    }
++    for (i = 0;i < ORDER_MAX;i ++)
++    {
++        if (orders[i].OrderId == 0xff)
++            continue;
++        if (orders[i].OrderId == BATTLE)
++        {
++            PersonID *fighters = FightOrderPersons((U8)orders[i].Person);
++            if (!fighters)
++                continue;
++            for (j = 0;j < FIGHTERS_PER_ORDER;j ++)
++            {
++                PersonID person;
++                if (!fighters[j])
++                    continue;
++                person = PID(fighters[j] - 1);
++                if (person >= PERSON_COUNT || seen[person] ||
++                    g_Persons[person].Belong != belong)
++                    continue;
++                seen[person] = 1;
++                persons[count++] = person;
++            }
++            continue;
++        }
++        if (orders[i].Person < PERSON_COUNT && !seen[orders[i].Person] &&
++            g_Persons[orders[i].Person].Belong == belong)
++        {
++            seen[orders[i].Person] = 1;
++            persons[count++] = orders[i].Person;
++        }
++    }
++    return count;
++}
++
+ /******************************************************************************
+  * 函数名:KingOverDeal
+  * 说  明:君主被俘虏或战死处理
+@@ -734,7 +1021,7 @@ FAR void KingOverDeal(PersonID king)
+     ccount = GetKingCitys(king,cqptr);
+     if (ccount)
+     {
+-        pcount = GetKingPersons(king,pqptr);
++        pcount = GetKingPersonsWithOrders(king,pqptr);
+         if (pcount)
+         {
+             if (king == g_PlayerKing)
+@@ -782,6 +1069,7 @@ FAR void KingOverDeal(PersonID king)
+         /*提示势力灭亡*/
+         WeightOverNote(king);
+     }
++    SetCitySatrap();
+ }
+ 
+ /******************************************************************************
+@@ -1049,7 +1337,6 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
+     U32 i;
+     U8 *fiptr;
+     PersonID*fptr;
+-    U16 clen;
+     
+     fiptr = FIGHTERS_IDX;
+     for (i = 0;i < FIGHT_ORDER_MAX;i ++)
+@@ -1059,10 +1346,8 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
+             Order->Person = i;
+             if (AddOrderEnd(Order)) {
+                 fiptr[i] = 1;
+-                fptr = (PersonID*)FIGHTERS;
+-                clen = 10*sizeof(PersonID);
+-                clen *= i;
+-                gam_memcpy(&fptr[clen],Fighters,10*sizeof(PersonID));
++                fptr = FightOrderPersons((U8)i);
++                gam_memcpy(fptr,Fighters,FIGHTERS_PER_ORDER*sizeof(PersonID));
+                 return(1);
+             }
+         }
 diff --git a/src/gamEng.c b/src/gamEng.c
-index 824cab5..ec3b159 100644
+index 824cab5..38a8c39 100644
 --- a/src/gamEng.c
 +++ b/src/gamEng.c
-@@ -1039,6 +1039,11 @@ EngineConfig g_engineConfig = {
+@@ -907,9 +907,45 @@ bool GamLoadRcd(U8 idx)
+     }
+     
+     read_all((U8 *)FIGHTERS_IDX,1,FIGHT_ORDER_MAX,fp);
+-    read_all((U8 *)FIGHTERS,10,FIGHT_ORDER_MAX,fp);
++    if (version >= 0x95)
++    {
++        read_all((U8 *)FIGHTERS,10 * sizeof(PersonID),FIGHT_ORDER_MAX,fp);
++    }
++    else
++    {
++        U8 legacyFighters[10 * FIGHT_ORDER_MAX];
++        U32 i;
++        read_all(legacyFighters,10,FIGHT_ORDER_MAX,fp);
++        gam_memset((U8 *)FIGHTERS,0,10 * sizeof(PersonID) * FIGHT_ORDER_MAX);
++        for (i = 0;i < FIGHT_ORDER_MAX;i ++)
++        {
++            U32 sourceOffset = i * 10 * sizeof(PersonID) * sizeof(PersonID);
++            U32 targetOffset = i * 10 * sizeof(PersonID);
++            if (sourceOffset + 10 * sizeof(PersonID) <= sizeof(legacyFighters))
++            {
++                gam_memcpy((U8 *)FIGHTERS + targetOffset,
++                           legacyFighters + sourceOffset,
++                           10 * sizeof(PersonID));
++            }
++            else
++            {
++                FIGHTERS_IDX[i] = 0;
++            }
++        }
++    }
+     read_all((U8 *)ORDERQUEUE,sizeof(OrderType), orderQueueLen, fp);
+     read_all((U8 *)g_Cities,sizeof(CityType),CITY_MAX,fp);
++    if (version < 0x95)
++    {
++        U32 i;
++        OrderType *orders = (OrderType*)ORDERQUEUE;
++        for (i = 0;i < orderQueueLen;i ++)
++        {
++            if (orders[i].OrderId == BATTLE &&
++                (orders[i].Person >= FIGHT_ORDER_MAX || !FIGHTERS_IDX[orders[i].Person]))
++                orders[i].OrderId = 0xff;
++        }
++    }
+ 
+     int seed = 0;
+     read_all((U8 *)&seed,sizeof(seed), 1, fp);
+@@ -953,7 +989,7 @@ bool GamSaveRcd(U8 idx)
+         return false;
+     }
+     
+-    U8 ver = 0x94;
++    U8 ver = 0x95;
+     U16 pcount = GamGetPersonCount();
+     gam_fwrite((U8 *)&ver,1,1,fp);
+     gam_fwrite((U8 *)&g_PIdx,1,1,fp);
+@@ -997,7 +1033,7 @@ bool GamSaveRcd(U8 idx)
+     }
+     
+     gam_fwrite((U8 *)FIGHTERS_IDX,1,FIGHT_ORDER_MAX,fp);
+-    gam_fwrite((U8 *)FIGHTERS,10,FIGHT_ORDER_MAX,fp);
++    gam_fwrite((U8 *)FIGHTERS,10 * sizeof(PersonID),FIGHT_ORDER_MAX,fp);
+     gam_fwrite((U8 *)ORDERQUEUE,sizeof(OrderType),ORDER_MAX,fp);
+     gam_fwrite((U8 *)g_Cities,sizeof(CityType),CITY_MAX,fp);
+     {
+@@ -1038,7 +1074,13 @@ EngineConfig g_engineConfig = {
+     .promptCityDisaster = 1, // 提示城池灾害
      .showStartMovie = 1, // 显示开场动画
      .compressCustomData = 0,
++    .checkRedundantOnAddPerson = 1,
      .cacheCustomFont = 1,
 +    .aiWorldActivity = 50,
 +    .battleLoserOutcome = 0,

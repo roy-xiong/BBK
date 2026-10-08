@@ -33,6 +33,40 @@ assert.ok(
   corePatchSource.includes('+                        fpcount -= reserveGenerals;'),
   '出征人数应按当前活跃度的守将保留数计算',
 );
+assert.ok(
+  corePatchSource.includes('FightOrderPersons'),
+  '出征队列必须按每组 10 个 PersonID 统一寻址',
+);
+assert.ok(
+  corePatchSource.includes(
+    '+    gam_fwrite((U8 *)FIGHTERS,10 * sizeof(PersonID),FIGHT_ORDER_MAX,fp);',
+  ),
+  '存档必须完整保存 30 组出征武将 PersonID',
+);
+assert.ok(
+  corePatchSource.includes('+static void MarkPersonDead(PersonID person,U8 city)'),
+  '战死结算必须使用统一的死亡状态清理',
+);
+assert.ok(
+  corePatchSource.includes('+static U32 GetKingPersonsWithOrders('),
+  '君主继承统计必须包含正在执行命令和出征的武将',
+);
+assert.ok(
+  corePatchSource.includes('+static void ReturnOrderPerson(OrderType *Order,PersonID person)'),
+  '命令执行结束必须校验人物当前归属和落脚城市',
+);
+assert.ok(
+  corePatchSource.includes('+    SetCitySatrap();'),
+  '君主更替或势力灭亡后必须立即重算太守',
+);
+assert.ok(
+  corePatchSource.includes('+    I32 rade;'),
+  '外交智力差必须使用有符号整数，避免负数溢出成高成功率',
+);
+assert.ok(
+  corePatchSource.includes('+    .checkRedundantOnAddPerson = 1,'),
+  '核心人物入城应启用跨城市去重保护',
+);
 
 /**
  * 创建最小可运行的三国霸业脚本环境。
@@ -62,6 +96,9 @@ function createHarness(storage = new Map(), options = {}) {
     g_YearDate: 190,
     g_MonthDate: 9,
     g_PIdx: 1,
+    g_LookEnemy: 1,
+    g_LookMovie: 1,
+    g_MoveSpeed: 1,
     g_Persons: people,
     g_Cities: [
       {
@@ -138,6 +175,13 @@ function createHarness(storage = new Map(), options = {}) {
       },
     ],
     g_PersonsQueue: [0, 1, 2, 3, 4, 5, 6],
+    g_OrderQueue: Array.from({length: 100}, () => ({
+      OrderId: 0xff,
+      Person: 0,
+      City: 0,
+    })),
+    FIGHTERS_IDX: new Array(30).fill(0),
+    FIGHTERS: new Array(600).fill(0),
     g_GoodsQueue: [3, 0x8004, 7],
     g_CityPositions: [
       {x: 0, y: 0},
@@ -536,6 +580,7 @@ function apply(api, action) {
   apply(first.api, 'sgby_post_battle_automation');
   apply(first.api, 'sgby_attack_any_city');
   apply(first.api, 'sgby_enemy_escape_route');
+  apply(first.api, 'sgby_disable_animations');
   const captiveActionResult = JSON.parse(first.api.applyCheat(
     'sgby_post_battle_captive_action',
     {mode: 'execute'},
@@ -557,6 +602,9 @@ function apply(api, action) {
   assert.equal(first.data.g_engineConfig.battleLoserOutcome, 1);
   assert.equal(first.data.g_engineConfig.playerAttackAnyCity, 1);
   assert.equal(first.data.g_engineConfig.enemyEscapeRoute, 1);
+  assert.equal(first.data.g_LookEnemy, 0);
+  assert.equal(first.data.g_LookMovie, 0);
+  assert.equal(first.data.g_MoveSpeed, 0);
   first.api.handleControl('toggleBattleSpeed');
 
   const second = createHarness(sharedStorage);
@@ -578,6 +626,7 @@ function apply(api, action) {
   assert.equal(restoredState.autoBattle, true);
   assert.equal(restoredState.attackAnyCity, true);
   assert.equal(restoredState.enemyEscapeRoute, true);
+  assert.equal(restoredState.animationsDisabled, true);
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
@@ -589,6 +638,9 @@ function apply(api, action) {
   assert.equal(second.data.g_engineConfig.battleLoserOutcome, 1);
   assert.equal(second.data.g_engineConfig.playerAttackAnyCity, 1);
   assert.equal(second.data.g_engineConfig.enemyEscapeRoute, 1);
+  assert.equal(second.data.g_LookEnemy, 0);
+  assert.equal(second.data.g_LookMovie, 0);
+  assert.equal(second.data.g_MoveSpeed, 0);
 }
 
 {
@@ -603,7 +655,54 @@ function apply(api, action) {
   assert.equal(state.battleLoserOutcomeDeath, false);
   assert.equal(state.attackAnyCity, false);
   assert.equal(state.enemyEscapeRoute, false);
+  assert.equal(state.animationsDisabled, false);
   assert.equal(state.autoEndTurn, false);
+}
+
+{
+  const {api, data} = createHarness();
+  apply(api, 'sgby_disable_animations');
+  assert.equal(data.g_LookEnemy, 0);
+  assert.equal(data.g_LookMovie, 0);
+  assert.equal(data.g_MoveSpeed, 0);
+  apply(api, 'sgby_disable_animations');
+  assert.equal(data.g_LookEnemy, 1);
+  assert.equal(data.g_LookMovie, 1);
+  assert.equal(data.g_MoveSpeed, 1);
+}
+
+{
+  const {context, data, hooks, people} = createHarness();
+  context.baye.putPersonInCity(2, 1);
+  data.g_Cities[3].Belong = 0;
+  data.g_Cities[3].SatrapId = 0;
+  people[6].Belong = 5;
+  people[7].Tool1 = 2;
+
+  hooks.didLoadGame({});
+
+  assert.equal(
+    data.g_PersonsQueue.filter((personIndex) => personIndex === 1).length,
+    1,
+    '旧存档中的同一人物只能保留一个城市队列位置',
+  );
+  assert.equal(data.g_Cities[3].Belong, 5);
+  assert.equal(data.g_Cities[3].SatrapId, 7);
+  assert.equal(people[7].Belong, 0xffff);
+  assert.equal(people[7].Arms, 0);
+  assert.equal(people[7].Tool1, 0);
+  assert.equal(people[7].Tool2, 0);
+}
+
+{
+  const {data, hooks, people} = createHarness();
+  data.g_OrderQueue[0] = {OrderId: 0, Person: 7, City: 2};
+  hooks.didLoadGame({});
+  assert.equal(
+    people[7].Belong,
+    5,
+    '正在执行非战斗命令的城外人物不能被旧存档修复误判为死亡',
+  );
 }
 
 {
@@ -1213,6 +1312,8 @@ function apply(api, action) {
     {city: 0, tool: 4, hide: false},
     {city: 0, tool: 5, hide: false},
   ]);
+  assert.equal(data.g_Persons[3].Tool1, 0);
+  assert.equal(data.g_Persons[3].Tool2, 0);
 }
 
 {
