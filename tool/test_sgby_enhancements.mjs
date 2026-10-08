@@ -1026,6 +1026,19 @@ function apply(api, action) {
 }
 
 {
+  const {context, data, hooks, scheduledDelays} = createHarness();
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+
+  context.safeSetTimeout(() => {}, 200);
+  assert.equal(
+    scheduledDelays.at(-1),
+    100,
+    '战略事件和消息框延时应跟随当前 2x 游戏速度',
+  );
+}
+
+{
   const {api, data, hooks, sentKeys} = createHarness();
   data.g_FgtOver = 1;
   const controlResult = JSON.parse(api.handleControl('endTurn'));
@@ -1160,6 +1173,12 @@ function apply(api, action) {
   assert.equal(futureGeneral.index, 6);
   assert.equal(futureGeneral.appearanceYear, 196);
   assert.equal(futureGeneral.cityName, '城池3');
+  const enemyGenerals = cheatData.generals.filter(
+    (general) => general.group === 'enemy',
+  );
+  assert.equal(enemyGenerals[0].index, 4);
+  assert.equal(enemyGenerals[0].isRuler, true);
+  assert.equal(enemyGenerals[1].isRuler, false);
 }
 
 {

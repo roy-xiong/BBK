@@ -746,6 +746,7 @@
                     factionName: group === 'player' || group === 'enemy'
                         ? rulerNameForBelong(context.data, person.Belong)
                         : '在野',
+                    isRuler: person.Belong === personIndex + 1,
                     appearanceYear: appearanceYear,
                     cityIndex: cityIndex == null ? 65535 : cityIndex,
                     cityName: cityName,
@@ -772,6 +773,7 @@
                     return groupOrder[left.group] - groupOrder[right.group];
                 }
                 if (left.cityIndex !== right.cityIndex) return left.cityIndex - right.cityIndex;
+                if (left.isRuler !== right.isRuler) return left.isRuler ? -1 : 1;
                 if (left.appearanceYear !== right.appearanceYear) {
                     return left.appearanceYear - right.appearanceYear;
                 }
@@ -2629,11 +2631,11 @@
     }
 
     /**
-     * 安装仅在战斗期间生效的倍率定时管线。
+     * 安装覆盖整个游戏引擎的倍率定时管线。
      *
-     * 原版关闭战斗动画后仍有伤害数字、状态闪烁和敌军移动等固定等待，这些等待最终都
-     * 经过 Emscripten 的 safeSetTimeout。这里只在有效战斗中缩短等待，主地图、内政、
-     * 存档和菜单操作保持原速度；倍率可在 1x、2x、3x、4x 之间循环切换。
+     * 战斗动画、战略事件、进攻与胜负通知、灾害报告等原生等待最终都会经过
+     * Emscripten 的 safeSetTimeout。统一缩短该入口，保证所有游戏内流程使用相同的
+     * 1x～4x 倍率；倍率只在 baye 引擎数据就绪后生效，不影响 Flutter 宿主定时任务。
      */
     function installBattleSpeedPipeline() {
         if (cheatState.battleSpeedPipelineInstalled) return;
@@ -2645,7 +2647,7 @@
                 if (
                     cheatState.battleSpeedMultiplier > 1 &&
                     typeof delay === 'number' && delay > 0 &&
-                    global.baye && baye.data && isBattleActive(baye.data)
+                    global.baye && baye.data
                 ) {
                     adjustedDelay = delay / cheatState.battleSpeedMultiplier;
                 }
@@ -3657,7 +3659,7 @@
                 ? 1
                 : cheatState.battleSpeedMultiplier + 1;
             savePersistentCheatState();
-            return result(true, '战斗速度已切换为 ' + cheatState.battleSpeedMultiplier + 'x');
+            return result(true, '游戏速度已切换为 ' + cheatState.battleSpeedMultiplier + 'x');
         }
 
         if (action === 'autoBattle') {

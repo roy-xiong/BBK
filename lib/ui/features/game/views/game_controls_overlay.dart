@@ -177,7 +177,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
   }
 }
 
-/// 三国霸业专属的回合、战场信息和速度控制。
+/// 三国霸业专属的回合、战场信息和全局游戏速度控制。
 class _SgbyUtilityButtons extends StatelessWidget {
   const _SgbyUtilityButtons({
     required this.isDarkTheme,
@@ -332,7 +332,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               button(
-                tooltip: '切换为 ${nextSpeed}x 战斗速度',
+                tooltip: '切换为 ${nextSpeed}x 游戏速度',
                 input: GameInput.toggleBattleSpeed,
                 child: Text(
                   '${battleSpeedMultiplier}x',

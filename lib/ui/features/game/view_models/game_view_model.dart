@@ -51,6 +51,7 @@ class SgbyGeneralCheatInfo {
     required this.name,
     required this.group,
     required this.factionName,
+    required this.isRuler,
     required this.appearanceYear,
     required this.cityIndex,
     required this.cityName,
@@ -79,6 +80,7 @@ class SgbyGeneralCheatInfo {
       name: json['name'] as String? ?? '未知武将',
       group: SgbyGeneralGroup.fromWireValue(json['group'] as String?),
       factionName: json['factionName'] as String? ?? '未知势力',
+      isRuler: json['isRuler'] == true,
       appearanceYear: integer('appearanceYear'),
       cityIndex: integer('cityIndex'),
       cityName: json['cityName'] as String? ?? '未知城池',
@@ -104,6 +106,7 @@ class SgbyGeneralCheatInfo {
   final String name;
   final SgbyGeneralGroup group;
   final String factionName;
+  final bool isRuler;
   final int appearanceYear;
   final int cityIndex;
   final String cityName;
