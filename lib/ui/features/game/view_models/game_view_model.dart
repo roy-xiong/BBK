@@ -538,9 +538,9 @@ class GameViewModel extends ChangeNotifier {
     }
     final wireValue = jsonEncode(input.name);
     if (input == GameInput.toggleBattleSpeed) {
-      _sgbyBattleSpeedMultiplier = _sgbyBattleSpeedMultiplier >= 4
-          ? 1
-          : _sgbyBattleSpeedMultiplier + 1;
+      _sgbyBattleSpeedMultiplier = nextSgbyGameSpeedMultiplier(
+        _sgbyBattleSpeedMultiplier,
+      );
       notifyListeners();
     }
     unawaited(
@@ -953,7 +953,11 @@ class GameViewModel extends ChangeNotifier {
   Future<void> _restoreSgbyControlState() async {
     if (game.id != GameId.sgby) return;
     final state = await getCheatState();
-    final restoredSpeed = state['battleSpeed4x'] == true
+    final restoredSpeed = state['battleSpeed8x'] == true
+        ? 8
+        : state['battleSpeed6x'] == true
+        ? 6
+        : state['battleSpeed4x'] == true
         ? 4
         : state['battleSpeed3x'] == true
         ? 3

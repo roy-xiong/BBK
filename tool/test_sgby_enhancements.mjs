@@ -581,6 +581,8 @@ function apply(api, action) {
   assert.equal(restoredState.battleSpeed2x, false);
   assert.equal(restoredState.battleSpeed3x, true);
   assert.equal(restoredState.battleSpeed4x, false);
+  assert.equal(restoredState.battleSpeed6x, false);
+  assert.equal(restoredState.battleSpeed8x, false);
   assert.equal(second.people[0].Force, 100);
   assert.equal(second.people[0].Arms, 65535);
   assert.equal(second.data.g_engineConfig.autoBattleDefense, 1);
@@ -1006,6 +1008,14 @@ function apply(api, action) {
   controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
   assert.equal(controlResult.ok, true, controlResult.message);
   context.safeSetTimeout(() => {}, 100);
+  assert.ok(Math.abs(scheduledDelays.at(-1) - 100 / 6) < 0.001);
+  controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  context.safeSetTimeout(() => {}, 100);
+  assert.equal(scheduledDelays.at(-1), 12.5);
+  controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
+  assert.equal(controlResult.ok, true, controlResult.message);
+  context.safeSetTimeout(() => {}, 100);
   assert.equal(scheduledDelays.at(-1), 100);
   controlResult = JSON.parse(api.handleControl('toggleBattleSpeed'));
   assert.equal(controlResult.ok, true, controlResult.message);
@@ -1036,6 +1046,20 @@ function apply(api, action) {
     100,
     '战略事件和消息框延时应跟随当前 2x 游戏速度',
   );
+}
+
+{
+  const storage = new Map();
+  const first = createHarness(storage);
+  for (let index = 0; index < 4; index++) {
+    const result = JSON.parse(first.api.handleControl('toggleBattleSpeed'));
+    assert.equal(result.ok, true, result.message);
+  }
+  const second = createHarness(storage);
+  const state = JSON.parse(second.api.getCheatState());
+  assert.equal(state.battleSpeed8x, true);
+  second.context.safeSetTimeout(() => {}, 160);
+  assert.equal(second.scheduledDelays.at(-1), 20);
 }
 
 {

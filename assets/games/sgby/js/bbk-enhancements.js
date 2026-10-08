@@ -34,6 +34,7 @@
     var AUTO_EXPEDITION_FOOD = 5000;
     var NORMAL_ATTACK_COMMAND = 0;
     var REST_COMMAND = 3;
+    var GAME_SPEED_MULTIPLIERS = [1, 2, 3, 4, 6, 8];
     var NORMAL_ATTACK_RANGE_SIZE = 7;
     var NORMAL_ATTACK_DISTANCE = 3;
     var FIGHT_PATH_SIZE = 15;
@@ -204,14 +205,22 @@
      * 兼容读取新版倍率和旧版 battleSpeed2x 布尔字段。
      *
      * @param {Object} state 本地持久状态。
-     * @return {number} 1、2、3、4 倍战斗速度。
+     * @return {number} 已校验的全局游戏速度倍率。
      */
     function resolvePersistedBattleSpeed(state) {
         var multiplier = Number(state.battleSpeedMultiplier);
-        if (Number.isInteger(multiplier) && multiplier >= 1 && multiplier <= 4) {
+        if (GAME_SPEED_MULTIPLIERS.indexOf(multiplier) >= 0) {
             return multiplier;
         }
         return state.battleSpeed2x === false ? 1 : 2;
+    }
+
+    /** @return {number} 当前全局游戏速度的下一档倍率。 */
+    function nextGameSpeedMultiplier(current) {
+        var index = GAME_SPEED_MULTIPLIERS.indexOf(current);
+        return index < 0 || index >= GAME_SPEED_MULTIPLIERS.length - 1
+            ? GAME_SPEED_MULTIPLIERS[0]
+            : GAME_SPEED_MULTIPLIERS[index + 1];
     }
 
     /**
@@ -3655,9 +3664,9 @@
     function handleControl(action) {
         start();
         if (action === 'toggleBattleSpeed') {
-            cheatState.battleSpeedMultiplier = cheatState.battleSpeedMultiplier >= 4
-                ? 1
-                : cheatState.battleSpeedMultiplier + 1;
+            cheatState.battleSpeedMultiplier = nextGameSpeedMultiplier(
+                cheatState.battleSpeedMultiplier
+            );
             savePersistentCheatState();
             return result(true, '游戏速度已切换为 ' + cheatState.battleSpeedMultiplier + 'x');
         }
@@ -4073,6 +4082,8 @@
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
             battleSpeed4x: cheatState.battleSpeedMultiplier === 4,
+            battleSpeed6x: cheatState.battleSpeedMultiplier === 6,
+            battleSpeed8x: cheatState.battleSpeedMultiplier === 8,
             postBattleAutomation: cheatState.postBattleAutomation,
             postBattleCaptiveRecruit:
                 cheatState.postBattleCaptiveAction === CAPTIVE_ACTION_RECRUIT,

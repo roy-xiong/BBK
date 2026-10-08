@@ -225,9 +225,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
     }
 
     const iconColor = Color(0xFFF0EEE8);
-    final nextSpeed = battleSpeedMultiplier >= 4
-        ? 1
-        : battleSpeedMultiplier + 1;
+    final nextSpeed = nextSgbyGameSpeedMultiplier(battleSpeedMultiplier);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [

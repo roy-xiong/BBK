@@ -72,4 +72,13 @@ void main() {
     expect(restored.toolbarPositions[GameId.sgby]?.xRatio, 0.0);
     expect(restored.toolbarPositions[GameId.sgby]?.yRatio, 0.0);
   });
+
+  test('三国霸业游戏速度按固定倍率循环', () {
+    expect(sgbyGameSpeedMultipliers, <int>[1, 2, 3, 4, 6, 8]);
+    expect(nextSgbyGameSpeedMultiplier(1), 2);
+    expect(nextSgbyGameSpeedMultiplier(4), 6);
+    expect(nextSgbyGameSpeedMultiplier(6), 8);
+    expect(nextSgbyGameSpeedMultiplier(8), 1);
+    expect(nextSgbyGameSpeedMultiplier(5), 1);
+  });
 }
