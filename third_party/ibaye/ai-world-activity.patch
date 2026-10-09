@@ -928,6 +928,28 @@ index bb23bde..29e4f8c 100644
                  return(1);
              }
          }
+diff --git a/src/cityedit.c b/src/cityedit.c
+index 1372c6f..852b396 100644
+--- a/src/cityedit.c
++++ b/src/cityedit.c
+@@ -578,7 +578,7 @@ FAR U8 GetRoundSelfCity(U8 city,U8 *cqueue)
+ 
+ /******************************************************************************
+  * 函数名:GetRoundEnemyCity
+- * 说  明:取得城市周围相临敌人城池
++ * 说  明:取得城市周围相邻的非己方城池，包括无人占领的城市
+  *
+  * 入口参数：city -- 指定城池，cqueue -- 周围城池队列指针
+  *
+@@ -608,7 +608,7 @@ FAR U8 GetRoundEnemyCity(U8 city,U8 *cqueue)
+         if (inf[i])
+         {
+             cp = g_Cities[inf[i] - 1].Belong;
+-            if (cp && (cp != cb))
++            if (cp != cb)
+             {
+                 if (cqueue) cqueue[count] = inf[i] - 1;
+                 count += 1;
 diff --git a/src/gamEng.c b/src/gamEng.c
 index 824cab5..38a8c39 100644
 --- a/src/gamEng.c
@@ -1012,7 +1034,7 @@ index 824cab5..38a8c39 100644
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,
 diff --git a/src/tactic.c b/src/tactic.c
-index 1c792f8..8f2b41e 100644
+index 1c792f8..a4be04c 100644
 --- a/src/tactic.c
 +++ b/src/tactic.c
 @@ -93,7 +93,15 @@ U8 PlayerTactic(void)
@@ -1032,7 +1054,7 @@ index 1c792f8..8f2b41e 100644
              switch (cral)
              {
                  case 0xff:
-@@ -127,6 +135,21 @@ U8 PlayerTactic(void)
+@@ -127,6 +135,282 @@ U8 PlayerTactic(void)
  /*const U8 KingTacticOddsIH[5] = {50,40,30,20,10};
   const U8 KingTacticOddsD[5] = {80,70,70,40,20};*/
  
@@ -1051,18 +1073,284 @@ index 1c792f8..8f2b41e 100644
 +    return (U8)(((U32)(activity - AI_WORLD_ACTIVITY_ORIGINAL) * 100) / 75);
 +}
 +
++/**
++ * 返回电脑出征目标的固定优先级，与世界活跃度无关。
++ *
++ * @param city 已通过边界检查的目标城市编号。
++ * @return 0表示无人城，1表示玩家城，2表示其他势力城。
++ */
++static U8 AiTargetPriority(U8 city)
++{
++    PersonID belong = g_Cities[city].Belong;
++    if (!belong)
++        return 0;
++    return belong == (g_PlayerKing + 1) ? 1 : 2;
++}
++
++/**
++ * 按真实城市连接计算每座城市距离最近玩家城市的步数。
++ *
++ * 多源广度优先搜索只用于战略排序，不允许部队跳过中间城市。城市编号为U8，
++ * 因此固定256项工作区能够覆盖所有有效城市；0xff表示没有到玩家的连接路径。
++ *
++ * @param distances 至少包含256项的输出数组。
++ */
++static void AiPlayerCityDistances(U8 *distances)
++{
++    U8 queue[256];
++    U8 *links;
++    U16 head = 0,tail = 0,i;
++    U8 city,next,edge;
++
++    gam_memset(distances,0xff,256);
++    links = ResLoadToCon(CITY_LINKR,1,g_CBnkPtr);
++    if (!links)
++        return;
++    for (i = 0;i < CITY_MAX;i ++)
++    {
++        if (g_Cities[i].Belong != (g_PlayerKing + 1))
++            continue;
++        distances[i] = 0;
++        queue[tail++] = (U8)i;
++    }
++    while (head < tail)
++    {
++        city = queue[head++];
++        for (edge = 0;edge < 8;edge ++)
++        {
++            next = links[(U16)city * 16 + edge];
++            if (!next || next > CITY_MAX)
++                continue;
++            next--;
++            if (distances[next] != 0xff)
++                continue;
++            distances[next] = distances[city] + 1;
++            queue[tail++] = next;
++        }
++    }
++}
++
++/**
++ * 选择相邻出征目标：无人城优先，其次玩家城，最后其他势力城。
++ *
++ * 同级目标先选择距玩家更近的城市，距离也相同才沿用原来的最弱城池判断。
++ * 只把筛选后的相邻城市传给GetWeekCity，不改变玩家手动指定的出征目标。
++ *
++ * @param city 出发城市编号。
++ * @return 目标城市编号；没有合法目标时返回0xff。
++ */
++static U8 AiSelectAttackTarget(U8 city)
++{
++    U8 candidates[8],filtered[8],distances[256];
++    U8 count,filteredCount = 0,i,priority,distance;
++    U8 bestPriority = 3,bestDistance = 0xff;
++
++    if (city >= CITY_MAX)
++        return 0xff;
++    count = GetRoundEnemyCity(city,candidates);
++    if (!count)
++        return 0xff;
++    AiPlayerCityDistances(distances);
++    for (i = 0;i < count;i ++)
++    {
++        priority = AiTargetPriority(candidates[i]);
++        distance = distances[candidates[i]];
++        if (priority < bestPriority ||
++            (priority == bestPriority && distance < bestDistance))
++        {
++            bestPriority = priority;
++            bestDistance = distance;
++            filteredCount = 0;
++        }
++        if (priority == bestPriority && distance == bestDistance)
++            filtered[filteredCount++] = candidates[i];
++    }
++    return filteredCount ? GetWeekCity(filteredCount,filtered) : 0xff;
++}
++
++/**
++ * 查找向优先前线调兵时，沿己方城市连接应走的下一座城市。
++ *
++ * 搜索只能穿过本势力城市；前线按出征目标优先级、到玩家的距离、己方路程依次
++ * 排序。返回第一步而非远端目的地，避免跨过无人城或其他势力城市直接调兵。
++ * 出发城已经是最佳前线时不再外调，保留武将用于占领或进攻。
++ *
++ * @param city 出发城市编号。
++ * @return 相邻己方城市编号；无需调兵或没有可达前线时返回0xff。
++ */
++static U8 AiFrontlineNextCity(U8 city)
++{
++    U8 queue[256],firstHop[256],ownDistances[256],playerDistances[256];
++    U8 *links;
++    U16 head = 0,tail = 0;
++    U8 current,next,edge,priority,distance,bestCity = 0xff;
++    U8 bestPriority = 3,bestDistance = 0xff,bestOwnDistance = 0xff;
++    PersonID belong;
++
++    if (city >= CITY_MAX)
++        return 0xff;
++    belong = g_Cities[city].Belong;
++    if (!belong)
++        return 0xff;
++    AiPlayerCityDistances(playerDistances);
++    links = ResLoadToCon(CITY_LINKR,1,g_CBnkPtr);
++    if (!links)
++        return 0xff;
++    gam_memset(firstHop,0xff,sizeof(firstHop));
++    gam_memset(ownDistances,0xff,sizeof(ownDistances));
++    firstHop[city] = city;
++    ownDistances[city] = 0;
++    queue[tail++] = city;
++    while (head < tail)
++    {
++        current = queue[head++];
++        for (edge = 0;edge < 8;edge ++)
++        {
++            next = links[(U16)current * 16 + edge];
++            if (!next || next > CITY_MAX)
++                continue;
++            next--;
++            if (g_Cities[next].Belong == belong)
++            {
++                if (ownDistances[next] != 0xff)
++                    continue;
++                ownDistances[next] = ownDistances[current] + 1;
++                firstHop[next] = current == city ? next : firstHop[current];
++                queue[tail++] = next;
++                continue;
++            }
++            priority = AiTargetPriority(next);
++            distance = playerDistances[next];
++            if (priority < bestPriority ||
++                (priority == bestPriority && distance < bestDistance) ||
++                (priority == bestPriority && distance == bestDistance &&
++                 ownDistances[current] < bestOwnDistance))
++            {
++                bestPriority = priority;
++                bestDistance = distance;
++                bestOwnDistance = ownDistances[current];
++                bestCity = current;
++            }
++        }
++    }
++    return bestCity == 0xff || bestCity == city ? 0xff : firstHop[bestCity];
++}
++
++/**
++ * 检查本势力是否已对目标提交出征，避免同轮重复派兵抢占同一无人城。
++ *
++ * @param city 本势力的出发城市编号。
++ * @param target 待占领的无人城市编号。
++ * @return 已有同势力出征命令时返回1，否则返回0。
++ */
++static U8 AiHasFriendlyExpedition(U8 city,U8 target)
++{
++    OrderType *orders = (OrderType*)ORDERQUEUE;
++    U32 i;
++    for (i = 0;i < ORDER_MAX;i ++)
++    {
++        if (orders[i].OrderId == BATTLE && orders[i].Object == target &&
++            orders[i].City < CITY_MAX &&
++            g_Cities[orders[i].City].Belong == g_Cities[city].Belong)
++            return 1;
++    }
++    return 0;
++}
++
++/**
++ * 在随机策略之前执行无人城扩张或沿己方路线向优先前线调兵。
++ *
++ * 该阶段不读取世界活跃度：至少一名在任武将即可占领相邻无人城，不检查兵力。
++ * 多将城市最多派十人并留一人，单将城市允许全军推进；调兵每城每轮只派最强一人。
++ * 只有核心接受命令后才删除原城人物，避免命令队列满时丢失武将或重复出征。
++ *
++ * @param city 电脑势力的出发城市编号。
++ * @return 已安排扩张、调兵或等待同势力占城命令时返回1，否则返回0。
++ */
++static U8 AiAdvanceStrategicFront(U8 city)
++{
++    PersonID persons[PERSON_MAX],fighters[10];
++    U32 count,sendCount,i,j;
++    U8 target;
++    PersonID temporary;
++    OrderType order;
++
++    if (city >= CITY_MAX || !g_Cities[city].Belong ||
++        g_Cities[city].Belong == (g_PlayerKing + 1))
++        return 0;
++    count = GetCityPersons(city,persons);
++    if (!count)
++        return 0;
++    target = AiSelectAttackTarget(city);
++    gam_memset(&order,0,sizeof(order));
++    order.City = city;
++    if (target != 0xff && !g_Cities[target].Belong)
++    {
++        if (AiHasFriendlyExpedition(city,target))
++            return 1;
++        sendCount = count > 1 ? count - 1 : count;
++        if (sendCount > 10)
++            sendCount = 10;
++        gam_memset(fighters,0,sizeof(fighters));
++        for (i = 0;i < sendCount;i ++)
++        {
++            for (j = i + 1;j < count;j ++)
++            {
++                if (g_Persons[persons[j]].Arms <= g_Persons[persons[i]].Arms)
++                    continue;
++                temporary = persons[i];
++                persons[i] = persons[j];
++                persons[j] = temporary;
++            }
++            fighters[i] = PID(persons[i] + 1);
++        }
++        order.OrderId = BATTLE;
++        order.Object = PID(target);
++        order.Food = g_Cities[city].Food;
++        if (!AddFightOrder(&order,fighters))
++            return 0;
++        for (i = 0;i < sendCount;i ++)
++            DelPerson(city,persons[i]);
++        return 1;
++    }
++    target = AiFrontlineNextCity(city);
++    if (target == 0xff)
++        return 0;
++    for (i = 1;i < count;i ++)
++    {
++        if (g_Persons[persons[i]].Arms > g_Persons[persons[0]].Arms)
++        {
++            temporary = persons[0];
++            persons[0] = persons[i];
++            persons[i] = temporary;
++        }
++    }
++    order.OrderId = MOVE;
++    order.Object = PID(target);
++    order.Person = persons[0];
++    if (!AddOrderEnd(&order))
++        return 0;
++    DelPerson(city,persons[0]);
++    return 1;
++}
++
  void ComputerTactic(void)
  {
      U32 i;
-@@ -172,6 +195,7 @@ void ComputerTactic(void)
+@@ -170,8 +454,12 @@ void ComputerTactic(void)
+             cptr->Food = 500;
+         if (cptr->Money > 10000)
              cptr->Money /= 2;
++        /* 无人城扩张与前线调兵独立于活跃度，并优先于随机内政、外交和军备。 */
++        if (AiAdvanceStrategicFront((U8)i))
++            continue;
          /*添加电脑策略代码*/
          rnd = gam_rand() % 100;
 +        U8 activity = AiWorldActivity();
          if (TacticOddsIH[g_Persons[b - 1].Character] > rnd)			/*执行内政、协调策略*/
          {
              ComputerTacticInterior(i);
-@@ -179,11 +203,28 @@ void ComputerTactic(void)
+@@ -179,11 +467,28 @@ void ComputerTactic(void)
          }
          else if (TacticOddsD[g_Persons[b - 1].Character] > rnd)		/*执行外交策略*/
          {
@@ -1093,7 +1381,7 @@ index 1c792f8..8f2b41e 100644
          }
      }
  }
-@@ -302,6 +343,8 @@ void ComputerTacticDiplomatism(U8 city)
+@@ -302,6 +607,8 @@ void ComputerTacticDiplomatism(U8 city)
      for (i = 0;i < pcount;i ++)
      {
          rnd = gam_rand() % 8;
@@ -1102,7 +1390,58 @@ index 1c792f8..8f2b41e 100644
          ecount = GetCityCaptives(city,eqptr);
          if (ecount)
          {
-@@ -518,6 +561,23 @@ void ComputerTacticArmament(U8 city)
+@@ -419,17 +726,15 @@ void ComputerTacticDiplomatism(U8 city)
+  ******************************************************************************/
+ void ComputerTacticHarmonize(U8 city)
+ {
+-    U8 *cqptr;
+-    PersonID *pqptr,*eqptr;
+-    U32 i,j,c,rnd;
+-    U32 pcount,ccount,ecount;
++    U8 target;
++    PersonID *pqptr;
++    U32 i,rnd;
++    U32 pcount;
+     OrderType order;
+     CityType *cptr;
+ 
+     cptr = &g_Cities[city];
+     pqptr = (PersonID*)SHARE_MEM;
+-    eqptr = pqptr + PERSON_COUNT;
+-    cqptr = (U8*)(eqptr + PERSON_COUNT);
+     pcount = GetCityPersons(city,pqptr);
+     for (i = 0;i < pcount;i ++)
+     {
+@@ -462,25 +767,10 @@ void ComputerTacticHarmonize(U8 city)
+                 {
+                     continue;
+                 }
+-                ccount = GetKingCitys(PID(cptr->Belong - 1),cqptr);
+-                if (ccount < 2)
+-                {
++                target = AiFrontlineNextCity(city);
++                if (target == 0xff)
+                     continue;
+-                }
+-                for (c = 0,j = 0;j < ccount;j ++)
+-                {
+-                    ecount = GetRoundEnemyCity(cqptr[j], NULL);
+-                    if (ecount)
+-                    {
+-                        c = j;
+-                        rnd = gam_rand() % 2;
+-                        if (rnd)
+-                        {
+-                            break;
+-                        }
+-                    }
+-                }
+-                order.Object = PID(cqptr[c]);
++                order.Object = PID(target);
+                 order.OrderId = MOVE;
+                 break;
+             case 6:
+@@ -518,6 +808,23 @@ void ComputerTacticArmament(U8 city)
      U32 pcount,fpcount,fcount;
      OrderType order;
      PersonType *pptr;
@@ -1126,7 +1465,7 @@ index 1c792f8..8f2b41e 100644
  
      pqptr = (PersonID*)SHARE_MEM;
      cqptr = (U8*)(pqptr + PERSON_COUNT);
-@@ -534,7 +594,17 @@ void ComputerTacticArmament(U8 city)
+@@ -534,7 +841,17 @@ void ComputerTacticArmament(U8 city)
      }
      for (i = 0;i < pcount;i ++)
      {
@@ -1144,7 +1483,7 @@ index 1c792f8..8f2b41e 100644
          switch (rnd)
          {
              case 0:
-@@ -579,9 +649,12 @@ void ComputerTacticArmament(U8 city)
+@@ -579,12 +896,20 @@ void ComputerTacticArmament(U8 city)
                  {
                      continue;
                  }
@@ -1159,8 +1498,17 @@ index 1c792f8..8f2b41e 100644
 +                }
                  /*rnd = gam_rand() % fcount;
                   order.Object = cqptr[rnd];*/
-                 order.Object = PID(GetWeekCity(fcount,cqptr));
-@@ -607,12 +680,12 @@ void ComputerTacticArmament(U8 city)
+-                order.Object = PID(GetWeekCity(fcount,cqptr));
++                {
++                    U8 target = AiSelectAttackTarget(city);
++                    if (target == 0xff)
++                        continue;
++                    order.Object = PID(target);
++                }
+                 fpcount = GetCityPersons(city,pqptr);
+                 if (fpcount)
+                 {
+@@ -607,12 +932,12 @@ void ComputerTacticArmament(U8 city)
                          }
                      }
  
@@ -1175,7 +1523,7 @@ index 1c792f8..8f2b41e 100644
                      {
                          continue;
                      }
-@@ -621,7 +694,7 @@ void ComputerTacticArmament(U8 city)
+@@ -621,7 +946,7 @@ void ComputerTacticArmament(U8 city)
                          /*添加出征命今生成代码*/
                          order.OrderId = BATTLE;
                          gam_memset(fp,0,10*sizeof(PersonID));
