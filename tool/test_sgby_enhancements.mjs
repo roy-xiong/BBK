@@ -734,9 +734,17 @@ function apply(api, action) {
   assert.equal(typeof hooks.mainSystemMenu, 'function');
   assert.equal(systemMessages.at(-1).type, 'sgby_control_state');
   assert.equal(systemMessages.at(-1).data.autoEndTurn, true);
+  assert.equal(
+    hooks.tacticStageUser({}),
+    -1,
+    '进入战斗后不能跳过PlayerTactic，否则战后无法重新绘制战略地图',
+  );
 
   hooks.exitBattle({});
   const keysBeforeReturningToMap = sentKeys.length;
+  assert.equal(hooks.tacticStageUser({}), -1, '战斗结束不等于已经返回战略地图');
+  assert.notEqual(hooks.mainSystemMenu({}), 0, '战略地图出现前不能自动选择结束策略');
+  assert.equal(sentKeys.length, keysBeforeReturningToMap);
   hooks.didShowMainMap({});
   const resumeTimer = scheduledTimers.find((timer) => timer.delay === 180);
   assert.ok(resumeTimer, '战斗结束回到主地图后应安排继续自动策略');
@@ -748,6 +756,38 @@ function apply(api, action) {
   assert.equal(JSON.parse(second.api.getCheatState()).autoEndTurn, true);
   assert.equal(typeof second.hooks.tacticStageUser, 'function');
   assert.equal(typeof second.hooks.mainSystemMenu, 'function');
+  assert.equal(second.hooks.tacticStageUser({}), -1, '重启恢复自动策略后也要先显示战略地图');
+}
+
+{
+  const {api, data, hooks, scheduledTimers, sentKeys} = createHarness();
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+  assert.equal(JSON.parse(api.handleControl('autoEndTurn')).ok, true);
+  hooks.mainSystemMenu({});
+  hooks.didShowMainMap({});
+  const previousMapTimer = scheduledTimers.filter((timer) => timer.delay === 180).at(-1);
+  assert.ok(previousMapTimer);
+  hooks.enterBattle({});
+  hooks.exitBattle({});
+  hooks.didShowMainMap({});
+  const currentMapTimer = scheduledTimers.filter((timer) => timer.delay === 180).at(-1);
+  assert.notEqual(currentMapTimer, previousMapTimer);
+  const keysBeforeResume = sentKeys.length;
+  previousMapTimer.callback();
+  assert.equal(sentKeys.length, keysBeforeResume, '战前遗留的自动策略回调不能提前结束战后的策略');
+  currentMapTimer.callback();
+  assert.equal(sentKeys.length, keysBeforeResume + 1);
+  hooks.mainSystemMenu({});
+
+  hooks.didShowMainMap({});
+  const timerBeforeDisable = scheduledTimers.filter((timer) => timer.delay === 180).at(-1);
+  assert.equal(JSON.parse(api.handleControl('autoEndTurn')).ok, true);
+  assert.equal(JSON.parse(api.handleControl('autoEndTurn')).ok, true);
+  hooks.mainSystemMenu({});
+  const keysAfterReenable = sentKeys.length;
+  timerBeforeDisable.callback();
+  assert.equal(sentKeys.length, keysAfterReenable, '关闭再开启后，旧定时器不能再次结束策略');
 }
 
 {

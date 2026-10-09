@@ -116,6 +116,8 @@
         longPressInstalled: false,
         battleSpeedPipelineInstalled: false,
         endTurnPending: false,
+        autoEndTurnResumeTimer: null,
+        autoEndTurnResumeGeneration: 0,
         quickSavePending: false,
         battleFoodSnapshot: null,
         cityFoodConsumptionSnapshot: null,
@@ -3459,10 +3461,54 @@
     }
 
     /**
-     * 按自动策略开关安装或恢复玩家策略和系统菜单 Hook。
+     * 取消尚未执行的自动策略恢复任务，并使已经进入事件队列的旧回调失效。
      *
-     * 开启后 `tacticStageUser` 跳过 PlayerTactic，随后 `mainSystemMenu` 固定选择“结束策略”；
-     * 关闭时必须恢复原 Hook 或删除字段，否则 C 核心会误判为脚本已经接管玩家策略。
+     * 战斗、新开局、读档或关闭自动策略都会改变可操作页面。除清除定时器外还递增
+     * 代次，避免旧回调在下一次战略地图出现后误触发，提前结束新的策略阶段。
+     */
+    function cancelAutoEndTurnResume() {
+        cheatState.autoEndTurnResumeGeneration++;
+        if (cheatState.autoEndTurnResumeTimer != null) {
+            global.clearTimeout(cheatState.autoEndTurnResumeTimer);
+            cheatState.autoEndTurnResumeTimer = null;
+        }
+    }
+
+    /**
+     * 在战略地图已经绘制后安排一次自动结束策略，留出原引擎刷新屏幕和等待输入的时间。
+     *
+     * 重绘地图时替换上一项任务；回调执行前核对代次，实际发送按键前继续由
+     * requestAutoEndCurrentTurn检查自动开关、地图可见性及存档状态。
+     */
+    function scheduleAutoEndTurnResume() {
+        cancelAutoEndTurnResume();
+        if (!cheatState.autoEndTurn || cheatState.endTurnPending) return;
+        var generation = cheatState.autoEndTurnResumeGeneration;
+        cheatState.autoEndTurnResumeTimer = global.setTimeout(function () {
+            if (generation !== cheatState.autoEndTurnResumeGeneration) return;
+            cheatState.autoEndTurnResumeTimer = null;
+            requestAutoEndCurrentTurn();
+        }, 180);
+    }
+
+    /**
+     * 清理离开战略地图时的自动策略运行状态，保留用户的自动策略开关。
+     *
+     * PlayerTactic负责调用GetCitySet并重绘战略地图。地图未重新绘制时，玩家策略
+     * Hook必须允许该流程执行，不能仅凭战斗已结束就直接跳到下一轮策略。
+     */
+    function resetAutoEndTurnMapState() {
+        cancelAutoEndTurnResume();
+        cheatState.mainMapVisible = false;
+        cheatState.mainMapRoadsVisible = false;
+        cheatState.endTurnPending = false;
+    }
+
+    /**
+     * 按自动策略开关安装或恢复玩家策略和系统菜单Hook。
+     *
+     * 战略地图已绘制时才跳过PlayerTactic并自动选择结束策略；战后、读档或新开局
+     * 必须先执行地图显示流程。关闭时恢复原Hook或删除字段，避免核心误判脚本接管。
      */
     function syncAutoEndTurnHooks() {
         if (!autoEndTurnHooks || !autoEndTurnTacticStageUserHook || !autoEndTurnMainSystemMenuHook) {
@@ -3473,6 +3519,7 @@
             autoEndTurnHooks.mainSystemMenu = autoEndTurnMainSystemMenuHook;
             return;
         }
+        cancelAutoEndTurnResume();
         if (autoEndTurnHooks.tacticStageUser === autoEndTurnTacticStageUserHook) {
             if (autoEndTurnOriginalTacticStageUser) {
                 autoEndTurnHooks.tacticStageUser = autoEndTurnOriginalTacticStageUser;
@@ -3495,13 +3542,13 @@
         autoEndTurnOriginalTacticStageUser = hooks.tacticStageUser || null;
         autoEndTurnOriginalMainSystemMenu = hooks.mainSystemMenu || null;
         autoEndTurnTacticStageUserHook = function (context) {
-            if (cheatState.autoEndTurn) return 0;
+            if (cheatState.autoEndTurn) return cheatState.mainMapVisible ? 0 : -1;
             return autoEndTurnOriginalTacticStageUser
                 ? autoEndTurnOriginalTacticStageUser(context)
                 : -1;
         };
         autoEndTurnMainSystemMenuHook = function (context) {
-            if (cheatState.autoEndTurn) return 0;
+            if (cheatState.autoEndTurn && cheatState.mainMapVisible) return 0;
             return autoEndTurnOriginalMainSystemMenu
                 ? autoEndTurnOriginalMainSystemMenu(context)
                 : 0xff;
@@ -3774,8 +3821,12 @@
         installObserverHook(hooks, 'tacticStage2', function () {
             runAutoCityMaintenance('策略结束自动', true);
         });
-        installObserverHook(hooks, 'didOpenNewGame', applyPersistentGeneralEffects);
+        installObserverHook(hooks, 'didOpenNewGame', function () {
+            resetAutoEndTurnMapState();
+            applyPersistentGeneralEffects();
+        });
         installObserverHook(hooks, 'didLoadGame', function () {
+            resetAutoEndTurnMapState();
             repairLoadedGameState();
             applyPersistentGeneralEffects();
         });
@@ -3787,12 +3838,11 @@
             }
         });
         installObserverHook(hooks, 'enterBattle', function () {
-            // 自动策略 Hook 只作用于战略阶段。战斗期间无需关闭开关，回到主地图后
-            // didShowMainMap 会继续安排结束当前策略，避免一次战斗永久中断连续推进。
+            // 保留自动策略开关，但下一次玩家阶段必须先重绘战略地图；只有收到
+            // didShowMainMap后才允许恢复自动推进，避免停在战斗结果画面继续下一轮。
             cheatState.autoBattlePlayerStage = false;
             cancelAutoBattleRun();
-            cheatState.mainMapVisible = false;
-            cheatState.mainMapRoadsVisible = false;
+            resetAutoEndTurnMapState();
             cheatState.postBattleSource = captureBattleSource();
             cheatState.postBattleResolution = captureBattleResolution();
             cheatState.battleCaptiveSnapshot = captureBattleCityCaptives();
@@ -3809,7 +3859,7 @@
             executeDefeatedCityCaptives();
             global.requestAnimationFrame(colorizeCityIcons);
             if (cheatState.autoEndTurn && !cheatState.endTurnPending) {
-                global.setTimeout(requestAutoEndCurrentTurn, 180);
+                scheduleAutoEndTurnResume();
             }
             if (cheatState.postBattleAutomationPending) {
                 cheatState.postBattleAutomationPending = false;
@@ -3899,9 +3949,10 @@
      *
      * @param {string} hookName 菜单 Hook 名称。
      * @param {number} selection 需要直接返回的菜单序号。
+     * @param {function():boolean|null|undefined} canSelect 执行时的条件校验；手动操作可省略。
      * @return {boolean} 是否安装成功。
      */
-    function installOneShotMenuSelection(hookName, selection) {
+    function installOneShotMenuSelection(hookName, selection, canSelect) {
         var hooks = baye.hooks || (baye.hooks = {});
         var original = hooks[hookName];
         var oneShotHook;
@@ -3915,8 +3966,9 @@
             cheatState.endTurnPending = false;
             syncAutoEndTurnHooks();
         };
-        oneShotHook = function () {
+        oneShotHook = function (context) {
             restore();
+            if (canSelect && !canSelect()) return original ? original(context) : 0xff;
             return selection;
         };
         hooks[hookName] = oneShotHook;
@@ -3933,7 +3985,9 @@
             return false;
         }
         cheatState.endTurnPending = true;
-        installOneShotMenuSelection('mainSystemMenu', 0);
+        installOneShotMenuSelection('mainSystemMenu', 0, function () {
+            return cheatState.autoEndTurn && cheatState.mainMapVisible;
+        });
         sendKey(VK_EXIT);
         return true;
     }
