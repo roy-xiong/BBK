@@ -9,7 +9,7 @@ import '../../game/views/game_page.dart';
 import '../../settings/view_models/settings_view_model.dart';
 import '../../settings/views/game_settings_sheet.dart';
 
-/// 应用首屏，直接提供两个游戏入口。
+/// 应用首屏，按游戏定义展示独立入口。
 class LauncherPage extends StatefulWidget {
   const LauncherPage({super.key, required this.dependencies});
 
@@ -158,7 +158,7 @@ class _GameTile extends StatelessWidget {
                   color: Colors.black,
                   child: Image.asset(
                     game.coverAsset,
-                    fit: game.id == GameId.fmj ? BoxFit.contain : BoxFit.cover,
+                    fit: game.id.isRpg ? BoxFit.contain : BoxFit.cover,
                     errorBuilder: (_, _, _) => const Center(
                       child: Icon(Icons.videogame_asset, size: 56),
                     ),

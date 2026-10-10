@@ -24,6 +24,38 @@
     function isWide(target) { return target === projected && wide.state().enabled; }
     canvas.drawBitmap_t8cslu$ = function (bitmap, x, y) { blit(bitmap, x, y, 1); };
     canvas.drawBitmap_2map2q$ = canvas.drawBitmap_t8cslu$;
+
+    /**
+     * 给首次提交的 SRS 幕布绘制提供扩展画布，帧序、位图和保留旧帧仍由原方法负责。
+     *
+     * 只投影坐标和像素尺寸，不重新生成扫描线、点阵、背景或闭合状态。原横条宽
+     * 159 像素，比 160 像素屏宽少一列；投影后将末列延展到视口边缘，补齐 2× 宽度。
+     * @param {Object} bitmap 原 SRS 当前帧位图。
+     * @param {number} x 原屏幕横坐标。
+     * @param {number} y 原屏幕纵坐标。
+     */
+    var curtainCanvas = Object.create(projected);
+    curtainCanvas.drawBitmap_t8cslu$ = function (bitmap, x, y) {
+        if (!bitmap || !bitmap.buffer) return;
+        var left = x * 2, top = y * 2;
+        if (bitmap.width !== 159 || bitmap.height !== 2) { blit(bitmap, left, top, 2); return; }
+        var right = Math.min(canvas.width, left + canvas.width), bottom = Math.min(canvas.height, top + bitmap.height * 2);
+        for (var row = Math.max(0, top); row < bottom; row++) {
+            var sourceRow = Math.floor((row - top) / 2) * bitmap.width;
+            for (var col = Math.max(0, left); col < right; col++) {
+                var sourceCol = Math.min(bitmap.width - 1, Math.floor((col - left) / 2));
+                var color = bitmap.buffer[sourceRow + sourceCol];
+                if (color && color.a > 0) canvas.buffer[row * canvas.width + col] = color;
+            }
+        }
+    };
+    curtainCanvas.drawBitmap_2map2q$ = curtainCanvas.drawBitmap_t8cslu$;
+    var originalSrsDraw = core.lib.ResSrs.prototype.draw_2g4tob$;
+    core.lib.ResSrs.prototype.draw_2g4tob$ = function (target, dx, dy) {
+        var fmj = !global.BbkRpgGameId || global.BbkRpgGameId === 'fmj';
+        return originalSrsDraw.call(this, fmj && isWide(target) && this.type === 1 && this.index === 3 ? curtainCanvas : target, dx, dy);
+    };
+
     projected.drawBitmap_t8cslu$ = function (bitmap, x, y) {
         if (!bitmap) return;
         if (animationDrawing || backgrounds.has(bitmap) || (bitmap.width === 160 && bitmap.height === 96)) blit(bitmap, x * 2, y * 2, 2);

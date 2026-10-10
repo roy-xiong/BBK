@@ -1,9 +1,13 @@
 /// 内置游戏标识。
 enum GameId {
   fmj,
-  sgby;
+  sgby,
+  jyqxz;
 
   String get storageKey => name;
+
+  /// 同一 RPG 引擎提供的视野、导航、战斗和存档能力。
+  bool get isRpg => this == GameId.fmj || this == GameId.jyqxz;
 
   static GameId? fromStorageKey(String? value) {
     for (final gameId in values) {
@@ -117,6 +121,13 @@ class GameDefinition {
       subtitle: '经典角色扮演',
       coverAsset: 'assets/images/fmj_cover.png',
       entryPath: 'fmj/index.html',
+    ),
+    GameDefinition(
+      id: GameId.jyqxz,
+      title: '金庸群侠传',
+      subtitle: '经典武侠 · 门派与江湖',
+      coverAsset: 'assets/images/jyqxz_cover.png',
+      entryPath: 'jyqxz/index.html',
     ),
     GameDefinition(
       id: GameId.sgby,

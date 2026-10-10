@@ -47,6 +47,11 @@
         });
     }
 
+    /** 按各 ROM 的地图定义识别室外，避免把金庸的店铺 type=1 当成野外。 */
+    Engine.prototype.isOutdoor = function (map) {
+        return !!map && (this.data.outdoorMaps ? this.data.outdoorMaps.includes(map.id) : map.type === 1);
+    };
+
     /** @return {Object} 与真实存档隔离的导航状态副本。 */
     Engine.prototype.copy = function (state) {
         return Object.assign({}, state, {
@@ -73,7 +78,7 @@
             var a = c.a, jump = null;
             // atlas 仅用于离线世界地图构建，收集已完成剧情后的地理连接；实际导航
             // 从不传入此模式，仍然必须在对白、机关、奖励和战斗前停下。
-            if (barriers.has(c.op) && previewNarrative !== 'atlas' && !(previewNarrative && [13, 47, 61, 69].includes(c.op))) return { state: state, blocked: c.op === 39 ? '战斗' : '剧情或交互', at: c.at };
+            if ((barriers.has(c.op) || this.data.gameId === 'jyqxz' && [2,16,24,29,40,41,42,43,44,48,49,50,51,53,59,60,63,73,78,79].includes(c.op)) && previewNarrative !== 'atlas' && !(previewNarrative && [13, 47, 61, 69].includes(c.op))) return { state: state, blocked: c.op === 39 ? '战斗' : '剧情或交互', at: c.at };
             switch (c.op) {
                 case 9: return { state: state, stable: true };
                 case 1:
@@ -244,7 +249,7 @@
             var flood = this.flood(state);
             if (!flood) continue;
             var contextMatches = !goal.navFlags || state.flags.slice(100, 114).map(Number).join('') === goal.navFlags;
-            if (contextMatches && (state.scriptId === goal.scriptId || (!goal.scriptId && state.mapId === goal.mapId) || goal.mapType && flood.map.type === goal.mapType)) {
+            if (contextMatches && (state.scriptId === goal.scriptId || (!goal.scriptId && state.mapId === goal.mapId) || goal.outdoor && this.isOutdoor(flood.map) || goal.mapType && flood.map.type === goal.mapType)) {
                 var positions;
                 if (goal.event) positions = this.approaches(state, flood, goal.event);
                 else if (goal.x != null) {
@@ -315,7 +320,7 @@
                 var preview = this.simulate(candidate.input, candidate.exit.event, true);
                 if (preview.state.scriptId === candidate.state.scriptId && preview.state.mapId === candidate.state.mapId) continue;
                 var target = this.scripts.get(goal.scriptId);
-                var matches = preview.state.scriptId === goal.scriptId || target && target.maps.includes(preview.state.mapId) || goal.mapType && this.maps.get(preview.state.mapId)?.type === goal.mapType;
+                var matches = preview.state.scriptId === goal.scriptId || target && target.maps.includes(preview.state.mapId) || goal.outdoor && this.isOutdoor(this.maps.get(preview.state.mapId)) || goal.mapType && this.maps.get(preview.state.mapId)?.type === goal.mapType;
                 var onward = matches ? { steps: [], cost: 0 } : preview.stable ? this.route(preview.state, Object.assign({}, goal, { allowBoundary: false })) : null;
                 if (onward && !onward.unavailable && (!boundary || candidate.cost + onward.cost < boundary.score)) {
                     boundary = Object.assign({}, candidate, { boundary: true, score: candidate.cost + onward.cost });
@@ -342,6 +347,32 @@
                 if (hops < initialHops && (!closest || hops < closest.hops || hops === closest.hops && stop.cost < closest.cost)) closest = Object.assign({}, stop, { hops: hops, boundary: true });
             }
             if (closest) return closest;
+            if (this.data.gameId === 'jyqxz' && goal.scriptId) {
+                // 马车、渡船和引路石在二选一/菜单之后才转场。只把玩家送到
+                // 原交互入口，由玩家决定去向；不能跳过车票、载重或物品消耗。
+                var choiceBoundary = null;
+                for (var stop of frontier) {
+                    var definition = this.scripts.get(stop.state.scriptId), address = definition.events[stop.exit.event - 1];
+                    var pending = [definition.byAddress.get(address)], checked = new Set();
+                    for (var budget = 0; pending.length && budget < 500; budget++) {
+                        var index = pending.pop(); if (index == null || checked.has(index)) continue; checked.add(index);
+                        var command = definition.commands[index]; if (!command || [9,20,68].includes(command.op)) continue;
+                        if (command.op === 14 || command.op === 66) {
+                            var hops = graphDistance(command.a[0] + ':' + command.a[1], goal.scriptId, this.scripts);
+                            if (hops < initialHops && (!choiceBoundary || hops < choiceBoundary.hops || hops === choiceBoundary.hops && stop.cost < choiceBoundary.cost)) choiceBoundary = Object.assign({}, stop, { hops: hops, boundary: true });
+                            continue;
+                        }
+                        if (command.op === 10) { pending.push(definition.byAddress.get(command.a[0])); continue; }
+                        if (command.op === 11) { pending.push(stop.state.flags[command.a[0]] ? definition.byAddress.get(command.a[1]) : index + 1); continue; }
+                        if (command.op === 31) pending.push(definition.byAddress.get(command.a[0]));
+                        if (command.op === 21) pending.push(definition.byAddress.get(command.a[2]));
+                        if ([57,63,65].includes(command.op)) pending.push(definition.byAddress.get(command.a[command.a.length - 1]));
+                        if ([58,67].includes(command.op)) command.a.slice(-2).forEach(function (at) { pending.push(definition.byAddress.get(at)); });
+                        pending.push(index + 1);
+                    }
+                }
+                if (choiceBoundary) return choiceBoundary;
+            }
             if (goal.mapType === 1) {
                 var storyExit = frontier.filter(function (stop) {
                     return stop.exit.kind === 'object' && this.scripts.get(stop.state.scriptId)?.outdoorEvents.has(stop.exit.event);
@@ -450,8 +481,8 @@
      */
     Engine.prototype.exitPlan = function (initial) {
         var map = this.maps.get(initial.mapId);
-        if (!map || map.type === 1) return { unavailable: true, reason: 'outside' };
-        var result = this.route(initial, { mapType: 1, allowBoundary: true });
+        if (!map || this.isOutdoor(map)) return { unavailable: true, reason: 'outside' };
+        var result = this.route(initial, this.data.outdoorMaps ? { outdoor: true, allowBoundary: true } : { mapType: 1, allowBoundary: true });
         if (!result.unavailable) return result;
         var task = this.nextGoal(initial);
         if (task.scriptId === initial.scriptId && task.event) {
@@ -495,18 +526,18 @@
         if (!seedMap) return { cards: [], links: [] };
         // 室内和迷宫单独展开；先从实际出口寻找可达室外，最多走 24 个连接场景。
         var pending = [seed], starts = new Set();
-        for (var i = 0; this.maps.get(seed.mapId).type !== 1 && i < pending.length && i < 24; i++) {
+        for (var i = 0; !this.isOutdoor(this.maps.get(seed.mapId)) && i < pending.length && i < 24; i++) {
             var candidate = pending[i], identity = candidate.scriptId + '/' + candidate.mapId;
             if (starts.has(identity)) continue; starts.add(identity);
             var flood = this.flood(candidate); if (!flood) continue;
             for (var exit of this.navigationExits(candidate, flood)) {
                 var result = this.simulate(candidate, exit.event);
                 if (!result.stable) continue;
-                if (this.maps.get(result.state.mapId)?.type === 1) { seed = result.state; break; }
+                if (this.isOutdoor(this.maps.get(result.state.mapId))) { seed = result.state; break; }
                 pending.push(result.state);
             }
         }
-        if (this.maps.get(seed.mapId).type !== 1) return { cards: [], links: [] };
+        if (!this.isOutdoor(this.maps.get(seed.mapId))) return { cards: [], links: [] };
         var key = function (s) { return s.scriptId + '/' + s.mapId + '/' + s.flags.slice(100, 114).map(Number).join('') + '/' + s.vars.slice(200).join(','); };
         var cards = [], links = [], known = new Map(), queue = [{ state: seed, x: 0, y: 0 }];
         var intersects = function (a, b) {
@@ -526,7 +557,7 @@
             for (var exit of this.navigationExits(state, flood)) {
                 var input = this.copy(state); input.x = exit.anchorX; input.y = exit.anchorY;
                 var result = this.simulate(input, exit.event), targetMap = this.maps.get(result.state.mapId);
-                if (!result.stable || !targetMap || targetMap.type !== 1 || key(result.state) === id) continue;
+                if (!result.stable || !targetMap || !this.isOutdoor(targetMap) || key(result.state) === id) continue;
                 var child = key(result.state), targetX = card.x + (exit.x - result.state.x) * 16, targetY = card.y + (exit.y - result.state.y) * 16;
                 links.push({ from: id, to: child, source: { x: exit.x, y: exit.y }, target: { x: result.state.x, y: result.state.y }, event: exit.event });
                 if (!known.has(child)) queue.push({ state: result.state, x: targetX, y: targetY });

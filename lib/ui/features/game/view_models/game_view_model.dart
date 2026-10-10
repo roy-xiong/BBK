@@ -464,6 +464,7 @@ class GameViewModel extends ChangeNotifier {
   Object? get error => _error;
 
   Future<void> initialize() async {
+    if (_disposed) return;
     _error = null;
     _isReady = false;
     _fmjGuideVisible = false;
@@ -479,6 +480,8 @@ class GameViewModel extends ChangeNotifier {
       });
     }
 
+    // 页面可能在存档恢复期间退出，避免继续建立旧会话的 WebView 和手柄监听。
+    if (_disposed) return;
     final controller = WebViewController();
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.setBackgroundColor(const Color(0xFF000000));
@@ -493,14 +496,17 @@ class GameViewModel extends ChangeNotifier {
     await controller.setNavigationDelegate(
       NavigationDelegate(
         onProgress: (progress) {
+          if (_disposed) return;
           _progress = progress;
           notifyListeners();
         },
         onPageFinished: (_) {
+          if (_disposed) return;
           _progress = 100;
           notifyListeners();
         },
         onWebResourceError: (resourceError) {
+          if (_disposed) return;
           if (resourceError.isForMainFrame ?? true) {
             _error = StateError(resourceError.description);
             notifyListeners();
@@ -513,6 +519,7 @@ class GameViewModel extends ChangeNotifier {
         },
       ),
     );
+    if (_disposed) return;
     _webViewController = controller;
     _controllerService.start(sendInput);
     notifyListeners();
@@ -704,7 +711,7 @@ class GameViewModel extends ChangeNotifier {
   Future<void> setFmjHighDefinition(bool enabled) async {
     _fmjHighDefinition = enabled;
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null) return;
+    if (!game.id.isRpg || !_isReady || controller == null) return;
     try {
       await controller.runJavaScript(
         'window.bbkSetHighDefinition && '
@@ -894,7 +901,7 @@ class GameViewModel extends ChangeNotifier {
   /// 切换不重建引擎、不开地图、不改存档；收到页面 ready 后会读取其保存的显示设置。
   Future<void> _syncFmjWideView({bool toggle = false}) async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+    if (!game.id.isRpg || !_isReady || controller == null || _disposed) {
       return;
     }
     try {
@@ -922,7 +929,7 @@ class GameViewModel extends ChangeNotifier {
   /// 切换伏魔记原生自动攻击。对白、战斗子菜单和原战斗状态机仍由网页引擎管理。
   Future<void> _syncFmjAutoBattle({bool toggle = false}) async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+    if (!game.id.isRpg || !_isReady || controller == null || _disposed) {
       return;
     }
     try {
@@ -950,7 +957,7 @@ class GameViewModel extends ChangeNotifier {
   /// 循环切换伏魔记自动跑路 1×/2×/3×/4×，读取网页实际值校准按钮。
   Future<void> _syncFmjRunSpeed({bool toggle = false}) async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+    if (!game.id.isRpg || !_isReady || controller == null || _disposed) {
       return;
     }
     try {
@@ -981,7 +988,7 @@ class GameViewModel extends ChangeNotifier {
   /// 读取详细关卡列表，同时暂停游戏，直到关闭列表或选择节点。
   Future<List<Map<String, dynamic>>> openFmjStages() async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+    if (!game.id.isRpg || !_isReady || controller == null || _disposed) {
       return const [];
     }
     try {
@@ -1040,7 +1047,7 @@ class GameViewModel extends ChangeNotifier {
   /// 引擎统一负责重复点击、剧情/战斗边界和最新目标校验。
   Future<void> _goToFmjNextGoal({bool exit = false}) async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+    if (!game.id.isRpg || !_isReady || controller == null || _disposed) {
       return;
     }
     try {
@@ -1066,7 +1073,7 @@ class GameViewModel extends ChangeNotifier {
   /// 不直接修改剧情标记。页面未就绪或销毁时返回，并用已有通知入口反馈失败。
   Future<void> openFmjGuide() async {
     final controller = _webViewController;
-    if (game.id != GameId.fmj || !_isReady || controller == null) return;
+    if (!game.id.isRpg || !_isReady || controller == null) return;
     try {
       final result = await controller.runJavaScriptReturningResult(
         'window.bbkOpenFmjGuide ? window.bbkOpenFmjGuide() : '
@@ -1101,7 +1108,7 @@ class GameViewModel extends ChangeNotifier {
 
   /// 读取伏魔记的灯洞进度、当前完整地图和玩家位置。
   Future<FmjExplorationState?> getExplorationState() async {
-    if (game.id != GameId.fmj) return null;
+    if (!game.id.isRpg) return null;
     final controller = _webViewController;
     if (!_isReady || controller == null) return null;
     try {
@@ -1135,12 +1142,22 @@ class GameViewModel extends ChangeNotifier {
   }
 
   void _onSaveMessage(JavaScriptMessage message) {
+    if (_disposed) return;
     try {
       final decoded = jsonDecode(message.message);
       if (decoded is! Map) return;
       final entries = _stringEntries(decoded['entries']);
       if (entries.isNotEmpty) {
-        unawaited(_saveRepository.updateEntries(game.id, entries));
+        unawaited(
+          _saveRepository.updateEntries(game.id, entries).catchError((
+            Object error,
+          ) {
+            if (!_disposed) {
+              _error = error;
+              notifyListeners();
+            }
+          }),
+        );
       }
     } on Object catch (error) {
       _error = error;

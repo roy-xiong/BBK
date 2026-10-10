@@ -8,7 +8,8 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 export const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 /** 创建独立的原游戏浏览器，测试时钟加速仅作用于这个临时 Chrome 会话。 */
-export async function createFmjBrowser({ accelerated=false }={}) {
+export async function createFmjBrowser({ accelerated=false, gameId='fmj' }={}) {
+  if(!['fmj','jyqxz'].includes(gameId))throw Error('未知 RPG 浏览器入口');
   const assets=path.join(root,'assets/games'),exceptions=[];
   const server=http.createServer((req,res)=>{
     const name=path.resolve(assets,'.'+decodeURIComponent(new URL(req.url,'http://localhost').pathname));
@@ -22,17 +23,18 @@ export async function createFmjBrowser({ accelerated=false }={}) {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const profile=fs.mkdtempSync('/tmp/fmj-flow-audit-');
   const chrome=spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',[
-    '--headless','--disable-gpu','--no-first-run','--disable-background-networking',
+    '--headless=new','--disable-gpu','--no-first-run','--disable-background-networking',
     '--disable-component-update','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'
-  ],{stdio:'ignore'});
+  ],{stdio:['ignore','ignore','pipe']});
+  let launchError='';chrome.stderr.on('data',chunk=>{launchError=(launchError+chunk).slice(-4000);});
   let socket;
   try {
     let port;
-    for(let i=0;i<100;i++){
+    for(let i=0;i<400;i++){
       try{port=fs.readFileSync(path.join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];break}catch{}
       await delay(50);
     }
-    if(!port)throw Error('Chrome 调试端口启动失败');
+    if(!port)throw Error('Chrome 调试端口启动失败：'+launchError);
     const pages=await(await fetch('http://127.0.0.1:'+port+'/json/list')).json();
     socket=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);
     await new Promise((resolve,reject)=>{socket.onopen=resolve;socket.onerror=reject});
@@ -66,10 +68,11 @@ export async function createFmjBrowser({ accelerated=false }={}) {
       window.setInterval=(callback,ms,...args)=>interval(callback,Math.max(4,ms/10),...args);
       let seed=98361;Math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
     })()`});
-    await cdp('Page.navigate',{url:'http://127.0.0.1:'+server.address().port+'/fmj/index.html?graphics=classic'});
+    const baseUrl='http://127.0.0.1:'+server.address().port;
+    await cdp('Page.navigate',{url:baseUrl+'/'+gameId+'/index.html?graphics=classic'});
     for(let i=0;i<100;i++){if(await evaluate('!!window.FmjGuide'))break;await delay(50)}
     await evaluate(`window.__fmjAuditNotices=window.__fmjAuditNotices||[];window.BbkSystemChannel={postMessage(message){try{window.__fmjAuditNotices.push(JSON.parse(message))}catch{window.__fmjAuditNotices.push(message)}}};`);
     if(accelerated)await evaluate('window.sysDrawScreen=function(){};');
-    return {evaluate,cdp,exceptions,profile,close(){socket.close();chrome.kill('SIGTERM');server.close()}};
+    return {evaluate,cdp,exceptions,profile,baseUrl,close(){socket.close();chrome.kill('SIGTERM');server.close()}};
   } catch(error){socket?.close();chrome.kill('SIGTERM');server.close();throw error}
 }

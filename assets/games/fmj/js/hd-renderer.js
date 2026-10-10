@@ -308,14 +308,16 @@
      * @param {ArrayLike<Object>} buffer 游戏输出颜色数组。
      * @param {number} width 逻辑帧宽度。
      * @param {number} height 逻辑帧高度。
+     * @param {boolean} forceClassic 当前帧是否使用首次提交的原像素显示，保留用户的高清设置。
      */
-    HdRenderer.prototype.draw = function (buffer, width, height) {
+    HdRenderer.prototype.draw = function (buffer, width, height, forceClassic) {
         this.ensureSize(width, height);
         var changed = this.copySourceFrame(buffer);
+        var useHighDefinition = highDefinitionEnabled && !forceClassic;
         // 2× 逻辑帧有四倍像素，静态场景不重复做边缘放大；画质切换仍强制刷新。
-        if (!changed && this.lastHighDefinitionEnabled === highDefinitionEnabled) return;
-        this.lastHighDefinitionEnabled = highDefinitionEnabled;
-        if (!highDefinitionEnabled) {
+        if (!changed && this.lastHighDefinitionEnabled === useHighDefinition) return;
+        this.lastHighDefinitionEnabled = useHighDefinition;
+        if (!useHighDefinition) {
             this.drawClassic();
             return;
         }
@@ -358,10 +360,11 @@
          * @param {ArrayLike<Object>} buffer 游戏输出颜色数组。
          * @param {number} width 逻辑帧宽度。
          * @param {number} height 逻辑帧高度。
+         * @param {boolean} forceClassic 是否只为本帧保留原始点阵，不改持久化设置。
          */
-        draw: function (canvas, buffer, width, height) {
+        draw: function (canvas, buffer, width, height, forceClassic) {
             if (!renderer || renderer.canvas !== canvas) renderer = new HdRenderer(canvas);
-            renderer.draw(buffer, width, height);
+            renderer.draw(buffer, width, height, forceClassic);
         }
     };
 

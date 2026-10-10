@@ -120,6 +120,7 @@
     global.bbkSetFmjRunSpeed = function(multiplier) {
         multiplier = Math.max(1, Math.min(4, Math.floor(Number(multiplier) || 1)));
         fmj.runSpeed = multiplier;
+        if (global.FmjPreferences) global.FmjPreferences.set('runSpeed', multiplier);
         return JSON.stringify({ok:true,multiplier:multiplier});
     };
     global.bbkCycleFmjRunSpeed = function() { return global.bbkSetFmjRunSpeed((fmj.runSpeed || 1) % 4 + 1); };
@@ -145,7 +146,12 @@
     global.sysDrawScreen = function(buffer, wid, hgt) {
         var canvas = document.getElementById('lcd');
         if (global.FmjHdRenderer) {
-            global.FmjHdRenderer.draw(canvas, buffer, wid, hgt);
+            // 剧情幕布使用初版的完整点阵帧，避免高清滤镜重画材质；结束即恢复选定画质。
+            var core = global['fmj.core'] && global['fmj.core'].fmj;
+            var process = core && core.game && core.game.mainScene && core.game.mainScene.scriptProcess;
+            var movie = process && process.running && process.curOp_0 && process.curOp_0.closure$movie;
+            var originalTransition = (!global.BbkRpgGameId || global.BbkRpgGameId === 'fmj') && movie && movie.type === 1 && movie.index === 3;
+            global.FmjHdRenderer.draw(canvas, buffer, wid, hgt, !!originalTransition);
             return;
         }
 
@@ -166,7 +172,7 @@
         console.log("Exit");
     };
 
-    global.fmj = {rom: {}};
+    global.fmj = {rom: {}, runSpeed: global.FmjPreferences ? global.FmjPreferences.get('runSpeed') : 1};
 })(this);
 
 

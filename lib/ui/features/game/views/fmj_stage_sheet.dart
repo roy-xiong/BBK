@@ -73,18 +73,20 @@ class _StageListState extends State<_StageList> {
           children: [
             const SizedBox(height: 12),
             Text(
-              '选择关卡 · ${widget.stages.length} 个故事节点',
+              '${widget.viewModel.game.title} · ${widget.stages.length} 个故事节点',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
-                '选择后切换当前进度，自动准备物品、队伍和装备；不覆盖已有存档。',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
+                widget.viewModel.game.id.name == 'jyqxz'
+                    ? '按节点和门派性别条件准备角色及物资。当前局另存备份，可恢复；不覆盖正常存档。'
+                    : '选择后切换当前进度，自动准备物品、队伍和装备；不覆盖已有存档。',
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),
             Padding(

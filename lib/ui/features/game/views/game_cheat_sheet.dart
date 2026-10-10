@@ -314,7 +314,7 @@ Future<void> showGameCheatSheet(
         icon: Icons.emoji_events,
       ),
     ],
-    GameId.fmj => const <_CheatOption>[
+    GameId.fmj || GameId.jyqxz => <_CheatOption>[
       _CheatOption(
         action: 'fmj_invincible',
         title: '切换我方无敌',
@@ -357,13 +357,17 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'fmj_level',
         title: '全队升至满级',
-        description: '等级、成长链法术同步提升到上限，并返回可用法术数量',
+        description: game.id == GameId.jyqxz
+            ? '等级提升到上限，并学会本主角所有可学武功'
+            : '等级、成长链法术同步提升到上限，并返回可用法术数量',
         icon: Icons.upgrade,
       ),
       _CheatOption(
         action: 'fmj_master_key',
-        title: '获得 99 把万能钥匙',
-        description: '增加 99 把万能钥匙，用于剧情锁箱和钥匙分支',
+        title: game.id == GameId.jyqxz ? '车票与材料补足 99 个' : '获得 99 把万能钥匙',
+        description: game.id == GameId.jyqxz
+            ? '补齐本游戏原版车票、银票与采集材料'
+            : '增加 99 把万能钥匙，用于剧情锁箱和钥匙分支',
         icon: Icons.vpn_key,
       ),
       _CheatOption(
@@ -372,6 +376,13 @@ Future<void> showGameCheatSheet(
         description: '仅在战斗过程中使用',
         icon: Icons.emoji_events,
       ),
+      if (game.id == GameId.jyqxz)
+        const _CheatOption(
+          action: 'jyqxz_all_goods',
+          title: '全部物品补足 99 个',
+          description: '装备、药物、材料和引路石，使用原版物品资源',
+          icon: Icons.inventory_2,
+        ),
       _CheatOption(
         action: 'fmj_random_battle',
         title: '切换随机战斗',
@@ -782,7 +793,7 @@ Future<void> showGameCheatSheet(
                       },
                     ),
                   ),
-                  if (game.id == GameId.fmj)
+                  if (game.id.isRpg)
                     _FmjCheatStatus(state: cheatState)
                   else
                     _SgbyCheatStatus(state: cheatState),

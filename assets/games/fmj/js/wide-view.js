@@ -8,7 +8,8 @@
     projected.bg_0 = nativeCanvas.bg_0;
     var enabled = true, camera = null, terrain = null, terrainKey = '', empty = new module.graphics.Color(28, 41, 40, 255);
     var tileCache = new Map();
-    try { enabled = global.localStorage.getItem('bbk/fmj_wide_view') !== 'false'; } catch (_) {}
+    var storageKey = 'bbk/' + (global.BbkRpgGameId || 'fmj') + '_wide_view';
+    try { enabled = global.FmjPreferences ? global.FmjPreferences.get('wideView') : global.localStorage.getItem(storageKey) !== 'false'; } catch (_) {}
 
     /**
      * 有边界和透明通道保护的像素绘制。
@@ -120,7 +121,10 @@
     };
     function apply(value, persist) {
         enabled = !!value; game.canvas_0 = enabled ? projected : originalCanvas;
-        if (persist) try { global.localStorage.setItem('bbk/fmj_wide_view', String(enabled)); } catch (_) {}
+        if (persist) try {
+            if (global.FmjPreferences) global.FmjPreferences.set('wideView', enabled);
+            else global.localStorage.setItem(storageKey, String(enabled));
+        } catch (_) {}
         return JSON.stringify({ ok: true, enabled: enabled, width: game.canvas_0.width, height: game.canvas_0.height });
     }
     apply(enabled, false);

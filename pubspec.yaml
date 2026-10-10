@@ -1,5 +1,5 @@
 name: bbk_classics
-description: "本地内置伏魔记与三国霸业的 Flutter 游戏应用。"
+description: "本地内置伏魔记、金庸群侠传与三国霸业的 Flutter 游戏应用。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -72,6 +72,9 @@ flutter:
     - assets/games/fmj/
     - assets/games/fmj/js/
     - assets/games/fmj/rom/
+    - assets/games/jyqxz/
+    - assets/games/jyqxz/js/
+    - assets/games/jyqxz/rom/
     - third_party/ibaye/
     - third_party/baye_alpha/
     - third_party/fmj/

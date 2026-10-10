@@ -2,7 +2,7 @@
     'use strict';
     var module = global['fmj.core'], core = module && module.fmj;
     if (!core || !core.game) return;
-    var enabled = false, timer = null;
+    var enabled = global.FmjPreferences ? global.FmjPreferences.get('autoBattle') : false, timer = null;
 
     /** 战斗对白、战斗事件和用户打开的子菜单都优先于自动攻击。 */
     function storyBusy(scene) {
@@ -24,9 +24,12 @@
         }
     }
 
-    function setEnabled(value) {
+    /** 恢复时不重写设置；用户切换时即时持久化，并只在开启期间保留检测定时器。 */
+    function setEnabled(value, persist) {
         enabled = !!value;
-        if (!timer) timer = global.setInterval(tick, 80);
+        if (persist !== false && global.FmjPreferences) global.FmjPreferences.set('autoBattle', enabled);
+        if (enabled && !timer) timer = global.setInterval(tick, 80);
+        if (!enabled && timer) { global.clearInterval(timer); timer = null; }
         return JSON.stringify({ ok: true, enabled: enabled });
     }
 
@@ -34,6 +37,8 @@
     global.bbkGetFmjAutoBattle = function () { return JSON.stringify({ enabled: enabled }); };
     global.addEventListener('pagehide', function () {
         if (timer) global.clearInterval(timer);
-        timer = null; enabled = false;
+        timer = null;
     });
+    global.addEventListener('pageshow', function () { setEnabled(enabled, false); });
+    setEnabled(enabled, false);
 })(window);

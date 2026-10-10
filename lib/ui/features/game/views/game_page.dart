@@ -318,9 +318,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                 builder: (context, constraints) {
                   final usePortraitLayout =
                       constraints.maxHeight >= constraints.maxWidth;
-                  final toolbarWidth = widget.game.id == GameId.fmj
-                      ? 352.0
-                      : 264.0;
+                  final toolbarWidth = widget.game.id.isRpg ? 352.0 : 264.0;
                   final savedToolbarPosition =
                       settings.toolbarPositions[widget.game.id];
                   final guideVisible = _viewModel.fmjGuideVisible;
@@ -370,7 +368,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                             hapticsEnabled: settings.hapticsEnabled,
                             showSgbyUtilityButtons:
                                 widget.game.id == GameId.sgby,
-                            showFmjUtilityButtons: widget.game.id == GameId.fmj,
+                            showFmjUtilityButtons: widget.game.id.isRpg,
                             fmjWideViewEnabled: _viewModel.fmjWideViewEnabled,
                             fmjAutoBattleEnabled:
                                 _viewModel.fmjAutoBattleEnabled,
@@ -391,7 +389,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                         GameControlsOverlay(
                           hapticsEnabled: settings.hapticsEnabled,
                           showSgbyUtilityButtons: widget.game.id == GameId.sgby,
-                          showFmjUtilityButtons: widget.game.id == GameId.fmj,
+                          showFmjUtilityButtons: widget.game.id.isRpg,
                           fmjWideViewEnabled: _viewModel.fmjWideViewEnabled,
                           fmjAutoBattleEnabled: _viewModel.fmjAutoBattleEnabled,
                           fmjRunSpeed: _viewModel.fmjRunSpeed,
@@ -428,7 +426,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 game: widget.game,
                                 viewModel: _viewModel,
                               ),
-                              onMap: widget.game.id == GameId.fmj
+                              onMap: widget.game.id.isRpg
                                   ? () => unawaited(_viewModel.openFmjGuide())
                                   : null,
                               onOrientationChanged: () =>
@@ -437,8 +435,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 setState(() => _darkControls = !_darkControls);
                               },
                               highDefinitionEnabled: settings.fmjHighDefinition,
-                              onHighDefinitionChanged:
-                                  widget.game.id == GameId.fmj
+                              onHighDefinitionChanged: widget.game.id.isRpg
                                   ? () => widget.settingsViewModel
                                         .setFmjHighDefinition(
                                           !settings.fmjHighDefinition,
@@ -448,7 +445,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 context,
                                 viewModel: widget.settingsViewModel,
                                 showEdition: false,
-                                showFmjGraphics: widget.game.id == GameId.fmj,
+                                showFmjGraphics: widget.game.id.isRpg,
                                 showSgbyActivity: widget.game.id == GameId.sgby,
                               ),
                             ),

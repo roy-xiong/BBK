@@ -44,7 +44,7 @@ Future<void> showGameSettingsSheet(
                     if (showFmjGraphics)
                       SwitchListTile(
                         secondary: const Icon(Icons.hd),
-                        title: const Text('伏魔记高清画质'),
+                        title: const Text('角色扮演游戏高清画质'),
                         value: settings.fmjHighDefinition,
                         onChanged: viewModel.setFmjHighDefinition,
                       ),

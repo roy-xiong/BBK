@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>伏魔记</title>
-  <link rel="stylesheet" href="guide.css">
-  <link rel="stylesheet" href="choice.css">
+  <title>金庸群侠传</title>
+  <link rel="stylesheet" href="../fmj/guide.css">
+  <link rel="stylesheet" href="../fmj/choice.css">
   <style>
     html, body {
       width: 100%; height: 100%; margin: 0; overflow: hidden;
@@ -17,32 +17,17 @@
       image-rendering: pixelated; background: #d8d8cf;
     }
   </style>
-  <script>
-    (function restoreFlutterBackup() {
-      try {
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/__state__/fmj', false);
-        xhr.send(null);
-        if (xhr.status === 200) {
-          var state = JSON.parse(xhr.responseText);
-          Object.keys(state.entries || {}).forEach(function (key) {
-            window.localStorage.setItem(key, state.entries[key]);
-          });
-        }
-      } catch (_) {
-        // WebView 自身的 localStorage 仍可继续使用。
-      }
-    })();
-  </script>
-  <script src="js/preferences.js"></script>
-  <script src="js/jquery.min.js"></script>
-  <script src="js/encoding-indexes.js"></script>
-  <script src="js/encoding.js"></script>
-  <script src="js/hd-renderer.js"></script>
-  <script src="js/sys.js"></script>
-  <script src="js/kotlin.js"></script>
-  <script src="js/keyboard.js"></script>
-  <script src="js/font.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="../fmj/js/preferences.js"></script>
+  <script src="../fmj/js/jquery.min.js"></script>
+  <script src="../fmj/js/encoding-indexes.js"></script>
+  <script src="../fmj/js/encoding.js"></script>
+  <script src="../fmj/js/hd-renderer.js"></script>
+  <script src="../fmj/js/sys.js"></script>
+  <script>JyqxzStorage.install();</script>
+  <script src="../fmj/js/kotlin.js"></script>
+  <script src="../fmj/js/keyboard.js"></script>
+  <script src="../fmj/js/font.js"></script>
   <script src="rom/rom.js"></script>
 </head>
 <body>
@@ -61,7 +46,7 @@
       var randomBattleRestored = false;
 
       /**
-       * 切换伏魔记显示画质。
+       * 切换金庸群侠传显示画质。
        *
        * 该操作只替换最终帧的绘制方式，不改变游戏逻辑坐标、输入、作弊或存档数据。
        *
@@ -91,7 +76,7 @@
       };
 
       /**
-       * 打开伏魔记原生存档档位界面。
+       * 打开金庸群侠传原生存档档位界面。
        *
        * 快捷按钮只负责进入原有存档流程，不自动覆盖任何档位。引擎自身仍负责档位选择、
        * 覆盖确认以及剧情、战斗等不可存档状态的限制。
@@ -193,13 +178,15 @@
                 player.speed = speedBackup.get(player); speedBackup.delete(player);
               }
             });
-            return originalSort.call(this);
+            // 先手只作用于本轮排序，立即恢复人物实际身法，避免把临时数值写入存档。
+            try { return originalSort.call(this); }
+            finally { this.mPlayerList_0.toArray().forEach(function (player) { if (speedBackup.has(player)) { player.speed = speedBackup.get(player); speedBackup.delete(player); } }); }
           };
           window.bbkCheatState.speedPatchInstalled = true;
         }
         if (window.bbkCheatState.monitorStarted) return;
         window.bbkCheatState.monitorStarted = true;
-        window.setInterval(function () {
+        var cheatTimer = window.setInterval(function () {
           try {
             if (!window.bbkCheatState.invincible && !window.bbkCheatState.oneHitKill) return;
             var players = core.game.playerList.toArray();
@@ -221,29 +208,10 @@
             // 场景切换时列表可能短暂不可用，下一轮继续检查。
           }
         }, 20);
+        window.addEventListener("pagehide", function () { window.clearInterval(cheatTimer); });
       }
 
-      var originalStorageSet = window.sysStorageSet;
-      window.sysStorageSet = function (path, value) {
-        var result = originalStorageSet(path, value);
-        if (path.indexOf('sav/') === 0 && window.BbkSaveChannel) {
-          var entries = {};
-          entries[path] = value || '';
-          window.BbkSaveChannel.postMessage(JSON.stringify({entries: entries}));
-        }
-        return result;
-      };
-
-      window.bbkExportState = function () {
-        var entries = {};
-        for (var index = 0; index < window.localStorage.length; index++) {
-          var key = window.localStorage.key(index);
-          if (key && key.indexOf('sav/') === 0) {
-            entries[key] = window.localStorage.getItem(key) || '';
-          }
-        }
-        return JSON.stringify(Object.assign(entries, window.FmjPreferences.export()));
-      };
+      window.bbkExportState = function () { return JSON.stringify(Object.assign(JyqxzStorage.export(), FmjPreferences.export())); };
 
       window.bbkSendInput = function (action) {
         var keyMap = {
@@ -323,14 +291,27 @@
             players.forEach(function (player) {
               player.levelUp_za3lpa$(player.levelupChain.maxLevel);
               if (player.magicChain) player.magicChain.learnNum = player.magicChain.magicSum_0;
+              // 金庸没有 FMJ 成长法术链，原武学通过剧情学习。仅补本主角可学资源并去重。
+              var known = new Set(player.getAllMagics().toArray().map(function (magic) { return magic.type + ':' + magic.index; }));
+              window.FmjGuideData.skills.filter(function (skill) { return skill.actors.includes(player.index); }).forEach(function (skill) {
+                if (known.has(skill.id)) return;
+                var key = skill.id.split(':').map(Number), magic = core.lib.DatLib.Companion.getRes_2et8c9$(core.lib.DatLib.ResType.MRS, key[0], key[1], true);
+                if (magic) player.learnMagic_3fncnk$(magic);
+              });
               player.currentExp = 0;
             });
             var magicCount = players.reduce(function (count, player) { return count + player.getAllMagics().size; }, 0);
-            return result(true, '全队已提升至等级和成长链法术上限，共可用法术 ' + magicCount + ' 个');
+            return result(true, '全队已满级并学会本主角全部可学武功，共 ' + magicCount + ' 个');
           }
           if (action === 'fmj_master_key') {
-            core.characters.Player.Companion.sGoodsList.addGoods_qt1dr2$(14, 2, 99);
-            return result(true, '已获得万能钥匙 99 把');
+            var bag = core.characters.Player.Companion.sGoodsList;
+            for (var index = 1; index <= 41; index++) bag.addGoods_qt1dr2$(14, index, Math.max(0, 99 - bag.getGoodsNum_vux9f0$(14, index)));
+            return result(true, '车票、银票和采集材料已补足 99 个');
+          }
+          if (action === 'jyqxz_all_goods') {
+            var bag = core.characters.Player.Companion.sGoodsList;
+            window.FmjGuideData.goods.forEach(function (item) { var key = item.id.split(':').map(Number); bag.addGoods_qt1dr2$(key[0], key[1], Math.max(0, 99 - bag.getGoodsNum_vux9f0$(key[0], key[1]))); });
+            return result(true, '本 ROM 的全部装备、药物和材料已补足 99 个');
           }
           if (action === 'fmj_force_win') {
             var fight = core.combat.Combat.Companion, instance = fight.sInstance_0;
@@ -380,7 +361,7 @@
         try {
           var core = window['fmj.core'] && window['fmj.core'].fmj;
           var lamps = [];
-          for (var eventId = 11; eventId <= 18; eventId++) {
+          for (var eventId = 1001; eventId <= 1009; eventId++) {
             lamps.push(!!core.script.ScriptResources.globalEvents[eventId]);
           }
           var scene = core.game && core.game.mainScene;
@@ -435,22 +416,23 @@
       };
     })();
   </script>
-  <script src="js/fmj.core.js"></script>
-  <script src="js/wide-view.js"></script>
-  <script src="js/wide-ui.js"></script>
-  <script src="js/fmj-auto-battle.js"></script>
-  <script src="js/choice-ui.js"></script>
+  <script src="../fmj/js/fmj.core.js"></script>
+  <script src="js/compatibility.js"></script>
+  <script src="../fmj/js/wide-view.js"></script>
+  <script src="../fmj/js/wide-ui.js"></script>
+  <script src="../fmj/js/fmj-auto-battle.js"></script>
+  <script src="../fmj/js/choice-ui.js"></script>
   <script src="js/guide-data.js"></script>
-  <script src="js/guide-engine.js"></script>
-  <script src="js/quest-engine.js"></script>
-  <script src="js/guide-ui.js"></script>
-  <script src="js/stage-data.js"></script>
+  <script src="../fmj/js/guide-engine.js"></script>
+  <script src="js/quests.js"></script>
+  <script src="../fmj/js/guide-ui.js"></script>
+
   <script src="js/stages.js"></script>
   <script>
-    // 在 ready 之前恢复实际作弊钩子和随机战斗设置，原生按钮直接读取恢复后的值。
     window.bbkGetCheatState();
     window.FmjPreferences.flush();
     document.body.dataset.gameReady = 'true';
+    window.addEventListener('pagehide', function () { sysSetGameLoopPaused(true); });
     if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('ready');
   </script>
 </body>
