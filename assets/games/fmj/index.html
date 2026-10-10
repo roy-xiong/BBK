@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <title>伏魔记</title>
+  <link rel="stylesheet" href="guide.css">
+  <link rel="stylesheet" href="choice.css">
   <style>
     html, body {
       width: 100%; height: 100%; margin: 0; overflow: hidden;
@@ -50,7 +52,9 @@
         invincible: false,
         oneHitKill: false,
         normalAttackAll: false,
+        firstAttack: false,
         attackPatchInstalled: false,
+        speedPatchInstalled: false,
         monitorStarted: false
       };
 
@@ -171,6 +175,25 @@
             return originalHasAtbuff.call(this, mask);
           };
           window.bbkCheatState.attackPatchInstalled = true;
+        }
+        if (!window.bbkCheatState.speedPatchInstalled) {
+          var speedBackup = new WeakMap();
+          var combatPrototype = core.combat.Combat.prototype;
+          var originalSort = combatPrototype.sortActionQueue_0;
+          combatPrototype.sortActionQueue_0 = function () {
+            var active = window.bbkCheatState.invincible || window.bbkCheatState.oneHitKill || window.bbkCheatState.normalAttackAll;
+            window.bbkCheatState.firstAttack = active;
+            this.mPlayerList_0.toArray().forEach(function (player) {
+              if (active) {
+                if (!speedBackup.has(player)) speedBackup.set(player, player.speed);
+                player.speed = Math.max(player.speed, 100000);
+              } else if (speedBackup.has(player)) {
+                player.speed = speedBackup.get(player); speedBackup.delete(player);
+              }
+            });
+            return originalSort.call(this);
+          };
+          window.bbkCheatState.speedPatchInstalled = true;
         }
         if (window.bbkCheatState.monitorStarted) return;
         window.bbkCheatState.monitorStarted = true;
@@ -293,13 +316,22 @@
           if (action === 'fmj_level') {
             players.forEach(function (player) {
               player.levelUp_za3lpa$(player.levelupChain.maxLevel);
+              if (player.magicChain) player.magicChain.learnNum = player.magicChain.magicSum_0;
               player.currentExp = 0;
             });
-            return result(true, '全队已提升至各自等级上限');
+            var magicCount = players.reduce(function (count, player) { return count + player.getAllMagics().size; }, 0);
+            return result(true, '全队已提升至等级和成长链法术上限，共可用法术 ' + magicCount + ' 个');
+          }
+          if (action === 'fmj_master_key') {
+            core.characters.Player.Companion.sGoodsList.addGoods_qt1dr2$(14, 2, 99);
+            return result(true, '已获得万能钥匙 99 把');
           }
           if (action === 'fmj_force_win') {
-            core.combat.Combat.Companion.ForceWin();
-            return result(true, '已提交当前战斗胜利指令');
+            var fight = core.combat.Combat.Companion, instance = fight.sInstance_0;
+            if (!fight.IsActive() || !instance) return result(false, '当前没有进行中的战斗');
+            instance.mMonsterList_0.toArray().forEach(function (monster) { monster.hp = 0; });
+            if (instance.mCombatState_0.name === 'SelectAction' && !instance.mIsAutoAttack_0) instance.onAutoAttack();
+            return result(true, '已提交当前战斗胜利，按原流程结算');
           }
           if (action === 'fmj_random_battle') {
             var combat = core.combat.Combat.Companion;
@@ -325,6 +357,7 @@
           invincible: !!window.bbkCheatState.invincible,
           oneHitKill: !!window.bbkCheatState.oneHitKill,
           normalAttackAll: !!window.bbkCheatState.normalAttackAll,
+          firstAttack: !!window.bbkCheatState.firstAttack,
           randomBattleDisabled: randomBattleDisabled
         });
       };
@@ -389,6 +422,16 @@
     })();
   </script>
   <script src="js/fmj.core.js"></script>
+  <script src="js/wide-view.js"></script>
+  <script src="js/wide-ui.js"></script>
+  <script src="js/fmj-auto-battle.js"></script>
+  <script src="js/choice-ui.js"></script>
+  <script src="js/guide-data.js"></script>
+  <script src="js/guide-engine.js"></script>
+  <script src="js/quest-engine.js"></script>
+  <script src="js/guide-ui.js"></script>
+  <script src="js/stage-data.js"></script>
+  <script src="js/stages.js"></script>
   <script>
     document.body.dataset.gameReady = 'true';
     if (window.BbkSystemChannel) window.BbkSystemChannel.postMessage('ready');

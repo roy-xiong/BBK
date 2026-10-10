@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../app.dart';
+import '../../../../data/services/game_screen_awake_service.dart';
 import '../../../../domain/models/game_definition.dart';
 import '../../settings/view_models/settings_view_model.dart';
 import '../../settings/views/game_settings_sheet.dart';
@@ -15,8 +17,8 @@ import 'game_cheat_sheet.dart';
 import 'game_controls_overlay.dart';
 import 'game_enemy_city_sheet.dart';
 import 'game_general_roster_sheet.dart';
-import 'game_map_sheet.dart';
 import 'game_search_history_sheet.dart';
+import 'fmj_stage_sheet.dart';
 
 /// 游戏承载页面。
 class GamePage extends StatefulWidget {
@@ -45,6 +47,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   bool _enemyCitySheetVisible = false;
   bool _searchHistorySheetVisible = false;
   bool _generalRosterSheetVisible = false;
+  bool _stageSheetVisible = false;
   bool _darkControls = true;
   late bool _lastFmjHighDefinition;
   late int _lastSgbyWorldActivity;
@@ -55,6 +58,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(GameScreenAwakeService.setEnabled(true));
     _viewModel = GameViewModel(
       game: widget.game,
       initialSettings: widget.settingsViewModel.settings,
@@ -75,6 +79,9 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(GameScreenAwakeService.setEnabled(true));
+    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -84,6 +91,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(GameScreenAwakeService.setEnabled(false));
     widget.settingsViewModel.removeListener(_onSettingsChanged);
     WidgetsBinding.instance.removeObserver(this);
     _viewModel.dispose();
@@ -166,6 +174,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// Android 系统返回键、工具栏返回按钮和游戏引擎主动退出都会进入这里。状态位防止
   /// 快速重复点击叠加多个 Dialog；取消或系统返回关闭 Dialog 后继续保留游戏现场。
   Future<void> _requestLeaveGame() async {
+    if (_viewModel.fmjGuideVisible) {
+      await _viewModel.closeFmjGuide();
+      return;
+    }
     if (_leaving || _leaveConfirmationVisible || !mounted) return;
     _leaveConfirmationVisible = true;
     bool confirmed = false;
@@ -257,6 +269,10 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
   /// 分发屏幕按钮输入。
   void _sendGameInput(GameInput input) {
     if (!_viewModel.isReady) return;
+    if (input == GameInput.selectFmjStage) {
+      unawaited(_showFmjStages());
+      return;
+    }
     if (input == GameInput.searchHistory) {
       unawaited(_showSearchHistory());
       return;
@@ -266,6 +282,17 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
       return;
     }
     _viewModel.sendInput(input);
+  }
+
+  Future<void> _showFmjStages() async {
+    if (!mounted || _stageSheetVisible) return;
+    _stageSheetVisible = true;
+    try {
+      final result = await showFmjStageSheet(context, _viewModel);
+      if (mounted && result != null) _showGameNotice(result);
+    } finally {
+      _stageSheetVisible = false;
+    }
   }
 
   @override
@@ -296,79 +323,137 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                       : 264.0;
                   final savedToolbarPosition =
                       settings.toolbarPositions[widget.game.id];
+                  final guideVisible = _viewModel.fmjGuideVisible;
+                  final gameHeight = math.min(
+                    constraints.maxWidth * 3 / 5,
+                    constraints.maxHeight * 0.48,
+                  );
+                  final gameWidth = math.min(
+                    constraints.maxWidth,
+                    gameHeight * 5 / 3,
+                  );
+                  final fullSurface = guideVisible || !usePortraitLayout;
                   return Stack(
                     fit: StackFit.expand,
                     children: [
-                      if (usePortraitLayout)
-                        _buildPortraitLayout(
-                          constraints: constraints,
-                          gameSurface: gameSurface,
-                          controlsVisible: settings.controlsVisible,
-                          darkControls: _darkControls,
-                          hapticsEnabled: settings.hapticsEnabled,
-                        )
-                      else
-                        _buildLandscapeLayout(
-                          gameSurface: gameSurface,
-                          controlsVisible: settings.controlsVisible,
-                          hapticsEnabled: settings.hapticsEnabled,
+                      ColoredBox(
+                        color: _darkControls
+                            ? const Color(0xFF1B1E22)
+                            : const Color(0xFFD8D5CD),
+                      ),
+                      // WebView 始终位于同一个 Stack/Positioned 节点，仅改变矩形大小。
+                      // 使用 GlobalKey 把平台视图从竖屏 Column 移到布局根节点，会使
+                      // Android 触摸命中链与重挂载的平台视图失配：网页显示正常，却
+                      // 收不到 pointer/touch/click。保持父节点稳定同时保留引擎与存档。
+                      Positioned(
+                        key: const ValueKey<String>('game-surface-layout'),
+                        left: fullSurface
+                            ? 0
+                            : (constraints.maxWidth - gameWidth) / 2,
+                        top: 0,
+                        width: fullSurface ? constraints.maxWidth : gameWidth,
+                        height: fullSurface
+                            ? constraints.maxHeight
+                            : gameHeight,
+                        child: gameSurface,
+                      ),
+                      if (!guideVisible &&
+                          usePortraitLayout &&
+                          settings.controlsVisible)
+                        Positioned(
+                          top: gameHeight,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: PortraitGameControlsPanel(
+                            isDarkTheme: _darkControls,
+                            hapticsEnabled: settings.hapticsEnabled,
+                            showSgbyUtilityButtons:
+                                widget.game.id == GameId.sgby,
+                            showFmjUtilityButtons: widget.game.id == GameId.fmj,
+                            fmjWideViewEnabled: _viewModel.fmjWideViewEnabled,
+                            fmjAutoBattleEnabled:
+                                _viewModel.fmjAutoBattleEnabled,
+                            fmjRunSpeed: _viewModel.fmjRunSpeed,
+                            battleSpeedMultiplier:
+                                _viewModel.sgbyBattleSpeedMultiplier,
+                            sgbyAutoBattleEnabled:
+                                _viewModel.sgbyAutoBattleEnabled,
+                            sgbyAutoEndTurnEnabled:
+                                _viewModel.sgbyAutoEndTurnEnabled,
+                            onInput: _sendGameInput,
+                          ),
                         ),
-                      Positioned.fill(
-                        child: _DraggableToolbar(
-                          toolbarSize: Size(toolbarWidth, _toolbarHeight),
-                          initialRelativeOffset: savedToolbarPosition == null
-                              ? null
-                              : Offset(
-                                  savedToolbarPosition.xRatio,
-                                  savedToolbarPosition.yRatio,
-                                ),
-                          onDragFinished: (relativeOffset) {
-                            widget.settingsViewModel.setGameToolbarPosition(
-                              widget.game.id,
-                              relativeOffset,
-                            );
-                          },
-                          child: _GameToolbar(
-                            portraitRequested: _portraitRequested,
-                            onBack: () => unawaited(_requestLeaveGame()),
-                            onSave: () => unawaited(_openSaveMenu()),
-                            onCheat: () => showGameCheatSheet(
-                              context,
-                              game: widget.game,
-                              viewModel: _viewModel,
-                            ),
-                            onMap: widget.game.id == GameId.fmj
-                                ? () => showGameMapSheet(
-                                    context,
-                                    viewModel: _viewModel,
-                                    worldMapRepository: widget
-                                        .dependencies
-                                        .fmjWorldMapRepository,
-                                  )
-                                : null,
-                            onOrientationChanged: () =>
-                                unawaited(_toggleOrientation()),
-                            onThemeChanged: () {
-                              setState(() => _darkControls = !_darkControls);
+                      if (!guideVisible &&
+                          !usePortraitLayout &&
+                          _viewModel.isReady &&
+                          settings.controlsVisible)
+                        GameControlsOverlay(
+                          hapticsEnabled: settings.hapticsEnabled,
+                          showSgbyUtilityButtons: widget.game.id == GameId.sgby,
+                          showFmjUtilityButtons: widget.game.id == GameId.fmj,
+                          fmjWideViewEnabled: _viewModel.fmjWideViewEnabled,
+                          fmjAutoBattleEnabled: _viewModel.fmjAutoBattleEnabled,
+                          fmjRunSpeed: _viewModel.fmjRunSpeed,
+                          battleSpeedMultiplier:
+                              _viewModel.sgbyBattleSpeedMultiplier,
+                          sgbyAutoBattleEnabled:
+                              _viewModel.sgbyAutoBattleEnabled,
+                          sgbyAutoEndTurnEnabled:
+                              _viewModel.sgbyAutoEndTurnEnabled,
+                          onInput: _sendGameInput,
+                        ),
+                      if (!guideVisible)
+                        Positioned.fill(
+                          child: _DraggableToolbar(
+                            toolbarSize: Size(toolbarWidth, _toolbarHeight),
+                            initialRelativeOffset: savedToolbarPosition == null
+                                ? null
+                                : Offset(
+                                    savedToolbarPosition.xRatio,
+                                    savedToolbarPosition.yRatio,
+                                  ),
+                            onDragFinished: (relativeOffset) {
+                              widget.settingsViewModel.setGameToolbarPosition(
+                                widget.game.id,
+                                relativeOffset,
+                              );
                             },
-                            highDefinitionEnabled: settings.fmjHighDefinition,
-                            onHighDefinitionChanged:
-                                widget.game.id == GameId.fmj
-                                ? () => widget.settingsViewModel
-                                      .setFmjHighDefinition(
-                                        !settings.fmjHighDefinition,
-                                      )
-                                : null,
-                            onSettings: () => showGameSettingsSheet(
-                              context,
-                              viewModel: widget.settingsViewModel,
-                              showEdition: false,
-                              showFmjGraphics: widget.game.id == GameId.fmj,
-                              showSgbyActivity: widget.game.id == GameId.sgby,
+                            child: _GameToolbar(
+                              portraitRequested: _portraitRequested,
+                              onBack: () => unawaited(_requestLeaveGame()),
+                              onSave: () => unawaited(_openSaveMenu()),
+                              onCheat: () => showGameCheatSheet(
+                                context,
+                                game: widget.game,
+                                viewModel: _viewModel,
+                              ),
+                              onMap: widget.game.id == GameId.fmj
+                                  ? () => unawaited(_viewModel.openFmjGuide())
+                                  : null,
+                              onOrientationChanged: () =>
+                                  unawaited(_toggleOrientation()),
+                              onThemeChanged: () {
+                                setState(() => _darkControls = !_darkControls);
+                              },
+                              highDefinitionEnabled: settings.fmjHighDefinition,
+                              onHighDefinitionChanged:
+                                  widget.game.id == GameId.fmj
+                                  ? () => widget.settingsViewModel
+                                        .setFmjHighDefinition(
+                                          !settings.fmjHighDefinition,
+                                        )
+                                  : null,
+                              onSettings: () => showGameSettingsSheet(
+                                context,
+                                viewModel: widget.settingsViewModel,
+                                showEdition: false,
+                                showFmjGraphics: widget.game.id == GameId.fmj,
+                                showSgbyActivity: widget.game.id == GameId.sgby,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                     ],
                   );
                 },
@@ -390,6 +475,12 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             WebViewWidget(
               key: const ValueKey<String>('game-web-view'),
               controller: controller,
+              // 地图面板内的按钮、滚动列表和双指缩放由 WebView 自己处理。
+              // 原生控制区和工具栏位于 Stack 上层，仍优先命中它们自己的手势；
+              // 点击落在 WebView 内时立即交给平台视图，避免默认空集合延迟竞争。
+              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
+              },
             ),
           if (_viewModel.error != null)
             _GameErrorView(
@@ -400,77 +491,6 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
             _LoadingView(progress: _viewModel.progress),
         ],
       ),
-    );
-  }
-
-  Widget _buildPortraitLayout({
-    required BoxConstraints constraints,
-    required Widget gameSurface,
-    required bool controlsVisible,
-    required bool darkControls,
-    required bool hapticsEnabled,
-  }) {
-    final gameHeight = math.min(
-      constraints.maxWidth * 3 / 5,
-      constraints.maxHeight * 0.48,
-    );
-    final gameWidth = math.min(constraints.maxWidth, gameHeight * 5 / 3);
-    return ColoredBox(
-      color: darkControls ? const Color(0xFF1B1E22) : const Color(0xFFD8D5CD),
-      child: Column(
-        children: [
-          SizedBox(
-            width: constraints.maxWidth,
-            height: gameHeight,
-            child: Center(
-              child: SizedBox(
-                width: gameWidth,
-                height: gameHeight,
-                child: gameSurface,
-              ),
-            ),
-          ),
-          Expanded(
-            child: controlsVisible
-                ? PortraitGameControlsPanel(
-                    isDarkTheme: darkControls,
-                    hapticsEnabled: hapticsEnabled,
-                    showSgbyUtilityButtons: widget.game.id == GameId.sgby,
-                    battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
-                    sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
-                    sgbyAutoEndTurnEnabled: _viewModel.sgbyAutoEndTurnEnabled,
-                    onInput: _sendGameInput,
-                  )
-                : ColoredBox(
-                    color: darkControls
-                        ? const Color(0xFF1B1E22)
-                        : const Color(0xFFD8D5CD),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLandscapeLayout({
-    required Widget gameSurface,
-    required bool controlsVisible,
-    required bool hapticsEnabled,
-  }) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        gameSurface,
-        if (_viewModel.isReady && controlsVisible)
-          GameControlsOverlay(
-            hapticsEnabled: hapticsEnabled,
-            showSgbyUtilityButtons: widget.game.id == GameId.sgby,
-            battleSpeedMultiplier: _viewModel.sgbyBattleSpeedMultiplier,
-            sgbyAutoBattleEnabled: _viewModel.sgbyAutoBattleEnabled,
-            sgbyAutoEndTurnEnabled: _viewModel.sgbyAutoEndTurnEnabled,
-            onInput: _sendGameInput,
-          ),
-      ],
     );
   }
 }
@@ -670,7 +690,7 @@ class _GameToolbar extends StatelessWidget {
           ),
           if (onMap != null)
             iconButton(
-              tooltip: '探索地图',
+              tooltip: '剧情帮助与地图',
               onPressed: onMap!,
               icon: const Icon(Icons.map),
             ),

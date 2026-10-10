@@ -41,7 +41,7 @@
     /**
      * 边缘感知的三倍渲染器。
      *
-     * 游戏仍然以 160×96 的逻辑画布运行，本类只处理最终显示帧。内部缓存
+     * 接收原视野 160×96 或远视野 320×192 的逻辑画布，本类只处理最终显示帧。内部缓存
      * ImageData、颜色表和离屏画布，避免 25 FPS 刷新过程中持续分配大数组。
      *
      * @param {HTMLCanvasElement} canvas 页面显示画布。
@@ -60,6 +60,7 @@
         this.sourceWidth = 0;
         this.sourceHeight = 0;
         this.scale = DEFAULT_SCALE;
+        this.lastHighDefinitionEnabled = null;
 
         var endianProbe = new Uint8Array([1, 2, 3, 4]);
         this.littleEndian = new Uint32Array(endianProbe.buffer)[0] === 0x04030201;
@@ -103,6 +104,7 @@
     HdRenderer.prototype.copySourceFrame = function (buffer) {
         var bytes = this.sourceImage.data;
         var keys = this.sourceKeys;
+        var changed = false;
         for (var index = 0; index < keys.length; index += 1) {
             var color = buffer[index];
             var byteIndex = index * 4;
@@ -111,8 +113,11 @@
             bytes[byteIndex + 1] = color ? color.g : 0;
             bytes[byteIndex + 2] = color ? color.b : 0;
             bytes[byteIndex + 3] = alpha;
-            keys[index] = colorKey(color);
+            var key = colorKey(color);
+            if (keys[index] !== key) changed = true;
+            keys[index] = key;
         }
+        return changed;
     };
 
     /**
@@ -306,7 +311,10 @@
      */
     HdRenderer.prototype.draw = function (buffer, width, height) {
         this.ensureSize(width, height);
-        this.copySourceFrame(buffer);
+        var changed = this.copySourceFrame(buffer);
+        // 2× 逻辑帧有四倍像素，静态场景不重复做边缘放大；画质切换仍强制刷新。
+        if (!changed && this.lastHighDefinitionEnabled === highDefinitionEnabled) return;
+        this.lastHighDefinitionEnabled = highDefinitionEnabled;
         if (!highDefinitionEnabled) {
             this.drawClassic();
             return;

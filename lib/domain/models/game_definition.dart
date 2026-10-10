@@ -40,6 +40,12 @@ enum GameInput {
   autoBattle,
   autoEndTurn,
   quickExpedition,
+  quickTravel,
+  mazeExit,
+  toggleWideView,
+  toggleFmjAutoBattle,
+  cycleFmjRunSpeed,
+  selectFmjStage,
   toggleBattleSpeed,
   searchHistory,
   generalRoster;

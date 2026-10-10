@@ -357,8 +357,14 @@ Future<void> showGameCheatSheet(
       _CheatOption(
         action: 'fmj_level',
         title: '全队升至满级',
-        description: '按照各角色成长链提升到自身等级上限',
+        description: '等级、成长链法术同步提升到上限，并返回可用法术数量',
         icon: Icons.upgrade,
+      ),
+      _CheatOption(
+        action: 'fmj_master_key',
+        title: '获得 99 把万能钥匙',
+        description: '增加 99 把万能钥匙，用于剧情锁箱和钥匙分支',
+        icon: Icons.vpn_key,
       ),
       _CheatOption(
         action: 'fmj_force_win',

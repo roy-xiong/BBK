@@ -1,0 +1,8 @@
+#fmj-choice-layer { position:fixed; top:6px; left:8px; right:8px; z-index:3000; display:flex; justify-content:center; pointer-events:none; }
+#fmj-choice-layer .choice-dialog { max-width:520px; padding:5px 10px; border:1px solid #547266; border-radius:6px; background:rgba(16,29,34,.94); color:#e7f0e9; font:12px/1.45 system-ui,sans-serif; }
+#fmj-choice-layer h2 { margin:0 0 8px; font-size:17px; }
+#fmj-choice-layer .choice-context { margin:0; color:#c7dbd2; }
+#fmj-choice-layer .choice-options { display:grid; gap:8px; }
+#fmj-choice-layer button { min-height:40px; width:100%; padding:9px 12px; border:1px solid #39534e; border-radius:9px; background:#192b30; color:#e5efe8; text-align:left; font:inherit; cursor:pointer; touch-action:manipulation; }
+#fmj-choice-layer button.active,#fmj-choice-layer button:focus-visible { border-color:#8bd7b3; background:#24443e; outline:1px solid #8bd7b3; }
+#fmj-choice-layer .choice-cancel { margin-top:10px; color:#afc4bb; text-align:center; background:transparent; }

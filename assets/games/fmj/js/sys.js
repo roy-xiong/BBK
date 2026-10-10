@@ -108,10 +108,38 @@
     };
 
     global.sysSetInterval = function(interval, callback) {
-        fmj.updateInterval = setInterval(function(){
+        fmj.updateIntervalPeriod = interval;
+        fmj.updateCallback = function(){
             call(callback);
-        }, interval);
+        };
+        fmj.updateInterval = setInterval(fmj.updateCallback, interval);
         return fmj.updateInterval;
+    };
+
+    /** 设置自动跑路倍速；原帧循环、对白和战斗时间保持原速度。 */
+    global.bbkSetFmjRunSpeed = function(multiplier) {
+        multiplier = Math.max(1, Math.min(4, Math.floor(Number(multiplier) || 1)));
+        fmj.runSpeed = multiplier;
+        return JSON.stringify({ok:true,multiplier:multiplier});
+    };
+    global.bbkCycleFmjRunSpeed = function() { return global.bbkSetFmjRunSpeed((fmj.runSpeed || 1) % 4 + 1); };
+    global.bbkGetFmjRunSpeed = function() { return JSON.stringify({multiplier:fmj.runSpeed || 1}); };
+
+    /**
+     * 暂停或恢复整个游戏帧循环，用于全屏帮助面板。
+     *
+     * 暂停同时停止逻辑、原始画面和高清放大，避免地图覆盖游戏时仍消耗 25 FPS。
+     * 保留原回调及固定的 40ms 步长，恢复时不补算暂停时长，也不重建游戏或修改存档。
+     *
+     * @param {boolean} paused 是否暂停。
+     */
+    global.sysSetGameLoopPaused = function(paused) {
+        if (paused) {
+            clearInterval(fmj.updateInterval);
+            fmj.updateInterval = null;
+        } else if (fmj.updateInterval == null && fmj.updateCallback) {
+            fmj.updateInterval = setInterval(fmj.updateCallback, fmj.updateIntervalPeriod);
+        }
     };
 
     global.sysDrawScreen = function(buffer, wid, hgt) {

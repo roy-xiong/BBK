@@ -439,6 +439,11 @@ class GameViewModel extends ChangeNotifier {
   WebViewController? _webViewController;
   int _progress = 0;
   bool _isReady = false;
+  bool _fmjGuideVisible = false;
+  bool _fmjWideViewEnabled = true;
+  bool _fmjAutoBattleEnabled = false;
+  int _fmjRunSpeed = 1;
+  bool _disposed = false;
   bool _fmjHighDefinition;
   int _sgbyWorldActivity;
   int _sgbyBattleSpeedMultiplier = 2;
@@ -449,6 +454,10 @@ class GameViewModel extends ChangeNotifier {
   WebViewController? get webViewController => _webViewController;
   int get progress => _progress;
   bool get isReady => _isReady;
+  bool get fmjGuideVisible => _fmjGuideVisible;
+  bool get fmjWideViewEnabled => _fmjWideViewEnabled;
+  bool get fmjAutoBattleEnabled => _fmjAutoBattleEnabled;
+  int get fmjRunSpeed => _fmjRunSpeed;
   int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
   bool get sgbyAutoBattleEnabled => _sgbyAutoBattleEnabled;
   bool get sgbyAutoEndTurnEnabled => _sgbyAutoEndTurnEnabled;
@@ -457,6 +466,7 @@ class GameViewModel extends ChangeNotifier {
   Future<void> initialize() async {
     _error = null;
     _isReady = false;
+    _fmjGuideVisible = false;
     _progress = 0;
     notifyListeners();
 
@@ -517,6 +527,7 @@ class GameViewModel extends ChangeNotifier {
     }
     _error = null;
     _isReady = false;
+    _fmjGuideVisible = false;
     notifyListeners();
     await controller.reload();
   }
@@ -524,6 +535,26 @@ class GameViewModel extends ChangeNotifier {
   void sendInput(GameInput input) {
     final controller = _webViewController;
     if (!_isReady || controller == null) return;
+    if (input == GameInput.toggleWideView) {
+      unawaited(_syncFmjWideView(toggle: true));
+      return;
+    }
+    if (input == GameInput.toggleFmjAutoBattle) {
+      unawaited(_syncFmjAutoBattle(toggle: true));
+      return;
+    }
+    if (input == GameInput.cycleFmjRunSpeed) {
+      unawaited(_syncFmjRunSpeed(toggle: true));
+      return;
+    }
+    if (input == GameInput.quickTravel) {
+      unawaited(_goToFmjNextGoal());
+      return;
+    }
+    if (input == GameInput.mazeExit) {
+      unawaited(_goToFmjNextGoal(exit: true));
+      return;
+    }
     if (input == GameInput.autoBattle) {
       unawaited(_toggleSgbyAutoBattle());
       return;
@@ -858,6 +889,216 @@ class GameViewModel extends ChangeNotifier {
     return const <String, bool>{};
   }
 
+  /// 读取或切换伏魔记逻辑视野，使用网页实际持久化状态校准按钮。
+  ///
+  /// 切换不重建引擎、不开地图、不改存档；收到页面 ready 后会读取其保存的显示设置。
+  Future<void> _syncFmjWideView({bool toggle = false}) async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+      return;
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        toggle
+            ? 'window.bbkToggleWideView ? window.bbkToggleWideView() : "{}";'
+            : 'window.bbkGetWideViewState ? window.bbkGetWideViewState() : "{}";',
+      );
+      if (_disposed) return;
+      final decoded = _decodeJavaScriptResult(result);
+      final value = decoded is Map ? decoded['enabled'] : null;
+      if (value is bool && value != _fmjWideViewEnabled) {
+        _fmjWideViewEnabled = value;
+        notifyListeners();
+      }
+    } on Object {
+      if (!_disposed && toggle) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '切换视野失败，请重试'),
+        );
+      }
+    }
+  }
+
+  /// 切换伏魔记原生自动攻击。对白、战斗子菜单和原战斗状态机仍由网页引擎管理。
+  Future<void> _syncFmjAutoBattle({bool toggle = false}) async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+      return;
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        toggle
+            ? 'window.bbkSetFmjAutoBattle ? window.bbkSetFmjAutoBattle(!${_fmjAutoBattleEnabled ? 'true' : 'false'}) : "{}";'
+            : 'window.bbkGetFmjAutoBattle ? window.bbkGetFmjAutoBattle() : "{}";',
+      );
+      if (_disposed) return;
+      final decoded = _decodeJavaScriptResult(result);
+      final value = decoded is Map ? decoded['enabled'] : null;
+      if (value is bool && value != _fmjAutoBattleEnabled) {
+        _fmjAutoBattleEnabled = value;
+        notifyListeners();
+      }
+    } on Object {
+      if (!_disposed && toggle) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '自动战斗切换失败，请重试'),
+        );
+      }
+    }
+  }
+
+  /// 循环切换伏魔记自动跑路 1×/2×/3×/4×，读取网页实际值校准按钮。
+  Future<void> _syncFmjRunSpeed({bool toggle = false}) async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+      return;
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        toggle
+            ? 'window.bbkCycleFmjRunSpeed ? window.bbkCycleFmjRunSpeed() : "{}";'
+            : 'window.bbkGetFmjRunSpeed ? window.bbkGetFmjRunSpeed() : "{}";',
+      );
+      if (_disposed || controller != _webViewController) return;
+      final decoded = _decodeJavaScriptResult(result);
+      final value = decoded is Map ? decoded['multiplier'] : null;
+      if (value is num &&
+          value >= 1 &&
+          value <= 4 &&
+          value.toInt() != _fmjRunSpeed) {
+        _fmjRunSpeed = value.toInt();
+        notifyListeners();
+      }
+    } on Object {
+      if (!_disposed && toggle) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '倍速切换失败，请重试'),
+        );
+      }
+    }
+  }
+
+  /// 读取详细关卡列表，同时暂停游戏，直到关闭列表或选择节点。
+  Future<List<Map<String, dynamic>>> openFmjStages() async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+      return const [];
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkOpenFmjStages ? window.bbkOpenFmjStages() : "{}";',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      final stages = decoded is Map ? decoded['stages'] : null;
+      return stages is List
+          ? stages
+                .whereType<Map>()
+                .map((s) => Map<String, dynamic>.from(s))
+                .toList(growable: false)
+          : const [];
+    } on Object {
+      return const [];
+    }
+  }
+
+  /// 关闭关卡列表后恢复原游戏循环。
+  Future<void> closeFmjStages() async {
+    final controller = _webViewController;
+    if (controller == null || _disposed) return;
+    try {
+      await controller.runJavaScript('window.bbkCloseFmjStages?.();');
+    } on Object {
+      /* 页面销毁时无需恢复旧循环。 */
+    }
+  }
+
+  /// 选关只传递已知节点编号，前置准备在原引擎内执行。
+  Future<CheatResult> selectFmjStage(String id) async {
+    final controller = _webViewController;
+    if (controller == null || !_isReady || _disposed) {
+      return const CheatResult(isSuccess: false, message: '游戏尚未就绪');
+    }
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkSelectFmjStage ? window.bbkSelectFmjStage(${jsonEncode(id)}) : "{}";',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      return CheatResult(
+        isSuccess: decoded is Map && decoded['ok'] == true,
+        message: decoded is Map && decoded['message'] is String
+            ? decoded['message'] as String
+            : '选关失败',
+      );
+    } on Object {
+      return const CheatResult(isSuccess: false, message: '选关失败，请重试');
+    }
+  }
+
+  /// 从游戏控制区直接前往当前故事目标。
+  ///
+  /// 异步路线由原网页执行，最终结果通过既有系统通道回传。该调用不展开地图，
+  /// 引擎统一负责重复点击、剧情/战斗边界和最新目标校验。
+  Future<void> _goToFmjNextGoal({bool exit = false}) async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null || _disposed) {
+      return;
+    }
+    try {
+      await controller.runJavaScript(
+        exit
+            ? 'if (window.bbkGoToFmjExit) { window.bbkGoToFmjExit(); } '
+                  'else { throw new Error("出口导航尚未加载"); }'
+            : 'if (window.bbkGoToFmjNextGoal) { window.bbkGoToFmjNextGoal(); } '
+                  'else { throw new Error("一键前往模块尚未加载"); }',
+      );
+    } on Object {
+      if (!_disposed) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '暂时无法前往，请重试'),
+        );
+      }
+    }
+  }
+
+  /// 打开与原游戏共享状态的剧情帮助及等比例地图面板。
+  ///
+  /// 面板在当前 WebView 中读取原存档事件和真实碰撞信息；传送使用原游戏出入口，
+  /// 不直接修改剧情标记。页面未就绪或销毁时返回，并用已有通知入口反馈失败。
+  Future<void> openFmjGuide() async {
+    final controller = _webViewController;
+    if (game.id != GameId.fmj || !_isReady || controller == null) return;
+    try {
+      final result = await controller.runJavaScriptReturningResult(
+        'window.bbkOpenFmjGuide ? window.bbkOpenFmjGuide() : '
+        'JSON.stringify({ok:false});',
+      );
+      final decoded = _decodeJavaScriptResult(result);
+      if (decoded is! Map || decoded['ok'] != true) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '帮助面板尚未就绪，请重试'),
+        );
+      }
+    } on Object {
+      _onNoticeRequested(
+        const CheatResult(isSuccess: false, message: '打开帮助面板失败，请重试'),
+      );
+    }
+  }
+
+  /// 关闭帮助面板；原 WebView 控制器和存档保持在同一个会话中。
+  Future<void> closeFmjGuide() async {
+    final controller = _webViewController;
+    if (controller == null || _disposed) return;
+    try {
+      await controller.runJavaScript('window.FmjGuide?.close();');
+    } on Object {
+      // 页面销毁或刷新期间仍允许原生布局退出面板状态。
+    }
+    if (_disposed) return;
+    _fmjGuideVisible = false;
+    notifyListeners();
+  }
+
   /// 读取伏魔记的灯洞进度、当前完整地图和玩家位置。
   Future<FmjExplorationState?> getExplorationState() async {
     if (game.id != GameId.fmj) return null;
@@ -908,6 +1149,7 @@ class GameViewModel extends ChangeNotifier {
   }
 
   void _onSystemMessage(JavaScriptMessage message) {
+    if (_disposed) return;
     if (message.message == 'ready') {
       _isReady = true;
       _error = null;
@@ -915,6 +1157,9 @@ class GameViewModel extends ChangeNotifier {
       unawaited(setFmjHighDefinition(_fmjHighDefinition));
       unawaited(setSgbyWorldActivity(_sgbyWorldActivity));
       unawaited(_restoreSgbyControlState());
+      unawaited(_syncFmjWideView());
+      unawaited(_syncFmjAutoBattle());
+      unawaited(_syncFmjRunSpeed());
     } else if (message.message == 'exit') {
       _onExitRequested();
     } else {
@@ -923,11 +1168,18 @@ class GameViewModel extends ChangeNotifier {
         if (decoded is! Map) return;
         final type = decoded['type'];
         final data = decoded['data'];
-        if (type == 'sgby_enemy_city' && data is Map) {
+        if (type == 'fmj_guide_visibility' && data is Map) {
+          final visible = data['visible'];
+          if (visible is bool && visible != _fmjGuideVisible) {
+            _fmjGuideVisible = visible;
+            notifyListeners();
+          }
+        } else if (type == 'sgby_enemy_city' && data is Map) {
           _onEnemyCityRequested(
             SgbyEnemyCityInfo.fromJson(Map<String, dynamic>.from(data)),
           );
-        } else if (type == 'sgby_notice' && data is Map) {
+        } else if ((type == 'sgby_notice' || type == 'fmj_notice') &&
+            data is Map) {
           _onNoticeRequested(
             CheatResult(
               isSuccess: data['ok'] == true,
@@ -1007,6 +1259,7 @@ class GameViewModel extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     unawaited(_controllerService.dispose());
     super.dispose();
   }

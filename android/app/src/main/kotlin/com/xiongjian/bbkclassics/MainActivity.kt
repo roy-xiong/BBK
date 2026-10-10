@@ -3,9 +3,12 @@ package com.xiongjian.bbkclassics
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.WindowManager
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodChannel
 import kotlin.math.abs
 
 /**
@@ -16,10 +19,33 @@ import kotlin.math.abs
  */
 class MainActivity : FlutterActivity() {
     private var gamepadEventSink: EventChannel.EventSink? = null
+    private var windowMethodChannel: MethodChannel? = null
+    private var keepScreenOnRequested = false
+    private var activityResumed = false
     private val lastEmissionTime = mutableMapOf<String, Long>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        windowMethodChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            WINDOW_METHOD_CHANNEL,
+        ).also { channel ->
+            // Flutter 平台通道在 Android 主线程分发，窗口标志也只在主线程修改。
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "setKeepScreenOn") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val enabled = call.argument<Boolean>("enabled")
+                if (enabled == null) {
+                    result.error("invalid_argument", "enabled 必须为布尔值", null)
+                    return@setMethodCallHandler
+                }
+                keepScreenOnRequested = enabled
+                applyKeepScreenOn()
+                result.success(null)
+            }
+        }
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             GAMEPAD_EVENT_CHANNEL,
@@ -67,7 +93,46 @@ class MainActivity : FlutterActivity() {
         return handled || super.dispatchGenericMotionEvent(event)
     }
 
+    /**
+     * 游戏页面仍在栈中时恢复常亮，防止后台返回后沿用普通页面的熄屏状态。
+     */
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        applyKeepScreenOn()
+    }
+
+    /**
+     * 后台和系统遮挡期间释放窗口常亮；保留页面请求，返回前台时重新应用。
+     */
+    override fun onPause() {
+        activityResumed = false
+        applyKeepScreenOn()
+        super.onPause()
+    }
+
+    /**
+     * 按游戏页面请求及 Activity 可见状态设置窗口标志。
+     *
+     * 不持有 WakeLock，不改系统设置；窗口为空或已经销毁时忽略，避免生命周期崩溃。
+     */
+    private fun applyKeepScreenOn() {
+        val activityWindow = window ?: return
+        val enabled = keepScreenOnRequested && activityResumed && !isFinishing && !isDestroyed
+        if (enabled) {
+            activityWindow.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activityWindow.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        Log.d("BbkWindow", "keepScreenOn=$enabled requested=$keepScreenOnRequested")
+    }
+
     override fun onDestroy() {
+        keepScreenOnRequested = false
+        activityResumed = false
+        applyKeepScreenOn()
+        windowMethodChannel?.setMethodCallHandler(null)
+        windowMethodChannel = null
         gamepadEventSink = null
         lastEmissionTime.clear()
         super.onDestroy()
@@ -135,6 +200,7 @@ class MainActivity : FlutterActivity() {
 
     private companion object {
         const val GAMEPAD_EVENT_CHANNEL = "com.xiongjian.bbkclassics/gamepad_events"
+        const val WINDOW_METHOD_CHANNEL = "com.xiongjian.bbkclassics/window"
         const val AXIS_DEAD_ZONE = 0.18f
         const val AXIS_TRIGGER = 0.55f
         const val REPEAT_INTERVAL_MILLIS = 110L

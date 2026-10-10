@@ -12,6 +12,10 @@ class GameControlsOverlay extends StatelessWidget {
     required this.hapticsEnabled,
     required this.onInput,
     this.showSgbyUtilityButtons = false,
+    this.showFmjUtilityButtons = false,
+    this.fmjWideViewEnabled = true,
+    this.fmjAutoBattleEnabled = false,
+    this.fmjRunSpeed = 1,
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
@@ -20,6 +24,10 @@ class GameControlsOverlay extends StatelessWidget {
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
+  final bool showFmjUtilityButtons;
+  final bool fmjWideViewEnabled;
+  final bool fmjAutoBattleEnabled;
+  final int fmjRunSpeed;
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
@@ -56,6 +64,18 @@ class GameControlsOverlay extends StatelessWidget {
                   onInput: onInput,
                 ),
               ),
+            if (showFmjUtilityButtons)
+              Positioned(
+                right: 18,
+                bottom: buttonSize * 2.5 + gap * 2,
+                child: _FmjUtilityButtons(
+                  hapticsEnabled: hapticsEnabled,
+                  wideViewEnabled: fmjWideViewEnabled,
+                  autoBattleEnabled: fmjAutoBattleEnabled,
+                  runSpeed: fmjRunSpeed,
+                  onInput: onInput,
+                ),
+              ),
             Positioned(
               right: 18,
               bottom: 18,
@@ -84,6 +104,10 @@ class PortraitGameControlsPanel extends StatelessWidget {
     required this.hapticsEnabled,
     required this.onInput,
     this.showSgbyUtilityButtons = false,
+    this.showFmjUtilityButtons = false,
+    this.fmjWideViewEnabled = true,
+    this.fmjAutoBattleEnabled = false,
+    this.fmjRunSpeed = 1,
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
@@ -93,6 +117,10 @@ class PortraitGameControlsPanel extends StatelessWidget {
   final bool hapticsEnabled;
   final ValueChanged<GameInput> onInput;
   final bool showSgbyUtilityButtons;
+  final bool showFmjUtilityButtons;
+  final bool fmjWideViewEnabled;
+  final bool fmjAutoBattleEnabled;
+  final int fmjRunSpeed;
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
@@ -122,10 +150,21 @@ class PortraitGameControlsPanel extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Transform.translate(
-                          offset: const Offset(0, -24),
+                          // 两行功能区不向父容器外平移，保证绘制与触摸边界一致。
+                          offset: Offset(0, showFmjUtilityButtons ? 0 : -24),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if (showFmjUtilityButtons) ...[
+                                _FmjUtilityButtons(
+                                  hapticsEnabled: hapticsEnabled,
+                                  wideViewEnabled: fmjWideViewEnabled,
+                                  autoBattleEnabled: fmjAutoBattleEnabled,
+                                  runSpeed: fmjRunSpeed,
+                                  onInput: onInput,
+                                ),
+                                const SizedBox(height: 14),
+                              ],
                               if (showSgbyUtilityButtons) ...[
                                 _SgbyUtilityButtons(
                                   isDarkTheme: isDarkTheme,
@@ -172,6 +211,100 @@ class PortraitGameControlsPanel extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// 伏魔记控制区的一键前往入口。
+///
+/// 横竖屏使用同一个输入动作，由引擎按最新剧情状态决定目标；不打开地图子面板，
+/// 不缓存目标，避免读档或对话完成后继续使用旧节点。
+class _FmjUtilityButtons extends StatelessWidget {
+  const _FmjUtilityButtons({
+    required this.hapticsEnabled,
+    required this.wideViewEnabled,
+    required this.autoBattleEnabled,
+    required this.runSpeed,
+    required this.onInput,
+  });
+
+  final bool hapticsEnabled;
+  final bool wideViewEnabled;
+  final bool autoBattleEnabled;
+  final int runSpeed;
+  final ValueChanged<GameInput> onInput;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(
+      String label,
+      String text,
+      GameInput action, {
+      double width = 88,
+      bool active = false,
+    }) {
+      return Tooltip(
+        message: label,
+        child: _NesInputButton(
+          width: width,
+          height: 40,
+          color: active ? const Color(0xFF23594E) : const Color(0xFF354D6A),
+          pressedColor: const Color(0xFF163C35),
+          borderRadius: BorderRadius.circular(7),
+          hapticsEnabled: hapticsEnabled,
+          label: label,
+          onPressed: () => onInput(action),
+          child: Text(
+            text,
+            style: const TextStyle(color: Color(0xFFF0EEE8), fontSize: 12),
+          ),
+        ),
+      );
+    }
+
+    // 两行布局保证竖屏不把所有功能缩到难以点击，横屏沿用同一输入入口。
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              button(
+                '一键前往当前目标',
+                '一键前往当前目标',
+                GameInput.quickTravel,
+                width: 180,
+                active: true,
+              ),
+              const SizedBox(width: 8),
+              button('选择关卡', '选择关卡', GameInput.selectFmjStage, width: 88),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              button('切换自动跑路倍速', '奔跑 $runSpeed×', GameInput.cycleFmjRunSpeed),
+              const SizedBox(width: 8),
+              button(
+                autoBattleEnabled ? '关闭自动战斗' : '开启自动战斗',
+                autoBattleEnabled ? '自动战斗 开' : '自动战斗 关',
+                GameInput.toggleFmjAutoBattle,
+                active: autoBattleEnabled,
+              ),
+              const SizedBox(width: 8),
+              button(
+                wideViewEnabled ? '切换原视野' : '切换远视野',
+                wideViewEnabled ? '远视野 2×' : '原视野 1×',
+                GameInput.toggleWideView,
+                active: wideViewEnabled,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
