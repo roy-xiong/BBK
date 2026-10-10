@@ -1,0 +1,10 @@
+Use case: style-transfer
+Asset type: 16:9 game-library cover, final asset for the Flutter app.
+Input image 1: style and composition reference, the existing 金庸群侠传 game cover. Create a new matching cover for another game in the same collection.
+Primary request: a 伏魔记 cover that matches the reference's typography, lighting, color palette, material finish, and layout as closely as possible.
+Scene/backdrop: the same near-black and deep midnight-blue background, distant dark mountain silhouettes, luminous cool full moon toward the upper right, subtle black vignette.
+Subject: an antique Chinese Taoist straight sword with an aged brass hilt and a small bronze oil lamp arranged on a weathered parchment scroll. Keep the still-life scale, realistic metal and parchment textures, and restrained dramatic lighting consistent with the reference.
+Typography: enormous Chinese brush-calligraphy across the upper area, the same bold flowing strokes, vivid dark-red face, deep-crimson bevel and extruded shadow as the reference. Match the handwriting character, stroke weight, relief depth, baseline and margins. Three characters centered with balanced spacing; retain the reference's title height and visual prominence.
+Text (verbatim): "伏魔记". Characters exactly: 伏 / 魔 / 记. No other words or letters.
+Composition: wide horizontal 16:9 banner, title above and parchment with game-related objects below, matching the reference's composition and empty black margins.
+Constraints: same cover family as the input, accurate simplified Chinese characters, clean legibility as a mobile thumbnail, no characters or faces, no extra text, no watermark, no decorative border, no screenshot, no pixel art, no UI. Preserve the reference image file; produce only the new cover.

@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict';
 import { createFmjBrowser, delay } from './fmj_browser_session.mjs';
 
-/** 通过实际网页重载核查按钮的持久化值，以及发送给 Flutter 文件备份的键值。 */
-const browser = await createFmjBrowser({ accelerated: true });
+/**
+ * 通过实际网页重载核查两款 RPG 按钮的持久化值、恢复后的效果与 Flutter 备份桥。
+ * 默认检查伏魔记；--game=jyqxz 检查金庸的独立存储键和启动恢复流程。
+ */
+const gameId = process.argv.includes('--game=jyqxz') ? 'jyqxz' : 'fmj';
+const stageId = gameId === 'jyqxz' ? 'scene-2:1' : 'stage-034';
+const storageKey = 'bbk/' + gameId + '_controls';
+const browser = await createFmjBrowser({ accelerated: true, gameId });
 try {
   await browser.evaluate(`(() => {
     window.__preferenceWrites = [];
     window.BbkSaveChannel = { postMessage: value => window.__preferenceWrites.push(JSON.parse(value)) };
-    bbkSelectFmjStage('stage-034');
+    bbkSelectFmjStage(${JSON.stringify(stageId)});
   })()`);
   await delay(100);
   await browser.evaluate(`(() => {
@@ -32,11 +38,11 @@ try {
     randomBattleDisabled: true, runSpeed: 3, autoBattle: true, wideView: false, storyScope: 'main',
   };
   const exported = JSON.parse(await browser.evaluate('bbkExportState()'));
-  assert.ok(exported['bbk/fmj_controls'], '按钮设置必须导出到 Flutter 文件备份，端口改变也能恢复');
-  const saved = JSON.parse(exported['bbk/fmj_controls']);
+  assert.ok(exported[storageKey], '按钮设置必须导出到 Flutter 文件备份，端口改变也能恢复');
+  const saved = JSON.parse(exported[storageKey]);
   for (const [key, value] of Object.entries(expected)) assert.equal(saved[key], value, key + ' 必须保存实际值');
   const writes = await browser.evaluate('window.__preferenceWrites');
-  assert.ok(writes.some(write => write.entries['bbk/fmj_controls'] === exported['bbk/fmj_controls']), '最后一次按钮变更必须实时发送到 Flutter');
+  assert.ok(writes.some(write => write.entries[storageKey] === exported[storageKey]), '最后一次按钮变更必须实时发送到 Flutter');
 
   async function reload() {
     await browser.evaluate('window.__preferencesOldPage = true');
@@ -66,7 +72,7 @@ try {
   await reload();
   await assertRestored();
   // 从存储恢复的值必须驱动真实作弊和自动攻击，不能只恢复显示标签。
-  await browser.evaluate("bbkSelectFmjStage('stage-034')");
+  await browser.evaluate(`bbkSelectFmjStage(${JSON.stringify(stageId)})`);
   await delay(100);
   await browser.evaluate(`(() => {
     sysSetGameLoopPaused(true);
@@ -100,7 +106,7 @@ try {
   const restoreScript = await browser.cdp('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
     const nativeOpen = XMLHttpRequest.prototype.open, nativeSend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.open = function (method, url) {
-      this.__preferenceBackup = url === '/__state__/fmj';
+      this.__preferenceBackup = url === '/__state__/${gameId}';
       return nativeOpen.apply(this, arguments);
     };
     XMLHttpRequest.prototype.send = function () {
@@ -114,7 +120,7 @@ try {
   await assertRestored();
   await browser.cdp('Page.removeScriptToEvaluateOnNewDocument', { identifier: restoreScript.identifier });
   // 保存关闭状态并再次重载，防止恢复时只处理开启而忽略用户关闭。
-  await browser.evaluate("bbkSelectFmjStage('stage-034')");
+  await browser.evaluate(`bbkSelectFmjStage(${JSON.stringify(stageId)})`);
   await delay(100);
   await browser.evaluate(`(() => {
     bbkApplyCheat('fmj_invincible'); bbkApplyCheat('fmj_one_hit_kill');
@@ -125,7 +131,7 @@ try {
   await reload();
   await assertRestored();
   assert.deepEqual(browser.exceptions, []);
-  console.log('按钮持久化通过：作弊、随机战斗、奔跑倍速、自动战斗、视野，开启/关闭重载恢复、Flutter 实时备份及存储清理后的镜像还原。');
+  console.log(gameId + ' 按钮持久化通过：作弊、随机战斗、奔跑倍速、自动战斗、视野，开启/关闭重载恢复、Flutter 实时备份及存储清理后的镜像还原。');
 } finally {
   browser.close();
 }
