@@ -1,0 +1,67 @@
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-unsigned.yml'
+      - 'ios/**'
+      - 'lib/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'tool/package_ios_unsigned.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      PUB_HOSTED_URL: https://pub.dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Flutter SDK
+        run: |
+          git clone --depth 1 --branch 3.44.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Prepare iOS dependencies
+        run: |
+          flutter --version
+          xcodebuild -version
+          flutter precache --ios
+          flutter pub get
+      - name: Validate Flutter code
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+      - name: Build unsigned device app
+        run: |
+          mkdir -p build/ios-logs
+          flutter build ios --release --no-codesign --build-number="$GITHUB_RUN_NUMBER" 2>&1 | tee build/ios-logs/build.log
+      - name: Package unsigned IPA
+        run: bash tool/package_ios_unsigned.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-ios-unsigned
+          path: |
+            build/ipa/bbk-unsigned.ipa
+            build/ipa/bbk-unsigned.ipa.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnostics
+          path: build/ios-logs/
+          if-no-files-found: ignore
+          retention-days: 7
