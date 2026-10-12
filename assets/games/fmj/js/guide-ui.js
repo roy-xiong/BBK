@@ -458,6 +458,44 @@
         sendTravelInput(actionForDirection(movement));
     }
 
+    /**
+     * 到达任务人物、机关或道路剧情格后，只执行一次原确认/方向输入。
+     *
+     * 使用最新位置和原事件入口复核目标，避免行人移动、转场或玩家中断后
+     * 误触其他事件。阻路人物也沿原交互处理，不清除碰撞或改写剧情旗标。
+     * 对话、商店、分支和战斗启动后由玩家继续操作，不发送后续确认。
+     * @param {Object} plan 当前道路计划，可能先停在必须处理的阻挡者旁。
+     * @param {Object} target 当前任务定义。
+     * @param {number} token 本次导航编号，用于拒绝已取消的操作。
+     * @return {boolean} 是否已执行一次真实剧情交互。
+     */
+    function activateTaskArrival(plan, target, token) {
+        if (token !== travelToken || open) throw new Error('已停止前往');
+        var current = readState();
+        if (!current || current.busy) return false;
+        var event = plan.blockedAt || target.event;
+        if (plan.preparation && !event) event = engine.nextGoal(current).event;
+        if (!event) return false;
+        if (current.scriptId !== plan.state.scriptId || current.mapId !== plan.state.mapId ||
+            !plan.blockedAt && !plan.preparation && target.scriptId && current.scriptId !== target.scriptId) {
+            throw new Error('剧情目标已变化，请重新前往');
+        }
+        var script = engine.scripts.get(current.scriptId), flood = engine.flood(current);
+        if (!script || !script.events[event - 1] || !flood) throw new Error('当前位置没有可触发的目标事件');
+        var point = engine.approaches(current, flood, event).find(function (entry) {
+            return entry.x === current.x && entry.y === current.y;
+        });
+        if (!point) throw new Error('目标位置已变化，请重新前往');
+        // 原版部分出口格同时放着机关 NPC。原方向输入先检查道路事件、再判断
+        // 能否移动，不能仅凭 NPC 占格拒绝合法事件；碰撞和放行条件仍由原引擎判断。
+        activateExit({
+            kind: event <= 40 ? 'object' : 'road_event', event: event,
+            anchorX: current.x, anchorY: current.y,
+            x: point.eventX, y: point.eventY, direction: point.direction
+        });
+        return true;
+    }
+
     /** 等待原出口脚本达到稳定场景，剧情/战斗边界保持玩家可操作。 */
     async function waitForExit(token, step) {
         for (var wait = 0; wait < 50; wait++) {
@@ -581,10 +619,9 @@
                         core().characters.Direction.South, core().characters.Direction.West
                     ][plan.arrival.direction]);
                 }
-                // 四象阵的四根阵柱是原 NPC 事件。站到柱前后直接执行一次
-                // 正常确认，仍由原脚本处理精魄消耗、对白和后续分支。
-                if (!isJyqxz && destination.currentTask && destination.scriptId === '2:32' && [1, 3, 5, 7].includes(destination.event)) {
-                    core().game.mainScene.triggerSceneObjEvent_0();
+                // 所有当前任务共用原交互入口，四象不再单独处理。
+                // 无事件的装备提醒或普通坐标导航不能随意确认附近人物。
+                if (destination.currentTask && activateTaskArrival(plan, target, token)) {
                     return { ok: true, stopped: 'story' };
                 }
                 var arrived = plan.preparation ? '出口尚未开放，已到「' + plan.preparation + '」附近，完成互动后继续前往' : plan.blockedAt ? '已到阻路人物或机关旁，完成这里的互动后可继续前往' : destination.exitTask ? '已沿原出口到达迷宫或建筑外' : destination.event > 40 ? '已到出口或机关入口旁，向前走一步触发' : destination.event ? '已到目标旁，按确认键交互' : '已到达目的地';
@@ -601,6 +638,7 @@
      *
      * 每次重新读取真实存档；提示性任务（如装备护甲）留在游戏页给出说明，
      * 不创建地图 DOM，不假装传送已经完成装备或机关动作。
+     * 可交互目标到达后触发一次原剧情，对话和选择仍由玩家确认。
      * @return {Promise<Object>} 原引擎路线结果。
      */
     async function goToNextGoal() {
