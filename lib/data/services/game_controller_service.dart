@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../domain/models/game_definition.dart';
 
-/// Android 原生手柄事件接收器。
+/// Android与iOS共用的原生手柄事件接收器。
 ///
 /// EventChannel 没有可用实现时静默降级，屏幕按键仍可正常操作游戏。
 class GameControllerService {
