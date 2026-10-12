@@ -24,6 +24,21 @@ class SgbyBattleStatisticsText extends StatelessWidget {
     );
   }
 
+  /// 从右向左按四位分组，保留低位零，便于按万、亿阅读累计值。
+  ///
+  /// 仅改变展示文本，不对原始统计做缩写或四舍五入；例如10000显示为1 0000。
+  String _formatCount(int count) {
+    final digits = count.toString();
+    final groups = <String>[];
+    var end = digits.length;
+    while (end > 0) {
+      final start = end > 4 ? end - 4 : 0;
+      groups.add(digits.substring(start, end));
+      end = start;
+    }
+    return groups.reversed.join(' ');
+  }
+
   /// 分成两栏展示累计损失与击杀，窄屏和大数值时仅缩放数字行，避免挤压按键。
   Widget _content(SgbyBattleStatistics? value) {
     final color = isDarkTheme
@@ -40,7 +55,10 @@ class SgbyBattleStatisticsText extends StatelessWidget {
           Text(title, style: style.copyWith(fontWeight: FontWeight.w600)),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text('士兵 $soldiers  ·  将领 $generals', style: style),
+            child: Text(
+              '士兵 ${_formatCount(soldiers)}  ·  将领 ${_formatCount(generals)}',
+              style: style,
+            ),
           ),
         ],
       ),

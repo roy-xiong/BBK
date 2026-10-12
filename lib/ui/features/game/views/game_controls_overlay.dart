@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -164,80 +165,100 @@ class PortraitGameControlsPanel extends StatelessWidget {
                 const SizedBox(height: 10),
                 _NesStripe(isDarkTheme: isDarkTheme),
                 Expanded(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Transform.translate(
-                          // 功能区首行不能平移到父容器之外，否则按钮上半部可见却无法点击。
-                          offset: Offset(
-                            0,
-                            showFmjUtilityButtons || showSgbyUtilityButtons
-                                ? 0
-                                : -24,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (showFmjUtilityButtons) ...[
-                                _FmjUtilityButtons(
-                                  hapticsEnabled: hapticsEnabled,
-                                  wideViewEnabled: fmjWideViewEnabled,
-                                  autoBattleEnabled: fmjAutoBattleEnabled,
-                                  runSpeed: fmjRunSpeed,
-                                  onInput: onInput,
-                                ),
-                                const SizedBox(height: 14),
-                              ],
-                              if (showSgbyUtilityButtons) ...[
-                                SgbyBattleStatisticsText(
-                                  isDarkTheme: isDarkTheme,
-                                  statistics: sgbyBattleStatistics,
-                                ),
-                                const SizedBox(height: 6),
-                                _SgbyUtilityButtons(
-                                  isDarkTheme: isDarkTheme,
-                                  hapticsEnabled: hapticsEnabled,
-                                  battleSpeedMultiplier: battleSpeedMultiplier,
-                                  autoBattleEnabled: sgbyAutoBattleEnabled,
-                                  autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
-                                  onInput: onInput,
-                                ),
-                                const SizedBox(height: 14),
-                              ],
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                crossAxisAlignment: CrossAxisAlignment.center,
+                  // 统计单独占用按钮上方的空白，不参与按钮组高度和居中计算。
+                  child: CustomMultiChildLayout(
+                    delegate: _PortraitControlsLayout(),
+                    children: [
+                      LayoutId(
+                        id: _PortraitControlsSlot.buttons,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Transform.translate(
+                              // 功能区首行不能平移到父容器之外，否则按钮上半部可见却无法点击。
+                              offset: Offset(
+                                0,
+                                showFmjUtilityButtons || showSgbyUtilityButtons
+                                    ? 0
+                                    : -24,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _NesDirectionPad(
-                                    buttonSize: directionButtonSize,
-                                    hapticsEnabled: hapticsEnabled,
-                                    onInput: onInput,
-                                  ),
-                                  Flexible(
-                                    child: FittedBox(
-                                      fit: BoxFit.scaleDown,
-                                      child: _NesSystemButtons(
-                                        isDarkTheme: isDarkTheme,
+                                  if (showFmjUtilityButtons) ...[
+                                    _FmjUtilityButtons(
+                                      hapticsEnabled: hapticsEnabled,
+                                      wideViewEnabled: fmjWideViewEnabled,
+                                      autoBattleEnabled: fmjAutoBattleEnabled,
+                                      runSpeed: fmjRunSpeed,
+                                      onInput: onInput,
+                                    ),
+                                    const SizedBox(height: 14),
+                                  ],
+                                  if (showSgbyUtilityButtons) ...[
+                                    _SgbyUtilityButtons(
+                                      isDarkTheme: isDarkTheme,
+                                      hapticsEnabled: hapticsEnabled,
+                                      battleSpeedMultiplier:
+                                          battleSpeedMultiplier,
+                                      autoBattleEnabled: sgbyAutoBattleEnabled,
+                                      autoEndTurnEnabled:
+                                          sgbyAutoEndTurnEnabled,
+                                      onInput: onInput,
+                                    ),
+                                    const SizedBox(height: 14),
+                                  ],
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      _NesDirectionPad(
+                                        buttonSize: directionButtonSize,
                                         hapticsEnabled: hapticsEnabled,
                                         onInput: onInput,
                                       ),
-                                    ),
-                                  ),
-                                  _NesActionButtons(
-                                    buttonSize: actionButtonSize,
-                                    hapticsEnabled: hapticsEnabled,
-                                    onInput: onInput,
+                                      Flexible(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          child: _NesSystemButtons(
+                                            isDarkTheme: isDarkTheme,
+                                            hapticsEnabled: hapticsEnabled,
+                                            onInput: onInput,
+                                          ),
+                                        ),
+                                      ),
+                                      _NesActionButtons(
+                                        buttonSize: actionButtonSize,
+                                        hapticsEnabled: hapticsEnabled,
+                                        onInput: onInput,
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      if (showSgbyUtilityButtons)
+                        LayoutId(
+                          id: _PortraitControlsSlot.statistics,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.bottomCenter,
+                            child: SizedBox(
+                              width: math.min(constraints.maxWidth, 560) - 24,
+                              child: SgbyBattleStatisticsText(
+                                isDarkTheme: isDarkTheme,
+                                statistics: sgbyBattleStatistics,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 _NesStripe(isDarkTheme: isDarkTheme),
@@ -249,6 +270,48 @@ class PortraitGameControlsPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+enum _PortraitControlsSlot { buttons, statistics }
+
+/// 先按统计加入前的规则居中按钮，再把文字放到其上方的剩余空间。
+///
+/// 使用按钮实际布局尺寸，不根据字体、统计行数或设备倍率预估按钮高度。旧档提示、
+/// 大字体与计数变化只能改变文字区域；空间较小时缩小文字，不推移任何游戏按键。
+class _PortraitControlsLayout extends MultiChildLayoutDelegate {
+  _PortraitControlsLayout();
+
+  @override
+  void performLayout(Size size) {
+    final buttons = layoutChild(
+      _PortraitControlsSlot.buttons,
+      BoxConstraints.loose(size),
+    );
+    final buttonsTop = (size.height - buttons.height) / 2;
+    positionChild(
+      _PortraitControlsSlot.buttons,
+      Offset((size.width - buttons.width) / 2, buttonsTop),
+    );
+    if (!hasChild(_PortraitControlsSlot.statistics)) return;
+    final statisticsBottom = math.max(0.0, buttonsTop - 6);
+    final statistics = layoutChild(
+      _PortraitControlsSlot.statistics,
+      BoxConstraints(
+        maxWidth: math.max(0.0, buttons.width - 24),
+        maxHeight: statisticsBottom,
+      ),
+    );
+    positionChild(
+      _PortraitControlsSlot.statistics,
+      Offset(
+        (size.width - statistics.width) / 2,
+        statisticsBottom - statistics.height,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_PortraitControlsLayout oldDelegate) => false;
 }
 
 /// 伏魔记控制区的一键前往入口。

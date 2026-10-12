@@ -121,4 +121,90 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('统计出现、旧档提示和大数值不会移动任何控制按钮', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final source = ValueNotifier<SgbyBattleStatistics?>(null);
+    addTearDown(source.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PortraitGameControlsPanel(
+            isDarkTheme: true,
+            hapticsEnabled: false,
+            showSgbyUtilityButtons: true,
+            sgbyBattleStatistics: source,
+            onInput: (_) {},
+          ),
+        ),
+      ),
+    );
+    Rect rectangle(Finder child) => tester.getRect(
+      find.ancestor(of: child, matching: find.byType(GestureDetector)).first,
+    );
+    final finders = <Finder>[
+      find.byIcon(Icons.arrow_drop_up),
+      find.byIcon(Icons.arrow_drop_down),
+      find.byIcon(Icons.arrow_left),
+      find.byIcon(Icons.arrow_right),
+      find.text('A'),
+      find.text('B'),
+      find.text('START'),
+      find.text('SELECT'),
+      find.text('将领列表'),
+    ];
+    final before = finders.map(rectangle).toList();
+    for (final history in [true, false]) {
+      source.value = SgbyBattleStatistics(
+        lostSoldiers: 10000,
+        lostGenerals: 12,
+        killedSoldiers: 123456789,
+        killedGenerals: 12345,
+        hasFullHistory: history,
+      );
+      await tester.pump();
+      expect(
+        finders.map(rectangle).toList(),
+        before,
+        reason: '统计高度变化不应参与控制组居中',
+      );
+    }
+    expect(find.text('士兵 1 0000  ·  将领 12'), findsOneWidget);
+    expect(find.text('士兵 1 2345 6789  ·  将领 1 2345'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('四位分组保留低位零和万亿边界', (tester) async {
+    final source = ValueNotifier<SgbyBattleStatistics?>(null);
+    addTearDown(source.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SgbyBattleStatisticsText(isDarkTheme: true, statistics: source),
+        ),
+      ),
+    );
+    for (final entry in <int, String>{
+      0: '0',
+      9999: '9999',
+      10000: '1 0000',
+      10001: '1 0001',
+      100000000: '1 0000 0000',
+      9007199254740991: '9007 1992 5474 0991',
+    }.entries) {
+      source.value = SgbyBattleStatistics(
+        lostSoldiers: 0,
+        lostGenerals: 0,
+        killedSoldiers: entry.key,
+        killedGenerals: 0,
+        hasFullHistory: true,
+      );
+      await tester.pump();
+      expect(
+        find.text('士兵 ${entry.value}  ·  将领 0'),
+        entry.key == 0 ? findsNWidgets(2) : findsOneWidget,
+      );
+    }
+  });
 }
