@@ -3832,8 +3832,9 @@
     /**
      * 使用手机WebView当前系统字体生成引擎需要的加粗1bpp字模。
      *
-     * 4X资源使用48×48中文和24×48英数；低倍率版本按当前倍率回退到24或12像素，
-     * 因此三国霸业所有通过引擎绘制的菜单、属性、战报和地图文字都使用同一系统字体。
+     * 词典原版为1X资源，完整保留引擎自带的中文与英数字模，不切换字体或安装Hook。
+     * 高倍率模组按实际资源倍率生成字模：4X使用48×48中文和24×48英数，2X使用
+     * 24×24中文和12×24英数，保留精修版与平衡版现有的字体尺寸与显示方式。
      *
      * @param {Object} hooks 游戏Hook集合。
      * @return {boolean} 是否成功安装。
@@ -3846,6 +3847,7 @@
             return false;
         }
         var scale = Number(baye.data.g_scale) || 1;
+        if (scale < 2) return false;
         var fontSize = scale >= 4 ? 48 : (scale >= 2 ? 24 : 12);
         var fontId = scale >= 4 ? 5 : (scale >= 2 ? 1 : 0);
         var fontResult = baye.setFont(fontId);

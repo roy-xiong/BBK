@@ -92,6 +92,7 @@ function createHarness(storage = new Map(), options = {}) {
   const resourceRequests = [];
   const animationFrames = [];
   const saveMessages = [];
+  const fontSelections = [];
   const people = [
     person({Belong: 1, Force: 82, IQ: 91, Arms: 100}),
     person({Belong: 1, Force: 76, IQ: 64, Arms: 200}),
@@ -251,6 +252,11 @@ function createHarness(storage = new Map(), options = {}) {
   data.g_GenPos[11].y = 4;
   data.g_GenPos[12].x = 6;
   data.g_GenPos[12].y = 6;
+  if (options.fontSupport) {
+    data.g_scale = options.fontScale;
+    data.g_engineConfig.useCustomFont = 0;
+    data.g_engineConfig.useCustomFontEn = 0;
+  }
   const hooks = {};
   const baye = {
     data,
@@ -347,6 +353,18 @@ function createHarness(storage = new Map(), options = {}) {
     lcdHeight: 96,
     dotSize: 1,
   };
+  if (options.fontSupport) {
+    baye.setFont = id => {fontSelections.push(id); return 0;};
+    context.TextDecoder = TextDecoder;
+    context.document.createElement = () => {
+      const canvas = {width: 0, height: 0};
+      canvas.getContext = () => ({
+        clearRect() {}, fillText() {},
+        getImageData: () => ({data: new Uint8ClampedArray(canvas.width * canvas.height * 4)}),
+      });
+      return canvas;
+    };
+  }
   if (options.libraryBytes) {
     context.dynLib = Array.from(options.libraryBytes, value => value.toString(16).padStart(2, '0')).join('');
     const responseText = Array.from(
@@ -384,8 +402,31 @@ function createHarness(storage = new Map(), options = {}) {
     resourceRequests,
     animationFrames,
     saveMessages,
+    fontSelections,
     wasmMemory,
   };
+}
+
+{
+  const {data, hooks, fontSelections} = createHarness(new Map(), {fontSupport: true, fontScale: 1});
+  assert.deepEqual(fontSelections, [], '词典原版不能切换引擎字体');
+  assert.equal(hooks.fontImageForChar, undefined, '词典原版不能安装系统字体字模Hook');
+  assert.equal(data.g_engineConfig.useCustomFont, 0, '原版中文应使用引擎自带字模');
+  assert.equal(data.g_engineConfig.useCustomFontEn, 0, '原版英数应使用引擎自带字模');
+}
+
+for (const [scale, fontId, fontSize] of [[2, 1, 24], [4, 5, 48]]) {
+  const {data, hooks, fontSelections} = createHarness(new Map(), {fontSupport: true, fontScale: scale});
+  assert.deepEqual(fontSelections, [fontId], `${scale}X模组继续使用对应尺寸的字体`);
+  assert.equal(data.g_engineConfig.useCustomFont, 1);
+  assert.equal(data.g_engineConfig.useCustomFontEn, 1);
+  for (const code of [65, 0xb3c7]) {
+    const glyph = {code};
+    assert.equal(hooks.fontImageForChar(glyph), 0);
+    const width = code < 256 ? fontSize / 2 : fontSize;
+    assert.equal(glyph.zmCode.length, Math.ceil(width / 8) * fontSize,
+      `${scale}X中文字模和英数字模的尺寸须匹配真实资源倍率`);
+  }
 }
 
 {
