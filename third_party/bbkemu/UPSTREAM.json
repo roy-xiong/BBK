@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/AloysHF/BBKEmu",
+  "commit": "09bc66de868c8d2d6e1e1a6339552baf0c778b34",
+  "license": "GPL-3.0-or-later",
+  "sourceArchiveSha256": "95e47b7ef998059918c9a27a85e6e8c6eb000cea6f7967cbe470f098b6c86b92",
+  "mos6502CrateVersion": "0.10.1",
+  "mos6502CrateSha256": "41602b70ecb904b5359a3be5d947dacde19b03316284f1fbf804576437546e4d",
+  "localChanges": ["Android JNI bridge", "完整状态恢复", "确定性作弊格式", "LCD帧同步", "执行周期下限"]
+}

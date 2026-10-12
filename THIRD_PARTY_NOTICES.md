@@ -2,6 +2,14 @@
 
 本项目内置以下上游项目的代码与运行资源：
 
+- BBKEmu 原机模拟器：https://github.com/AloysHF/BBKEmu
+  - 固定基线：`09bc66de868c8d2d6e1e1a6339552baf0c778b34`
+  - 许可证：GPL-3.0-or-later，原声明见 `third_party/bbkemu/LICENSE`，完整文本见 `third_party/bbkemu/COPYING`。
+  - 本地适配：Android JNI、完整即时状态、LCD 缓冲同步、多字节作弊与内存搜索。
+  - CPU 依赖 mos6502 0.10.1 以源码固定，许可证 BSD-3-Clause，见 `third_party/bbkemu/vendor/mos6502/LICENSE`。
+  - 游戏库封面来自该固定提交的 `docs/images`；封面不表示本项目完成游戏运行验证。
+  - 84 个 GAM 和 A4980/A4988 系统 ROM 通过本地资源导入，不包含在公开源码中。
+
 - iBaye: https://gitee.com/bgwp/iBaye
   - 固定基线：`62241e294f3ba3d4589d6e1205e6deb486a6c2d9`
   - 本地世界活跃度补丁：`third_party/ibaye/ai-world-activity.patch`

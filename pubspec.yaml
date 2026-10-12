@@ -66,6 +66,11 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/bbk/
+    - assets/bbk/covers/
+    - assets/bbk/games/
+    - assets/bbk/roms/a4980/
+    - assets/bbk/roms/a4988/
     - assets/games/sgby/
     - assets/games/sgby/js/
     - assets/games/sgby/libs/

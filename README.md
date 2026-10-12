@@ -6,6 +6,38 @@ Flutter Android 应用，离线内置《伏魔记》《金庸群侠传》和《�
 
 ## 功能
 
+- 新首页为 84 款 RPG / Adventure 原机游戏库，支持搜索、收藏、最近游玩和机型选择
+- 原有三款增强版从首页右上角星光按钮进入，存档及增强功能使用原有链路
+- 原机游戏支持 ZIP 导入、原机键盘、1～8× 倍速、即时状态及通用内存作弊器
+- 没有导入 GAM 或对应机型的两份 ROM 时，明确显示“资源待导入 / 缺少系统 ROM”
+
+### 原机运行时构建与资源导入
+
+Android 增加 Rust JNI 运行时。用户在 Android Studio 或 Flutter 中主动构建时，
+Gradle 会调用 `tool/build_bbk_runtime.sh`，直接使用现有 NDK 的 Clang 链接器，无需 cargo-ndk。
+工具链由 `third_party/bbkemu/rust-toolchain.toml` 固定到 Rust 1.99.0：
+
+```bash
+rustup toolchain install 1.99.0 --profile minimal --component rustfmt
+rustup target add --toolchain 1.99.0 aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+```
+
+当前代码编辑阶段没有执行编译。运行时不包含游戏 GAM 或系统 ROM：可在手机首页导入 ZIP，
+ZIP 中保留原始 `游戏标题.gam`，系统 ROM 使用 `a4980/8.BIN`、`a4980/E.BIN`、
+`a4988/8.BIN`、`a4988/E.BIN`。也可构建前使用本地目录导入：
+
+```bash
+node tool/import_bbk_assets.mjs --source /绝对路径/原机资源目录
+node tool/import_bbk_assets.mjs --check
+```
+
+模拟器原机版和现有增强版的存档不互通。原机即时状态绑定 GAM、ROM 哈希和机型，
+通用作弊器提供 8/16/32 位搜索、变化筛选、写入、锁定和批量作弊码导入。
+84 款尚需真实 GAM/ROM 和设备回归；7 个上游 Warn 条目需要专项验证。
+音频输出通道已接入，原机音频寄存器行为仍需验证，上游核心目前没有完整的硬件发声链路。
+
+### 现有增强版能力
+
 - 启动页选择《伏魔记》《金庸群侠传》或《三国霸业》
 - 三国霸业内置词典原版、原版精修和平衡版 2.1
 - 原游戏存档同步备份到 Flutter 应用支持目录

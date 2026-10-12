@@ -1,6 +1,7 @@
 package com.xiongjian.bbkclassics
 
 import android.view.InputDevice
+import android.content.Intent
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -23,9 +24,12 @@ class MainActivity : FlutterActivity() {
     private var keepScreenOnRequested = false
     private var activityResumed = false
     private val lastEmissionTime = mutableMapOf<String, Long>()
+    private var bbkRuntimeHost: BbkRuntimeHost? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        bbkRuntimeHost?.dispose()
+        bbkRuntimeHost = BbkRuntimeHost(applicationContext, flutterEngine, this)
         windowMethodChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             WINDOW_METHOD_CHANNEL,
@@ -99,6 +103,7 @@ class MainActivity : FlutterActivity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        bbkRuntimeHost?.setForeground(true)
         applyKeepScreenOn()
     }
 
@@ -107,6 +112,7 @@ class MainActivity : FlutterActivity() {
      */
     override fun onPause() {
         activityResumed = false
+        bbkRuntimeHost?.setForeground(false)
         applyKeepScreenOn()
         super.onPause()
     }
@@ -128,6 +134,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        bbkRuntimeHost?.dispose()
+        bbkRuntimeHost = null
         keepScreenOnRequested = false
         activityResumed = false
         applyKeepScreenOn()
@@ -136,6 +144,12 @@ class MainActivity : FlutterActivity() {
         gamepadEventSink = null
         lastEmissionTime.clear()
         super.onDestroy()
+    }
+
+    /** 系统文件选择器结果交由原机资源仓库处理，不持有用户目录的长期访问权限。 */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (bbkRuntimeHost?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun isControllerSource(source: Int): Boolean {

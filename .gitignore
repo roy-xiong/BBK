@@ -32,6 +32,9 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/third_party/bbkemu/target/
+/assets/bbk/games/*.gam
+/assets/bbk/roms/*/*.BIN
 /midscene_run/
 
 # Symbolication related

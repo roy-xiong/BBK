@@ -9,7 +9,7 @@ import 'data/repositories/settings_repository.dart';
 import 'data/services/app_file_store.dart';
 import 'data/services/local_game_server.dart';
 import 'ui/core/app_theme.dart';
-import 'ui/features/launcher/views/launcher_page.dart';
+import 'ui/features/bbk/views/bbk_library_page.dart';
 
 /// 应用根组件。
 ///
@@ -52,7 +52,7 @@ class _BbkClassicsAppState extends State<BbkClassicsApp> {
         builder: (context, snapshot) {
           final dependencies = snapshot.data;
           if (dependencies != null) {
-            return LauncherPage(dependencies: dependencies);
+            return BbkLibraryPage(dependencies: dependencies);
           }
           final error = snapshot.error;
           if (error != null) return _BootstrapErrorView(error: error);

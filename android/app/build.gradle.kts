@@ -32,7 +32,24 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("generated/bbk/jniLibs"))
 }
+
+// 用户主动在 IDE/Flutter 发起构建时才构建 Rust，日常源码编辑不运行编译。
+val buildBbkRuntime by tasks.registering(Exec::class) {
+    val repository = rootProject.projectDir.parentFile
+    val output = layout.buildDirectory.dir("generated/bbk/jniLibs")
+    inputs.dir(repository.resolve("third_party/bbkemu"))
+    inputs.file(repository.resolve("tool/build_bbk_runtime.sh"))
+    outputs.dir(output)
+    doFirst {
+        commandLine("bash", repository.resolve("tool/build_bbk_runtime.sh").absolutePath,
+            output.get().asFile.absolutePath,
+            android.sdkComponents.sdkDirectory.get().asFile.resolve("ndk/${android.ndkVersion}").absolutePath)
+    }
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(buildBbkRuntime) }
 
 kotlin {
     compilerOptions {
