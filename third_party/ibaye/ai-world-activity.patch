@@ -1,3 +1,19 @@
+diff --git a/src/FgtPkAi.c b/src/FgtPkAi.c
+index d00492b..91f2366 100644
+--- a/src/FgtPkAi.c
++++ b/src/FgtPkAi.c
+@@ -777,7 +777,10 @@ FAR void FgtGetCmdRng(U8 type,SkillID sklid,U8 idx)
+     g_FgtAtkRng[1] = (U8)(g_GenPos[idx].x - (rngb >> 1));
+     g_FgtAtkRng[2] = (U8)(g_GenPos[idx].y - (rngb >> 1));
+ 
+-    if (g_engineConfig.enableScript) {
++    /* 词典原版不包含资源脚本，enableScript保持关闭；宿主仍可安装攻击范围Hook。
++     * 按实际Hook存在性进入扩展，使原版群攻也能生成7×7，不改变资源脚本开关。
++     * Hook未接管时仍保留上面已经生成的兵种、装备与技能范围。 */
++    if (g_engineConfig.enableScript || has_hook("calcAttackRange")) {
+ //        convert(g_FgtAtkRng+3, rngb, TOOL_ATT_RANGEUNIT);
+ //        rngb = TOOL_ATT_RANGEUNIT;
+ //        g_FgtAtkRng[0] = rngb;
 diff --git a/src/Fight.c b/src/Fight.c
 index 7529629..0ffa037 100644
 --- a/src/Fight.c
