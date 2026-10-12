@@ -40,7 +40,33 @@ Flutter Android 应用，离线内置《伏魔记》《金庸群侠传》和《�
 - 金庸独立地图入口为 `assets/games/jyqxz/atlas.html`，`node tool/generate_jyqxz_assets.mjs --export` 可从固定 ROM 重建并导出 Downloads 下的单文件地图
 - 金庸验证入口：`node tool/test_jyqxz.mjs`。浏览器验证不等同于 Android WebView 真机验证或全剧情通关
 
-## 手柄映射
+## 外置 ROM 模拟器（Android）
+
+首页新增“模拟器 · NES / 街机”。首次进入点击“去授权”，Android 11+ 开启“所有文件访问权限”后返回，应用创建主共享存储下的 `BBK`。本功能按私有/侧载 APK 使用。
+
+```text
+/storage/emulated/0/BBK/
+  NES/       .nes / .fds / .unf / .unif
+  ARCADE/    FBNeo .zip / .7z（保留原 ROM set 文件名，例如 mslug.zip）
+  BIOS/      neogeo.zip、disksys.rom（FDS 需要）
+  CHEATS/    nes.json、arcade.json
+  SAVES/     按固定运行时版本、内核与 ROM SHA-256 隔离的 SRAM/金手指配置
+  STATES/    手动即时档与退出/后台自动即时档
+```
+
+应用冷启动扫描一次，当前进程不持续监听；复制 ROM 后点游戏库右上角“重新扫描”。ROM 与 BIOS 不打进 APK，只有固定版本 EmulatorJS/FCEUmm/FBNeo 随包提供。
+`.nes` 也可直接放 BBK 根目录；街机 `.zip/.7z` 名称先匹配随包索引（官方 DAT 与固定 WASM 字符串交集），具体内容由 FBNeo 最终检查，缺失父 ROM/不匹配的版本会加载失败。clone 的父 ROM 放在相同目录，按索引明确声明的父档加载。
+游戏页支持长按/多点屏幕按键、实体手柄、横竖屏、暂停、手动即时存档/读取与金手指。返回游戏自动恢复上次退出时的即时进度。FBNeo 的部分游戏无 SRAM，使用即时档保留进度。
+
+金手指可在原生面板手工添加（默认关闭），也可通过 `BBK/CHEATS/nes.json` 或 `arcade.json` 提供列表。索引支持 ROM SHA-256、文件名或去掉扩展名的标题：
+
+```json
+{"your-game.nes": [{"desc": "金手指名称", "code": "与该 ROM 对应的有效代码"}]}
+```
+
+Neo Geo 金手指在每次启动时保持关闭，等待开机自检结束后手动启用。原版合金弹头属于 Neo Geo，需匹配固定 FBNeo 的 ROM set 和 `BIOS/neogeo.zip`，不能当作 FC 游戏运行。
+
+## 内置游戏手柄映射
 
 | 手柄 | 游戏动作 |
 |---|---|

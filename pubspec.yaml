@@ -35,6 +35,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   webview_flutter: ^4.14.1
+  webview_flutter_android: ^4.14.1
   path_provider: ^2.1.6
 
 dev_dependencies:
@@ -75,9 +76,17 @@ flutter:
     - assets/games/jyqxz/
     - assets/games/jyqxz/js/
     - assets/games/jyqxz/rom/
+    - assets/games/emulator/
+    - assets/games/emulator/data/
+    - assets/games/emulator/data/src/
+    - assets/games/emulator/data/compression/
+    - assets/games/emulator/data/localization/
+    - assets/games/emulator/data/cores/
+    - assets/games/emulator/data/cores/reports/
     - third_party/ibaye/
     - third_party/baye_alpha/
     - third_party/fmj/
+    - third_party/emulatorjs/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

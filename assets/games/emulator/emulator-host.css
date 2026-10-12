@@ -1,0 +1,4 @@
+html, body, #game { width: 100%; height: 100%; margin: 0; padding: 0; background: #000; overflow: hidden; }
+body { touch-action: none; }
+.ejs_menu_bar, .ejs_menu_bar_hidden, .ejs_menu_bar_shown, .ejs_menu_toggle, .ejs_virtualGamepad { display: none !important; }
+.ejs_parent { border: 0 !important; }

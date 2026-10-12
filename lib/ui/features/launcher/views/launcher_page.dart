@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../app.dart';
 import '../../../../domain/models/game_definition.dart';
 import '../../game/views/game_page.dart';
+import '../../emulator/views/rom_library_page.dart';
 import '../../settings/view_models/settings_view_model.dart';
 import '../../settings/views/game_settings_sheet.dart';
 
@@ -76,6 +77,24 @@ class _LauncherPageState extends State<LauncherPage> {
             game: game,
             settingsViewModel: _settingsViewModel,
           ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingGame = false);
+        await _restoreLauncherChrome();
+      }
+    }
+  }
+
+  /// 模拟器游戏库与内置游戏共用路由防重，避免快速点击叠加运行会话。
+  Future<void> _openEmulator() async {
+    if (!mounted || _openingGame) return;
+    setState(() => _openingGame = true);
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => RomLibraryPage(dependencies: widget.dependencies),
         ),
       );
     } finally {
@@ -174,6 +193,16 @@ class _LauncherPageState extends State<LauncherPage> {
                             ),
                           );
                         },
+                      ),
+                      const SizedBox(height: 24),
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.sports_esports, size: 32),
+                          title: const Text('模拟器 · NES / 街机'),
+                          subtitle: const Text('读取手机 BBK 文件夹中的 ROM'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: _openingGame ? null : _openEmulator,
+                        ),
                       ),
                     ],
                   ),

@@ -1,6 +1,7 @@
 package com.xiongjian.bbkclassics
 
 import android.view.InputDevice
+import android.content.Intent
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -20,12 +21,28 @@ import kotlin.math.abs
 class MainActivity : FlutterActivity() {
     private var gamepadEventSink: EventChannel.EventSink? = null
     private var windowMethodChannel: MethodChannel? = null
+    private var romStorageChannel: RomStorageChannel? = null
+    private var emulatorEventSink: EventChannel.EventSink? = null
+    private val emulatorPressedSources = mutableMapOf<String, Int>()
     private var keepScreenOnRequested = false
     private var activityResumed = false
     private val lastEmissionTime = mutableMapOf<String, Long>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        romStorageChannel?.close()
+        romStorageChannel = RomStorageChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, EMULATOR_EVENT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    emulatorPressedSources.clear()
+                    emulatorEventSink = events
+                }
+                override fun onCancel(arguments: Any?) {
+                    emulatorPressedSources.clear()
+                    emulatorEventSink = null
+                }
+            })
         windowMethodChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             WINDOW_METHOD_CHANNEL,
@@ -64,6 +81,14 @@ class MainActivity : FlutterActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (!isControllerSource(event.source)) return super.dispatchKeyEvent(event)
+        if (emulatorEventSink != null) {
+            val button = mapEmulatorKey(event.keyCode) ?: return super.dispatchKeyEvent(event)
+            if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) {
+                setEmulatorButton("key:${event.deviceId}:${event.keyCode}", button,
+                    event.action == KeyEvent.ACTION_DOWN)
+            }
+            return true
+        }
         val action = mapKeyCode(event.keyCode) ?: return super.dispatchKeyEvent(event)
         if (event.action == KeyEvent.ACTION_DOWN) {
             val repeatable = action in REPEATABLE_ACTIONS
@@ -87,6 +112,14 @@ class MainActivity : FlutterActivity() {
         val vertical =
             if (verticalHat != 0f) verticalHat else centeredAxis(event, MotionEvent.AXIS_Y)
 
+        if (emulatorEventSink != null) {
+            setEmulatorButton("axis:${event.deviceId}:left", 6, horizontal <= -AXIS_TRIGGER)
+            setEmulatorButton("axis:${event.deviceId}:right", 7, horizontal >= AXIS_TRIGGER)
+            setEmulatorButton("axis:${event.deviceId}:up", 4, vertical <= -AXIS_TRIGGER)
+            setEmulatorButton("axis:${event.deviceId}:down", 5, vertical >= AXIS_TRIGGER)
+            return true
+        }
+
         var handled = false
         handled = emitAxis(horizontal, negative = "left", positive = "right", event.eventTime) || handled
         handled = emitAxis(vertical, negative = "up", positive = "down", event.eventTime) || handled
@@ -106,6 +139,7 @@ class MainActivity : FlutterActivity() {
      * 后台和系统遮挡期间释放窗口常亮；保留页面请求，返回前台时重新应用。
      */
     override fun onPause() {
+        releaseEmulatorButtons()
         activityResumed = false
         applyKeepScreenOn()
         super.onPause()
@@ -134,8 +168,56 @@ class MainActivity : FlutterActivity() {
         windowMethodChannel?.setMethodCallHandler(null)
         windowMethodChannel = null
         gamepadEventSink = null
+        releaseEmulatorButtons()
+        emulatorEventSink = null
+        romStorageChannel?.close()
+        romStorageChannel = null
         lastEmissionTime.clear()
         super.onDestroy()
+    }
+
+    /** 特殊文件权限通过系统 Activity 返回；不能假定设置页面 RESULT_OK 表示已授权。 */
+    @Deprecated("使用旧回调与 FlutterActivity 的权限分发保持兼容")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        romStorageChannel?.onPermissionResult(requestCode)
+    }
+
+    /** Android 6～10 存储权限申请完成后重新检查，保持取消/拒绝路径可恢复。 */
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        romStorageChannel?.onPermissionResult(requestCode)
+    }
+
+    /** 实体键与摇杆分别保留来源，某个来源释放不会误释放另一个来源仍按住的按钮。 */
+    private fun setEmulatorButton(source: String, button: Int, pressed: Boolean) {
+        if (pressed) {
+            if (emulatorPressedSources.put(source, button) == button) return
+        } else if (emulatorPressedSources.remove(source) == null) return
+        emulatorEventSink?.success(mapOf("source" to source, "button" to button, "pressed" to pressed))
+    }
+
+    /** 退后台释放全部真实输入，避免恢复后方向/射击永久按住。 */
+    private fun releaseEmulatorButtons() {
+        emulatorPressedSources.toMap().forEach { (source, button) -> setEmulatorButton(source, button, false) }
+        emulatorPressedSources.clear()
+    }
+
+    /** 模拟器独立保留 Start/Select、A/B/X/Y，与旧游戏离散业务动作互不混用。 */
+    private fun mapEmulatorKey(keyCode: Int): Int? = when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> 4
+        KeyEvent.KEYCODE_DPAD_DOWN -> 5
+        KeyEvent.KEYCODE_DPAD_LEFT -> 6
+        KeyEvent.KEYCODE_DPAD_RIGHT -> 7
+        KeyEvent.KEYCODE_BUTTON_A -> 8
+        KeyEvent.KEYCODE_BUTTON_B -> 0
+        KeyEvent.KEYCODE_BUTTON_X -> 9
+        KeyEvent.KEYCODE_BUTTON_Y -> 1
+        KeyEvent.KEYCODE_BUTTON_START -> 3
+        KeyEvent.KEYCODE_BUTTON_SELECT -> 2
+        KeyEvent.KEYCODE_BUTTON_L1 -> 10
+        KeyEvent.KEYCODE_BUTTON_R1 -> 11
+        else -> null
     }
 
     private fun isControllerSource(source: Int): Boolean {
@@ -201,6 +283,7 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val GAMEPAD_EVENT_CHANNEL = "com.xiongjian.bbkclassics/gamepad_events"
         const val WINDOW_METHOD_CHANNEL = "com.xiongjian.bbkclassics/window"
+        const val EMULATOR_EVENT_CHANNEL = "com.xiongjian.bbkclassics/emulator_gamepad_events"
         const val AXIS_DEAD_ZONE = 0.18f
         const val AXIS_TRIGGER = 0.55f
         const val REPEAT_INTERVAL_MILLIS = 110L

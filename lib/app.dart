@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'data/repositories/game_save_repository.dart';
 import 'data/repositories/fmj_world_map_repository.dart';
 import 'data/repositories/settings_repository.dart';
+import 'data/repositories/rom_catalog_repository.dart';
 import 'data/services/app_file_store.dart';
 import 'data/services/local_game_server.dart';
 import 'ui/core/app_theme.dart';
@@ -72,12 +73,14 @@ class AppDependencies {
     required this.gameSaveRepository,
     required this.fmjWorldMapRepository,
     required this.localGameServer,
+    required this.romCatalogRepository,
   });
 
   final SettingsRepository settingsRepository;
   final GameSaveRepository gameSaveRepository;
   final FmjWorldMapRepository fmjWorldMapRepository;
   final LocalGameServer localGameServer;
+  final RomCatalogRepository romCatalogRepository;
 
   static Future<AppDependencies> create() async {
     final supportDirectory = await getApplicationSupportDirectory();
@@ -89,15 +92,21 @@ class AppDependencies {
       gameSaveRepository: gameSaveRepository,
     );
     await localGameServer.start();
+    final romCatalogRepository = RomCatalogRepository();
+    unawaited(romCatalogRepository.initialize());
     return AppDependencies._(
       settingsRepository: settingsRepository,
       gameSaveRepository: gameSaveRepository,
       fmjWorldMapRepository: fmjWorldMapRepository,
       localGameServer: localGameServer,
+      romCatalogRepository: romCatalogRepository,
     );
   }
 
-  Future<void> dispose() => localGameServer.stop();
+  Future<void> dispose() async {
+    romCatalogRepository.dispose();
+    await localGameServer.stop();
+  }
 }
 
 class _BootstrapErrorView extends StatelessWidget {

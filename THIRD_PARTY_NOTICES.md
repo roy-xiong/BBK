@@ -2,6 +2,19 @@
 
 本项目内置以下上游项目的代码与运行资源：
 
+- EmulatorJS 4.2.3：https://github.com/EmulatorJS/EmulatorJS
+  - npm：`@emulatorjs/emulatorjs@4.2.3`，GPL-3.0，原始文件见 `third_party/emulatorjs/LICENSE`。
+  - 前端包 SHA-256：`8033a18a3398cae5efd7a4c12a633b10672435977290959633d671365b589639`。
+  - 固定版本适配层：`assets/games/emulator/emulator-host.js`。禁用远程更新/浏览器 ROM 缓存，存档写入 BBK。
+- EmulatorJS FCEUmm 4.2.3：https://github.com/EmulatorJS/libretro-fceumm
+  - npm：`@emulatorjs/core-fceumm@4.2.3`，包 SHA-256：`72d7ec8a1cace14448b9f2e177e64a37120543e117d274072b02b67576d54025`。
+  - GPL-2.0，内核包自带许可证原文见 `third_party/emulatorjs/FCEUMM-LICENSE`。
+- EmulatorJS FBNeo 4.2.3：https://github.com/EmulatorJS/FBNeo
+  - npm：`@emulatorjs/core-fbneo@4.2.3`，包 SHA-256：`1b7a35a2123d66f30b58650b6de4fff5e115673aab3eabe23a207aa7c547da32`。
+  - 仅内置单线程 WebGL 1/2 运行包；内核包自带完整许可（含非商业限制）见 `third_party/emulatorjs/FBNEO-LICENSE`。
+  - ROM/BIOS 由用户放入共享存储 BBK，仓库与 APK 不包含任何 NES/街机 ROM 或 BIOS。
+  - `fbneo-romsets.json`：官方 FBNeo Arcade DAT 的名称/父档与随包 WASM 字符串交集，不包含 ROM 数据，也不作为 CRC 兼容性承诺。生成器见 `tool/generate_fbneo_catalog.mjs`。
+
 - iBaye: https://gitee.com/bgwp/iBaye
   - 固定基线：`62241e294f3ba3d4589d6e1205e6deb486a6c2d9`
   - 本地世界活跃度补丁：`third_party/ibaye/ai-world-activity.patch`

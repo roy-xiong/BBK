@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../domain/models/game_definition.dart';
 import '../repositories/game_save_repository.dart';
+import 'emulator_session_server.dart';
 
 /// 内置游戏静态资源服务。
 ///
@@ -19,6 +20,16 @@ class LocalGameServer {
   final GameSaveRepository _gameSaveRepository;
   HttpServer? _server;
   Uri? _baseUri;
+  final EmulatorSessionServer emulatorSessions = EmulatorSessionServer();
+
+  /// 外置模拟器入口沿用当前本地来源，随机 token 用于授权本次 ROM 会话。
+  Uri emulatorEntryUri(EmulatorLocalSession session) {
+    final baseUri = _baseUri;
+    if (baseUri == null) throw StateError('本地游戏服务尚未启动');
+    return baseUri
+        .resolve('emulator/index.html')
+        .replace(queryParameters: {'session': session.token});
+  }
 
   Future<void> start() async {
     if (_server != null) return;
@@ -63,6 +74,17 @@ class LocalGameServer {
     final response = request.response;
     response.headers.set('X-Content-Type-Options', 'nosniff');
     response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+    try {
+      if (await emulatorSessions.handle(request)) return;
+    } on Object {
+      try {
+        response.statusCode = HttpStatus.internalServerError;
+        await response.close();
+      } on Object {
+        /* 连接已关闭。 */
+      }
+      return;
+    }
     if (request.method != 'GET' && request.method != 'HEAD') {
       response.statusCode = HttpStatus.methodNotAllowed;
       await response.close();
@@ -114,6 +136,14 @@ class LocalGameServer {
       return;
     }
     final assetKey = 'assets/games/${segments.join('/')}';
+    if (segments.first == 'emulator' && assetKey.endsWith('.html')) {
+      // 内核脚本由本地和 Blob 加载，禁止 CDN、网络脚本与外部请求。
+      response.headers.set(
+        'Content-Security-Policy',
+        "default-src 'self' blob: data:; script-src 'self' blob: 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; connect-src 'self' blob:; worker-src 'self' blob:; object-src 'none'",
+      );
+    }
     ByteData data;
     try {
       data = await rootBundle.load(assetKey);
