@@ -630,19 +630,19 @@ var tempI64;
 // === Body ===
 
 var ASM_CONSTS = {
-  2657976: () => { if (window.bayeStart) bayeStart(); },  
- 2658015: () => { if (window.bayeExit) bayeExit(); },  
- 2658052: ($0) => { bayeFlushLcdBuffer($0); },  
- 2658080: ($0) => { if (window.lcdSetDotSize) { window.lcdSetDotSize($0) } },  
- 2658139: ($0) => { var key = UTF8ToString($0); var value = ""; var filename = "baye/" + key; if (window.bayeLoadFileContent) { value = window.bayeLoadFileContent(filename); } else { value = window.localStorage[filename]; } if (value) { var buffer = Module._bayeAlloc(value.length+1); Module.stringToUTF8(value, buffer, value.length+1); return buffer; } return 0; },  
- 2658487: ($0, $1) => { var key = UTF8ToString($0); var value = UTF8ToString($1); var filename = "baye/" + key; if (window.bayeSaveFileContent) { window.bayeSaveFileContent(filename, value); } else { window.localStorage[filename] = value; } },  
- 2658708: () => { if (window.baye == undefined) { window.baye = {}; } if (window.baye.hooks == undefined) { window.baye.hooks = {}; } window.baye.data = baye_bridge_value(_bayeGetGlobal()); },  
- 2658884: ($0) => { if (window.baye.preScriptInit) { window.baye.preScriptInit(); } var script = UTF8ToString($0); eval(script); },  
- 2658997: ($0, $1) => { var name = UTF8ToString($0); var rv = 0; if (window.baye == undefined || window.baye.hooks == undefined || window.baye.hooks[name] == undefined) { rv = -1; } else { var cContext = $1; if (cContext != 0) { var jsContext = baye_bridge_value(cContext); rv = baye.callHook(name, jsContext); } else { rv = baye.callHook(name, undefined); } } return rv; },  
- 2659349: ($0) => { var name = UTF8ToString($0); if (window.baye && window.baye.hooks && window.baye.hooks[name]) { return 1; } else { return 0; } },  
- 2659480: ($0) => { var scr = UTF8ToString($0); eval(scr); },  
- 2659523: ($0) => { return baye.callCallback($0); },  
- 2659557: () => { var now = new Date(); return now.getTime(); }
+  2593232: () => { if (window.bayeStart) bayeStart(); },  
+ 2593271: () => { if (window.bayeExit) bayeExit(); },  
+ 2593308: ($0) => { bayeFlushLcdBuffer($0); },  
+ 2593336: ($0) => { if (window.lcdSetDotSize) { window.lcdSetDotSize($0) } },  
+ 2593395: ($0) => { var key = UTF8ToString($0); var value = ""; var filename = "baye/" + key; if (window.bayeLoadFileContent) { value = window.bayeLoadFileContent(filename); } else { value = window.localStorage[filename]; } if (value) { var buffer = Module._bayeAlloc(value.length+1); Module.stringToUTF8(value, buffer, value.length+1); return buffer; } return 0; },  
+ 2593743: ($0, $1) => { var key = UTF8ToString($0); var value = UTF8ToString($1); var filename = "baye/" + key; if (window.bayeSaveFileContent) { window.bayeSaveFileContent(filename, value); } else { window.localStorage[filename] = value; } },  
+ 2593964: () => { if (window.baye == undefined) { window.baye = {}; } if (window.baye.hooks == undefined) { window.baye.hooks = {}; } window.baye.data = baye_bridge_value(_bayeGetGlobal()); },  
+ 2594140: ($0) => { if (window.baye.preScriptInit) { window.baye.preScriptInit(); } var script = UTF8ToString($0); eval(script); },  
+ 2594253: ($0, $1) => { var name = UTF8ToString($0); var rv = 0; if (window.baye == undefined || window.baye.hooks == undefined || window.baye.hooks[name] == undefined) { rv = -1; } else { var cContext = $1; if (cContext != 0) { var jsContext = baye_bridge_value(cContext); rv = baye.callHook(name, jsContext); } else { rv = baye.callHook(name, undefined); } } return rv; },  
+ 2594605: ($0) => { var name = UTF8ToString($0); if (window.baye && window.baye.hooks && window.baye.hooks[name]) { return 1; } else { return 0; } },  
+ 2594736: ($0) => { var scr = UTF8ToString($0); eval(scr); },  
+ 2594779: ($0) => { return baye.callCallback($0); },  
+ 2594813: () => { var now = new Date(); return now.getTime(); }
 };
 function gam_sem_create() { if (!Module.sems) { Module.sems = [] } for (var i = 0;; i++) { if (Module.sems[i] == undefined) { Module.sems[i] = { cnt: 0, }; return i; } } }
 function gam_sem_delete(semid) { Module.sems[semid] = undefined; }
@@ -708,81 +708,6 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
       default: abort(`invalid type for setValue: ${type}`);
     }
   }
-
-  var UTF8Decoder = typeof TextDecoder != 'undefined' ? new TextDecoder('utf8') : undefined;
-  
-    /**
-     * Given a pointer 'idx' to a null-terminated UTF8-encoded string in the given
-     * array that contains uint8 values, returns a copy of that string as a
-     * Javascript String object.
-     * heapOrArray is either a regular array, or a JavaScript typed array view.
-     * @param {number} idx
-     * @param {number=} maxBytesToRead
-     * @return {string}
-     */
-  var UTF8ArrayToString = (heapOrArray, idx, maxBytesToRead) => {
-      var endIdx = idx + maxBytesToRead;
-      var endPtr = idx;
-      // TextDecoder needs to know the byte length in advance, it doesn't stop on
-      // null terminator by itself.  Also, use the length info to avoid running tiny
-      // strings through TextDecoder, since .subarray() allocates garbage.
-      // (As a tiny code save trick, compare endPtr against endIdx using a negation,
-      // so that undefined means Infinity)
-      while (heapOrArray[endPtr] && !(endPtr >= endIdx)) ++endPtr;
-  
-      if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
-        return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
-      }
-      var str = '';
-      // If building with TextDecoder, we have already computed the string length
-      // above, so test loop end condition against that
-      while (idx < endPtr) {
-        // For UTF8 byte structure, see:
-        // http://en.wikipedia.org/wiki/UTF-8#Description
-        // https://www.ietf.org/rfc/rfc2279.txt
-        // https://tools.ietf.org/html/rfc3629
-        var u0 = heapOrArray[idx++];
-        if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
-        var u1 = heapOrArray[idx++] & 63;
-        if ((u0 & 0xE0) == 0xC0) { str += String.fromCharCode(((u0 & 31) << 6) | u1); continue; }
-        var u2 = heapOrArray[idx++] & 63;
-        if ((u0 & 0xF0) == 0xE0) {
-          u0 = ((u0 & 15) << 12) | (u1 << 6) | u2;
-        } else {
-          u0 = ((u0 & 7) << 18) | (u1 << 12) | (u2 << 6) | (heapOrArray[idx++] & 63);
-        }
-  
-        if (u0 < 0x10000) {
-          str += String.fromCharCode(u0);
-        } else {
-          var ch = u0 - 0x10000;
-          str += String.fromCharCode(0xD800 | (ch >> 10), 0xDC00 | (ch & 0x3FF));
-        }
-      }
-      return str;
-    };
-  
-    /**
-     * Given a pointer 'ptr' to a null-terminated UTF8-encoded string in the
-     * emscripten HEAP, returns a copy of that string as a Javascript String object.
-     *
-     * @param {number} ptr
-     * @param {number=} maxBytesToRead - An optional length that specifies the
-     *   maximum number of bytes to read. You can omit this parameter to scan the
-     *   string until the first 0 byte. If maxBytesToRead is passed, and the string
-     *   at [ptr, ptr+maxBytesToReadr[ contains a null byte in the middle, then the
-     *   string will cut short at that byte index (i.e. maxBytesToRead will not
-     *   produce a string of exact length [ptr, ptr+maxBytesToRead[) N.B. mixing
-     *   frequent uses of UTF8ToString() with and without maxBytesToRead may throw
-     *   JS JIT optimizations off, so it is worth to consider consistently using one
-     * @return {string}
-     */
-  var UTF8ToString = (ptr, maxBytesToRead) => {
-      return ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : '';
-    };
-  var ___assert_fail = (condition, filename, line, func) => {
-      abort(`Assertion failed: ${UTF8ToString(condition)}, at: ` + [filename ? UTF8ToString(filename) : 'unknown filename', line, func ? UTF8ToString(func) : 'unknown function']);
-    };
 
   var _abort = () => {
       abort('');
@@ -997,6 +922,58 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
   };
   
   
+  var UTF8Decoder = typeof TextDecoder != 'undefined' ? new TextDecoder('utf8') : undefined;
+  
+    /**
+     * Given a pointer 'idx' to a null-terminated UTF8-encoded string in the given
+     * array that contains uint8 values, returns a copy of that string as a
+     * Javascript String object.
+     * heapOrArray is either a regular array, or a JavaScript typed array view.
+     * @param {number} idx
+     * @param {number=} maxBytesToRead
+     * @return {string}
+     */
+  var UTF8ArrayToString = (heapOrArray, idx, maxBytesToRead) => {
+      var endIdx = idx + maxBytesToRead;
+      var endPtr = idx;
+      // TextDecoder needs to know the byte length in advance, it doesn't stop on
+      // null terminator by itself.  Also, use the length info to avoid running tiny
+      // strings through TextDecoder, since .subarray() allocates garbage.
+      // (As a tiny code save trick, compare endPtr against endIdx using a negation,
+      // so that undefined means Infinity)
+      while (heapOrArray[endPtr] && !(endPtr >= endIdx)) ++endPtr;
+  
+      if (endPtr - idx > 16 && heapOrArray.buffer && UTF8Decoder) {
+        return UTF8Decoder.decode(heapOrArray.subarray(idx, endPtr));
+      }
+      var str = '';
+      // If building with TextDecoder, we have already computed the string length
+      // above, so test loop end condition against that
+      while (idx < endPtr) {
+        // For UTF8 byte structure, see:
+        // http://en.wikipedia.org/wiki/UTF-8#Description
+        // https://www.ietf.org/rfc/rfc2279.txt
+        // https://tools.ietf.org/html/rfc3629
+        var u0 = heapOrArray[idx++];
+        if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
+        var u1 = heapOrArray[idx++] & 63;
+        if ((u0 & 0xE0) == 0xC0) { str += String.fromCharCode(((u0 & 31) << 6) | u1); continue; }
+        var u2 = heapOrArray[idx++] & 63;
+        if ((u0 & 0xF0) == 0xE0) {
+          u0 = ((u0 & 15) << 12) | (u1 << 6) | u2;
+        } else {
+          u0 = ((u0 & 7) << 18) | (u1 << 12) | (u2 << 6) | (heapOrArray[idx++] & 63);
+        }
+  
+        if (u0 < 0x10000) {
+          str += String.fromCharCode(u0);
+        } else {
+          var ch = u0 - 0x10000;
+          str += String.fromCharCode(0xD800 | (ch >> 10), 0xDC00 | (ch & 0x3FF));
+        }
+      }
+      return str;
+    };
   
   var FS_stdin_getChar_buffer = [];
   
@@ -3237,6 +3214,25 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
       },
   };
   
+  
+    /**
+     * Given a pointer 'ptr' to a null-terminated UTF8-encoded string in the
+     * emscripten HEAP, returns a copy of that string as a Javascript String object.
+     *
+     * @param {number} ptr
+     * @param {number=} maxBytesToRead - An optional length that specifies the
+     *   maximum number of bytes to read. You can omit this parameter to scan the
+     *   string until the first 0 byte. If maxBytesToRead is passed, and the string
+     *   at [ptr, ptr+maxBytesToReadr[ contains a null byte in the middle, then the
+     *   string will cut short at that byte index (i.e. maxBytesToRead will not
+     *   produce a string of exact length [ptr, ptr+maxBytesToRead[) N.B. mixing
+     *   frequent uses of UTF8ToString() with and without maxBytesToRead may throw
+     *   JS JIT optimizations off, so it is worth to consider consistently using one
+     * @return {string}
+     */
+  var UTF8ToString = (ptr, maxBytesToRead) => {
+      return ptr ? UTF8ArrayToString(HEAPU8, ptr, maxBytesToRead) : '';
+    };
   var SYSCALLS = {
   DEFAULT_POLLMASK:5,
   calculateAt(dirfd, path, allowEmpty) {
@@ -4154,6 +4150,11 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
       }
     };
 
+  var _emscripten_clear_interval = (id) => {
+      
+      clearInterval(id);
+    };
+
   var _emscripten_memcpy_js = (dest, src, num) => HEAPU8.copyWithin(dest, src, src + num);
 
   var getHeapMax = () =>
@@ -4226,6 +4227,13 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
         }
       }
       return false;
+    };
+
+  var _emscripten_set_interval = (cb, msecs, userData) => {
+      
+      return setInterval(() => {
+        callUserCallback(() => ((a1) => dynCall_vi.apply(null, [cb, a1]))(userData));
+      }, msecs);
     };
 
   var _emscripten_sleep = (ms) => {
@@ -4655,17 +4663,19 @@ function gam_sem_wait(semid) { return Asyncify.handleSleep(function (wakeUp) { v
       var preloadedAudios = {};;
 var wasmImports = {
   /** @export */
-  __assert_fail: ___assert_fail,
-  /** @export */
   abort: _abort,
   /** @export */
   emscripten_asm_const_int: _emscripten_asm_const_int,
   /** @export */
   emscripten_async_call: _emscripten_async_call,
   /** @export */
+  emscripten_clear_interval: _emscripten_clear_interval,
+  /** @export */
   emscripten_memcpy_js: _emscripten_memcpy_js,
   /** @export */
   emscripten_resize_heap: _emscripten_resize_heap,
+  /** @export */
+  emscripten_set_interval: _emscripten_set_interval,
   /** @export */
   emscripten_sleep: _emscripten_sleep,
   /** @export */
@@ -4776,13 +4786,12 @@ var dynCall_v = Module['dynCall_v'] = (a0) => (dynCall_v = Module['dynCall_v'] =
 var dynCall_ii = Module['dynCall_ii'] = (a0, a1) => (dynCall_ii = Module['dynCall_ii'] = wasmExports['dynCall_ii'])(a0, a1);
 var dynCall_iiiii = Module['dynCall_iiiii'] = (a0, a1, a2, a3, a4) => (dynCall_iiiii = Module['dynCall_iiiii'] = wasmExports['dynCall_iiiii'])(a0, a1, a2, a3, a4);
 var dynCall_jiji = Module['dynCall_jiji'] = (a0, a1, a2, a3, a4) => (dynCall_jiji = Module['dynCall_jiji'] = wasmExports['dynCall_jiji'])(a0, a1, a2, a3, a4);
-var dynCall_iidiiii = Module['dynCall_iidiiii'] = (a0, a1, a2, a3, a4, a5, a6) => (dynCall_iidiiii = Module['dynCall_iidiiii'] = wasmExports['dynCall_iidiiii'])(a0, a1, a2, a3, a4, a5, a6);
 var _asyncify_start_unwind = (a0) => (_asyncify_start_unwind = wasmExports['asyncify_start_unwind'])(a0);
 var _asyncify_stop_unwind = () => (_asyncify_stop_unwind = wasmExports['asyncify_stop_unwind'])();
 var _asyncify_start_rewind = (a0) => (_asyncify_start_rewind = wasmExports['asyncify_start_rewind'])(a0);
 var _asyncify_stop_rewind = () => (_asyncify_stop_rewind = wasmExports['asyncify_stop_rewind'])();
-var ___start_em_js = Module['___start_em_js'] = 2659605;
-var ___stop_em_js = Module['___stop_em_js'] = 2660157;
+var ___start_em_js = Module['___start_em_js'] = 2594861;
+var ___stop_em_js = Module['___stop_em_js'] = 2595413;
 
 // include: postamble.js
 // === Auto-generated postamble setup entry stuff ===

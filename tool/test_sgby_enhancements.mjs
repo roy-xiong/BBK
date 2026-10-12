@@ -89,6 +89,9 @@ function createHarness(storage = new Map(), options = {}) {
   const scheduledTimers = [];
   const drawnImages = [];
   const systemMessages = [];
+  const resourceRequests = [];
+  const animationFrames = [];
+  const saveMessages = [];
   const people = [
     person({Belong: 1, Force: 82, IQ: 91, Arms: 100}),
     person({Belong: 1, Force: 76, IQ: 64, Arms: 200}),
@@ -304,7 +307,11 @@ function createHarness(storage = new Map(), options = {}) {
       return scheduledTimers.length;
     },
     clearTimeout: () => {},
-    requestAnimationFrame: (callback) => callback(),
+    requestAnimationFrame: (callback) => {
+      if (options.deferAnimationFrames) animationFrames.push(callback);
+      else callback();
+      return animationFrames.length;
+    },
     safeSetTimeout: (_callback, delay) => {
       scheduledDelays.push(delay);
       return scheduledDelays.length;
@@ -316,6 +323,9 @@ function createHarness(storage = new Map(), options = {}) {
     document: {getElementById: () => null},
     BbkSystemChannel: {
       postMessage: (message) => systemMessages.push(JSON.parse(message)),
+    },
+    BbkSaveChannel: {
+      postMessage: (message) => saveMessages.push(JSON.parse(message)),
     },
     sendKey: (key) => {
       sentKeys.push(key);
@@ -338,6 +348,7 @@ function createHarness(storage = new Map(), options = {}) {
     dotSize: 1,
   };
   if (options.libraryBytes) {
+    context.dynLib = Array.from(options.libraryBytes, value => value.toString(16).padStart(2, '0')).join('');
     const responseText = Array.from(
       options.libraryBytes,
       (value) => String.fromCharCode(value),
@@ -350,7 +361,7 @@ function createHarness(storage = new Map(), options = {}) {
 
       overrideMimeType() {}
 
-      send() {}
+      send() {resourceRequests.push('xhr');}
     };
   }
   vm.createContext(context);
@@ -370,6 +381,9 @@ function createHarness(storage = new Map(), options = {}) {
     scheduledTimers,
     drawnImages,
     systemMessages,
+    resourceRequests,
+    animationFrames,
+    saveMessages,
     wasmMemory,
   };
 }
@@ -481,6 +495,48 @@ function createHarness(storage = new Map(), options = {}) {
   );
 }
 
+{
+  const {context, data, hooks, wasmMemory, animationFrames} = createHarness(
+    new Map(), {deferAnimationFrames: true},
+  );
+  data.g_FgtOver = 1;
+  const pixels = new Uint8ClampedArray(wasmMemory.buffer);
+  for (let index = 3; index < pixels.length; index += 4) pixels[index] = 255;
+  hooks.didShowMainMap({});
+
+  // 空城直接获胜不会触发 enterBattle。核心离开选城页后直接绘制战果弹窗，
+  // 弹窗的黑色文字恰好落在旧城池坐标，仍必须保持原色。
+  hooks.didLeaveMainMap?.({});
+  const victoryFrame = pixels.slice();
+  context.bayeFlushLcdBuffer(0);
+  const cityOffset = (4 * 160 + 4) * 4;
+  assert.deepEqual(
+    Array.from(pixels.slice(cityOffset, cityOffset + 4)),
+    [0, 0, 0, 255],
+    '离开地图后的战果弹窗不能按旧城池坐标染色',
+  );
+  assert.deepEqual(pixels, victoryFrame, '弹窗也不能被旧地图道路和守将数字覆盖');
+
+  let canvasWrites = 0;
+  context.document.getElementById = () => ({
+    width: 160, height: 96,
+    getContext: () => ({
+      getImageData: () => ({data: victoryFrame.slice()}),
+      putImageData: () => {canvasWrites++;},
+    }),
+  });
+  animationFrames.splice(0).forEach(callback => callback());
+  assert.equal(canvasWrites, 0, '上一帧地图的延迟回调不能再次覆盖当前弹窗');
+
+  hooks.didShowMainMap({});
+  context.bayeFlushLcdBuffer(0);
+  assert.deepEqual(
+    Array.from(pixels.slice(cityOffset, cityOffset + 4)),
+    [211, 47, 47, 255],
+    '重新进入地图后应恢复城池染色',
+  );
+}
+
 function person(overrides) {
   return {
     OldBelong: 0,
@@ -498,6 +554,86 @@ function person(overrides) {
     Age: 30,
     ...overrides,
   };
+}
+
+{
+  const storage = new Map();
+  const {api, hooks, scheduledTimers, systemMessages, saveMessages} = createHarness(storage);
+  const statistics = () => JSON.parse(api.getBattleStatistics?.() || 'null');
+  assert.equal(statistics(), null, '选择君主前不应继承其他局的战绩');
+  hooks.didOpenNewGame({});
+  assert.equal(statistics()?.lostSoldiers, 0, '选择君主后开始独立统计');
+  hooks.battleArmsLost({sourceBelong: 1, victimBelong: 5, loss: 500});
+  hooks.battleArmsLost({sourceBelong: 5, victimBelong: 1, loss: 70});
+  hooks.battleArmsLost({sourceBelong: 5, victimBelong: 6, loss: 1000});
+  hooks.battleGeneralDied({personIndex: 4, belong: 5, arms: 200, winnerBelong: 1});
+  hooks.battleGeneralDied({personIndex: 4, belong: 5, arms: 200, winnerBelong: 1});
+  assert.equal(statistics().lostSoldiers, 70);
+  assert.equal(statistics().killedSoldiers, 700, '伤害与战后剩余兵力处死均计入，但同一次死亡不能重复');
+  assert.equal(statistics().killedGenerals, 1);
+  assert.equal(statistics().lostGenerals, 0);
+  scheduledTimers.filter(timer => timer.delay === 100).at(-1).callback();
+  assert.equal(systemMessages.at(-1).type, 'sgby_battle_statistics');
+  assert.equal(systemMessages.at(-1).data.killedSoldiers, 700, '战斗中即推送数字，不等待返回地图');
+  hooks.didSaveGame({slotIndex: 0});
+  hooks.battleArmsLost({sourceBelong: 1, victimBelong: 5, loss: 100});
+  hooks.didSaveGame({slotIndex: 1});
+  assert.equal(saveMessages.length, 2, '每个成功存档都要同步该档统计到Flutter备份');
+  hooks.didLoadGame({slotIndex: 0});
+  assert.equal(statistics().killedSoldiers, 700, '读回第一档应回滚该档之后的战绩');
+  hooks.didLoadGame({slotIndex: 1});
+  assert.equal(statistics().killedSoldiers, 800, '不同档位不能串用统计');
+  const reopened = createHarness(storage);
+  reopened.hooks.didLoadGame({slotIndex: 0});
+  assert.equal(JSON.parse(reopened.api.getBattleStatistics()).killedSoldiers, 700, '重建页面后仍可恢复该档战绩');
+  hooks.didOpenNewGame({});
+  assert.equal(statistics().killedSoldiers, 0, '新选君主开启新局时清零');
+  hooks.didLoadGame({slotIndex: 2});
+  assert.equal(statistics().hasFullHistory, false, '旧档没有历史战绩时须明确从此次载入开始');
+  assert.equal(statistics().killedSoldiers, 0);
+}
+
+{
+  const {context, data, hooks, wasmMemory} = createHarness();
+  data.g_FgtOver = 1;
+  // 21号势力原来接近红色，18号接近粉色；四座相近城池属于四个不同势力。
+  [1, 21, 18, 5].forEach((belong, index) => {data.g_Cities[index].Belong = belong;});
+  const pixels = new Uint8ClampedArray(wasmMemory.buffer);
+  const renderColors = () => {
+    pixels.fill(0);
+    for (let index = 3; index < pixels.length; index += 4) pixels[index] = 255;
+    hooks.didShowMainMap({});
+    context.bayeFlushLcdBuffer(0);
+    return data.g_CityPositions.map(({x, y}) => {
+      const offset = ((y * 16 + 4) * 160 + x * 16 + 4) * 4;
+      return Array.from(pixels.slice(offset, offset + 3));
+    });
+  };
+  const hueOf = ([red, green, blue]) => {
+    const max = Math.max(red, green, blue), min = Math.min(red, green, blue);
+    if (max === min) return 0;
+    let hue = max === red ? (green - blue) / (max - min)
+      : max === green ? 2 + (blue - red) / (max - min)
+        : 4 + (red - green) / (max - min);
+    return (hue * 60 + 360) % 360;
+  };
+  const colors = renderColors();
+  assert.deepEqual(colors[0], [211, 47, 47], '玩家固定使用红色');
+  for (let first = 0; first < colors.length; first++) {
+    for (let second = first + 1; second < colors.length; second++) {
+      const difference = Math.abs(hueOf(colors[first]) - hueOf(colors[second]));
+      assert.ok(Math.min(difference, 360 - difference) >= 40,
+        `相近城池${first}、${second}不能使用相近色相：${JSON.stringify(colors)}`);
+    }
+  }
+  assert.deepEqual(renderColors(), colors, '重复刷新时阵营颜色应保持稳定');
+  data.g_Cities[2].Belong = 21;
+  const afterConquest = renderColors();
+  assert.deepEqual(afterConquest[1], afterConquest[2], '同一势力的多个城池必须使用同色');
+  data.g_Cities[2].Belong = 18;
+  assert.notDeepEqual(renderColors()[1], renderColors()[2], '城池归属变化后须更新阵营配色缓存');
+  data.g_Cities[3].Belong = 0;
+  assert.deepEqual(renderColors()[3], [126, 132, 138], '无人城始终保持灰色');
 }
 
 /** 构造只含资源 63 的最小 LIB，用于验证未来年份武将解析。 */
@@ -724,6 +860,8 @@ function apply(api, action) {
   assert.equal(enabled.ok, true, enabled.message);
   assert.equal(JSON.parse(api.getCheatState()).autoEndTurn, true);
   assert.equal(sentKeys.at(-1), 0x28);
+  hooks.didLeaveMainMap({});
+  // 真实核心先退出选城页再调用系统菜单。停止染色不能取消已经请求的结束策略。
   assert.equal(hooks.mainSystemMenu({}), 0);
   assert.equal(hooks.tacticStageUser({}), 0);
   assert.equal(hooks.mainSystemMenu({}), 0);
@@ -1752,6 +1890,62 @@ function apply(api, action) {
   assert.equal(people[3].Belong, 0xffff);
   assert.equal(returnedTools.some((entry) => entry.tool === 4), true);
   assert.equal(returnedTools.some((entry) => entry.tool === 5), true);
+}
+
+{
+  const storage = new Map([['baye/libpath', 'libs/test.lib']]);
+  const conditions = Array.from({length: 8}, () => ({}));
+  conditions[6] = {birth: 220, city: 4};
+  const harness = createHarness(storage, {libraryBytes: buildGeneralConditionsLibrary(conditions)});
+  harness.context.baye.getPersonCount = () => 8;
+  const roster = JSON.parse(harness.api.getCheatData());
+  assert.equal(roster.ok, true);
+  assert.equal(roster.generals.find(general => general.index === 6).group, 'futureWild');
+  assert.equal(harness.resourceRequests.length, 0, '首次读取将领列表必须复用引擎资源，不能同步请求LIB');
+  harness.context.dynLib = '00';
+  harness.data.g_PIdx = 2;
+  assert.equal(JSON.parse(harness.api.getCheatData()).ok, true, '损坏或切换中的资源不能导致列表崩溃');
+}
+
+{
+  const {api, data, hooks, scheduledTimers, sentKeys} = createHarness();
+  data.g_FgtOver = 1;
+  hooks.didShowMainMap({});
+  assert.equal(JSON.parse(api.handleControl('autoEndTurn')).ok, true);
+  hooks.mainSystemMenu({});
+  api.beginUiPause();
+  api.beginUiPause();
+  const keysBeforePause = sentKeys.length;
+  assert.equal(JSON.parse(api.getCheatState()).autoEndTurn, true, '面板暂挂不能改变用户持久开关');
+  assert.equal(hooks.tacticStageUser({}), -1, '面板打开时必须等待玩家阶段');
+  assert.notEqual(hooks.mainSystemMenu({}), 0);
+  api.endUiPause();
+  assert.equal(hooks.tacticStageUser({}), -1, '嵌套面板尚未全部关闭时不能恢复');
+  assert.equal(sentKeys.length, keysBeforePause);
+  api.endUiPause();
+  assert.equal(hooks.tacticStageUser({}), 0);
+  const resumeTimer = scheduledTimers.filter(timer => timer.delay === 180).at(-1);
+  assert.ok(resumeTimer);
+  resumeTimer.callback();
+  assert.equal(sentKeys.length, keysBeforePause + 1);
+  hooks.mainSystemMenu({});
+  api.endUiPause();
+  assert.equal(sentKeys.length, keysBeforePause + 1, '重复关闭不能重复恢复自动操作');
+}
+
+{
+  const harness = createHarness();
+  const {api, hooks, sentKeys, scheduledTimers} = harness;
+  api.handleControl('autoBattle');
+  hooks.battleStage2({});
+  const oldTimers = scheduledTimers.slice();
+  api.beginUiPause();
+  const keysBeforePause = sentKeys.length;
+  oldTimers.forEach(timer => timer.callback());
+  assert.equal(sentKeys.length, keysBeforePause, '打开面板后旧的自动战斗回调不能继续发按键');
+  api.endUiPause();
+  assert.equal(JSON.parse(api.getCheatState()).autoBattle, true);
+  assert.ok(scheduledTimers.length > oldTimers.length, '面板关闭后应重新安排自动战斗');
 }
 
 console.log('三国霸业增强回归测试通过');

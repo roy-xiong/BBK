@@ -58,6 +58,10 @@
     var CITY_ROAD_COLOR = [126, 132, 138];
     var CITY_COUNT_COLOR = [255, 255, 255];
     var CITY_COUNT_SHADOW_COLOR = [0, 0, 0];
+    // 红色专用于玩家。敌方候选色排除红、橙红和粉色段，并提供足够的明度组合。
+    var FACTION_COLOR_HUES = [60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280];
+    var FACTION_COLOR_LIGHTNESSES = [0.30, 0.40, 0.50, 0.60];
+    var NEARBY_CITY_DISTANCE_SQUARED = 9;
     // 3×5 点阵字体；每一项的低三位依次表示该行从左到右的三个像素。
     var CITY_COUNT_DIGITS = [
         [7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 7, 1, 7],
@@ -88,6 +92,7 @@
     var CHEAT_STATE_STORAGE_KEY = 'baye/bbkSgbyCheatState';
     var SEARCH_HISTORY_STORAGE_KEY = 'baye/bbkSgbySearchHistory';
     var SEARCH_HISTORY_LIMIT = 50;
+    var BATTLE_STATISTICS_SLOT_PREFIX = 'baye/bbkSgbyBattleStatistics/slot-';
     var persistedCheatState = loadPersistentCheatState();
     var persistedBattleSpeed = resolvePersistedBattleSpeed(persistedCheatState);
 
@@ -118,6 +123,7 @@
         endTurnPending: false,
         autoEndTurnResumeTimer: null,
         autoEndTurnResumeGeneration: 0,
+        uiPauseDepth: 0,
         quickSavePending: false,
         battleFoodSnapshot: null,
         cityFoodConsumptionSnapshot: null,
@@ -127,6 +133,8 @@
         battleCaptiveSnapshot: null,
         initializationTimer: null,
         mainMapVisible: false,
+        // 自动策略记录本轮是否回到过地图；显示状态单独跟随核心页面切换。
+        mainMapOverlayVisible: false,
         mainMapRoadsVisible: false,
         groupAttackTargeting: null,
         selfGroupTouchInstalled: false,
@@ -143,6 +151,13 @@
         autoBattleEndTurnRestore: null
     };
     var generalConditionCache = null;
+    var factionColorCache = null;
+    var factionColorPalette = null;
+    var battleStatistics = null;
+    var battleStatisticsDeaths = {};
+    var battleStatusSources = {};
+    var battleStatisticsTimer = null;
+    var battleStatisticsGeneration = 0;
     var autoBattleHooks = null;
     var autoBattleOriginalChooseAction = null;
     var autoBattleChooseActionHook = null;
@@ -414,7 +429,8 @@
             if (!ownedCities.length) return null;
 
             var ownedPeople = [];
-            for (var personIndex = 0; personIndex < people.length; personIndex++) {
+            var personCount = gamePersonCount({people: people});
+            for (var personIndex = 0; personIndex < personCount; personIndex++) {
                 if (people[personIndex].Belong === ruler) {
                     ownedPeople.push({index: personIndex, value: people[personIndex]});
                 }
@@ -492,43 +508,39 @@
     }
 
     /**
-     * 同步读取当前版本的本地 LIB 文件。
+     * 从引擎已经加载的十六进制资源中读取指定字节区间。
      *
-     * 游戏资源由应用内的 127.0.0.1 静态服务提供，读取只发生在首次全城搜索时。使用
-     * x-user-defined 保留原始字节，兼容 Window 环境不允许同步 XHR 设置 arraybuffer 的限制。
+     * dynLib由原版加载流程维护。这里只解码资源表、头部和当前剧本的出现条件，
+     * 避免打开将领面板时同步请求并逐字节复制整份约2MB的LIB。越界、奇数长度或
+     * 非法十六进制字节一律返回null，不写入引擎数据，也不发起备用网络请求。
      *
-     * @param {string} path 当前资源库相对路径。
-     * @return {Uint8Array|null} LIB 原始字节。
+     * @param {number} offset 相对于LIB起点的字节偏移。
+     * @param {number} length 需要读取的字节数。
+     * @return {DataView|null} 指定区间的字节视图；资源未就绪或损坏时返回null。
      */
-    function loadLibraryBytes(path) {
-        if (!path || typeof global.XMLHttpRequest !== 'function') return null;
-        try {
-            var request = new global.XMLHttpRequest();
-            request.open('GET', path, false);
-            if (typeof request.overrideMimeType === 'function') {
-                request.overrideMimeType('text/plain; charset=x-user-defined');
-            }
-            request.send(null);
-            if (request.status !== 0 && (request.status < 200 || request.status >= 300)) {
-                return null;
-            }
-            var text = request.responseText || '';
-            if (!text.length) return null;
-            var bytes = new Uint8Array(text.length);
-            for (var index = 0; index < text.length; index++) {
-                bytes[index] = text.charCodeAt(index) & 0xff;
-            }
-            return bytes;
-        } catch (_) {
+    function loadedLibraryView(offset, length) {
+        var hex = global.dynLib;
+        if (
+            typeof hex !== 'string' || hex.length % 2 !== 0 ||
+            !Number.isInteger(offset) || !Number.isInteger(length) ||
+            offset < 0 || length < 0 || offset + length > hex.length / 2
+        ) {
             return null;
         }
+        var bytes = new Uint8Array(length);
+        for (var index = 0; index < length; index++) {
+            var byteText = hex.slice((offset + index) * 2, (offset + index + 1) * 2);
+            if (!/^[0-9a-f]{2}$/i.test(byteText)) return null;
+            bytes[index] = parseInt(byteText, 16);
+        }
+        return new DataView(bytes.buffer);
     }
 
     /**
      * 解析当前剧本的武将出现条件（资源 63）。
      *
      * 同时兼容定长资源项和带 RIDX 索引的变长资源项。解析结果按“资源路径+剧本编号”
-     * 缓存，后续每月自动搜索不会重复读取约 2MB 的本地资源库。
+     * 缓存；仅解码当前剧本所需区间，首次和后续调用都不进行同步网络或文件请求。
      *
      * @param {Object} context 当前游戏上下文。
      * @return {Array<Object>} 与人物数组序号一致的出现条件。
@@ -541,19 +553,17 @@
         if (generalConditionCache && generalConditionCache.key === cacheKey) {
             return generalConditionCache.conditions;
         }
-        var bytes = loadLibraryBytes(path);
-        if (!bytes) return [];
         try {
-            var view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
             var tableOffset = (GENERAL_CON_RESOURCE_ID - 1) * 4;
-            var resourceOffset = readUnsignedLittleEndian(view, tableOffset, 4);
-            if (resourceOffset == null || resourceOffset + RESOURCE_HEADER_SIZE > view.byteLength) {
-                return [];
-            }
-            var resourceId = readUnsignedLittleEndian(view, resourceOffset + 4, 2);
-            var itemCount = readUnsignedLittleEndian(view, resourceOffset + 6, 2);
-            var itemLength = readUnsignedLittleEndian(view, resourceOffset + 8, 4);
-            var resourceKey = readUnsignedLittleEndian(view, resourceOffset + 12, 1);
+            var tableView = loadedLibraryView(tableOffset, 4);
+            if (!tableView) return [];
+            var resourceOffset = readUnsignedLittleEndian(tableView, 0, 4);
+            var header = loadedLibraryView(resourceOffset, RESOURCE_HEADER_SIZE);
+            if (!header) return [];
+            var resourceId = readUnsignedLittleEndian(header, 4, 2);
+            var itemCount = readUnsignedLittleEndian(header, 6, 2);
+            var itemLength = readUnsignedLittleEndian(header, 8, 4);
+            var resourceKey = readUnsignedLittleEndian(header, 12, 1);
             if (
                 resourceId !== GENERAL_CON_RESOURCE_ID || resourceKey !== 0 ||
                 period > itemCount
@@ -568,24 +578,23 @@
             } else {
                 var indexOffset = resourceOffset + RESOURCE_HEADER_SIZE +
                     (period - 1) * RESOURCE_INDEX_SIZE;
-                var relativeOffset = readUnsignedLittleEndian(view, indexOffset, 4);
-                selectedItemLength = readUnsignedLittleEndian(view, indexOffset + 4, 4);
+                var indexView = loadedLibraryView(indexOffset, RESOURCE_INDEX_SIZE);
+                if (!indexView) return [];
+                var relativeOffset = readUnsignedLittleEndian(indexView, 0, 4);
+                selectedItemLength = readUnsignedLittleEndian(indexView, 4, 4);
                 if (relativeOffset == null || selectedItemLength == null) return [];
                 itemOffset = resourceOffset + relativeOffset;
             }
-            if (
-                itemOffset < 0 || selectedItemLength < SEARCH_CONDITION_SIZE ||
-                itemOffset + selectedItemLength > view.byteLength
-            ) {
-                return [];
-            }
+            if (itemOffset < 0 || selectedItemLength < SEARCH_CONDITION_SIZE) return [];
+            var view = loadedLibraryView(itemOffset, selectedItemLength);
+            if (!view) return [];
             var count = Math.min(
                 context.people.length,
                 Math.floor(selectedItemLength / SEARCH_CONDITION_SIZE)
             );
             var conditions = [];
             for (var personIndex = 0; personIndex < count; personIndex++) {
-                var offset = itemOffset + personIndex * SEARCH_CONDITION_SIZE;
+                var offset = personIndex * SEARCH_CONDITION_SIZE;
                 conditions.push({
                     birth: readUnsignedLittleEndian(view, offset, 1) || 0,
                     bole: readUnsignedLittleEndian(view, offset + 1, 2) || 0,
@@ -915,6 +924,17 @@
             var maxLevel = context.data.g_engineConfig.maxLevel || 20;
             var personCount = gamePersonCount(context);
             var generals = [];
+            // 一次建立战场人物映射，避免为每名将领重新读取并扫描20个战场位置。
+            var battleIndexes = {};
+            if (isBattleActive(context.data)) {
+                for (var battleSlot = 0; battleSlot < TOTAL_GENERAL_LIMIT; battleSlot++) {
+                    var battlePerson = Number(context.data.g_FgtParam.GenArray[battleSlot]) - 1;
+                    if (battlePerson >= 0 && battlePerson < personCount &&
+                        battleIndexes[battlePerson] == null) {
+                        battleIndexes[battlePerson] = battleSlot;
+                    }
+                }
+            }
             for (var personIndex = 0; personIndex < personCount; personIndex++) {
                 var person = context.people[personIndex];
                 var personName = baye.getPersonName(personIndex);
@@ -947,7 +967,8 @@
                 }
                 var birth = condition ? Number(condition.birth) || 0 : 0;
                 var appearanceYear = birth > 0 ? birth + 16 : 0;
-                var battleIndex = battleIndexOf(context.data, personIndex);
+                var battleIndex = battleIndexes[personIndex] == null
+                    ? -1 : battleIndexes[personIndex];
                 var position = battleIndex >= 0
                     ? context.data.g_GenPos[battleIndex]
                     : null;
@@ -1243,6 +1264,12 @@
             cityPersonIndexes(context, cityEntry).forEach(function (personIndex) {
                 var captive = context.people[personIndex];
                 if (!captive || captive.Belong !== CAPTIVE_BELONG) return;
+                recordBattleGeneralDeath({
+                    personIndex: personIndex,
+                    belong: captive.OldBelong,
+                    arms: captive.Arms,
+                    winnerBelong: cityEntry.value.Belong
+                });
                 executedNames.push(
                     baye.getPersonName(personIndex) || ('武将 ' + (personIndex + 1))
                 );
@@ -1703,6 +1730,12 @@
                 return;
             }
             returnPersonEquipment(snapshot.cityIndex, person);
+            recordBattleGeneralDeath({
+                personIndex: personIndex,
+                belong: person.OldBelong,
+                arms: person.Arms,
+                winnerBelong: city.Belong
+            });
             baye.deletePersonInCity(snapshot.cityIndex, personIndex);
             count++;
         });
@@ -1905,7 +1938,7 @@
     /** 从当前光标所在我方城市启动一键出征。 */
     function startQuickExpedition() {
         var context = gameContext();
-        if (!context || !cheatState.mainMapVisible || isBattleActive(context.data)) {
+        if (!context || !cheatState.mainMapOverlayVisible || isBattleActive(context.data)) {
             return result(false, '请回到战略地图后使用一键出征');
         }
         var cityEntry = selectedOwnedCity(context);
@@ -2147,7 +2180,13 @@
             if (!isInNormalAttackSquare(attackerPosition, position)) continue;
             var person = data.g_Persons[personId - 1];
             if (!person) continue;
+            var actualLoss = Math.min(hurt, person.Arms);
             person.Arms = hurt >= person.Arms ? 0 : person.Arms - hurt;
+            recordBattleArmsLoss({
+                sourceBelong: data.g_PlayerKing + 1,
+                victimBelong: person.Belong,
+                loss: actualLoss
+            });
         }
     }
 
@@ -2239,16 +2278,148 @@
     }
 
     /**
-     * 为阵营生成稳定且具有区分度的颜色。
+     * 比较两个配色的色相与明度差，优先避免相邻势力使用同色系。
      *
-     * @param {number} belong 城池归属，0 表示空城。
-     * @param {number} playerRuler 玩家阵营。
-     * @return {number[]} RGB 数组。
+     * 色相使用环形距离；明度只能辅助区分，不能让红色与浅红色因明度不同而被优先选中。
+     *
+     * @param {Object} first 第一种候选色。
+     * @param {Object} second 第二种候选色。
+     * @return {number} 值越大，配色区别越明显。
      */
-    function factionColor(belong, playerRuler) {
-        if (belong === 0) return [126, 132, 138];
-        if (belong === playerRuler) return PLAYER_UNIT_RED;
-        return hslToRgb((belong * 137.508) % 360, 0.72, 0.52);
+    function factionColorSeparation(first, second) {
+        var difference = Math.abs(first.hue - second.hue);
+        return Math.min(difference, 360 - difference) +
+            Math.abs(first.lightness - second.lightness) * 90;
+    }
+
+    /**
+     * 按全地图的势力邻接关系分配颜色，并缓存至归属或布局变化。
+     *
+     * 道路相连或距离不超过三个图块的城池均建立邻接约束，不受当前视窗限制。
+     * 先处理已着色邻居较多、边界较多的势力，再选择与这些邻居最不相近的颜色；
+     * 全局也尽量拉开颜色。玩家固定红色，无人城固定灰色，不参与敌方候选色分配。
+     *
+     * 48个候选色覆盖内置地图的全部势力。同一势力始终共用一种颜色；归属变化时
+     * 尽量保留仍能区分邻居的旧颜色。普通刷新只比较少量城池字段，不重建邻接图。
+     *
+     * @param {Object} context 地图数据上下文。
+     * @return {Object<string, number[]>} 势力编号到RGB颜色的映射。
+     */
+    function factionColorsForMap(context) {
+        var cities = context.cities;
+        var positions = context.data.g_CityPositions;
+        var layout = String(context.ruler);
+        var signature = '';
+        for (var index = 0; index < cities.length; index++) {
+            var position = positions[index];
+            layout += ':' + (position ? position.x + ',' + position.y : '-');
+            signature += ':' + cities[index].Belong;
+        }
+        signature = layout + signature;
+        if (factionColorCache && factionColorCache.signature === signature) {
+            return factionColorCache.colors;
+        }
+        if (!factionColorPalette) {
+            factionColorPalette = [];
+            FACTION_COLOR_HUES.forEach(function (hue) {
+                FACTION_COLOR_LIGHTNESSES.forEach(function (lightness) {
+                    factionColorPalette.push({
+                        hue: hue,
+                        lightness: lightness,
+                        rgb: hslToRgb(hue, 0.88, lightness)
+                    });
+                });
+            });
+        }
+
+        var neighbors = {};
+        neighbors[context.ruler] = {};
+        for (var cityIndex = 0; cityIndex < cities.length; cityIndex++) {
+            var belong = cities[cityIndex].Belong;
+            if (belong && !neighbors[belong]) neighbors[belong] = {};
+        }
+        function connect(first, second) {
+            if (!cities[first] || !cities[second]) return;
+            var from = cities[first].Belong;
+            var to = cities[second].Belong;
+            if (!from || !to || from === to) return;
+            neighbors[from][to] = true;
+            neighbors[to][from] = true;
+        }
+        CITY_CONNECTIONS.forEach(function (edge) {connect(edge[0], edge[1]);});
+        for (var first = 0; first < cities.length; first++) {
+            if (!positions[first]) continue;
+            for (var second = first + 1; second < cities.length; second++) {
+                if (!positions[second]) continue;
+                var deltaX = positions[first].x - positions[second].x;
+                var deltaY = positions[first].y - positions[second].y;
+                if (deltaX * deltaX + deltaY * deltaY <= NEARBY_CITY_DISTANCE_SQUARED) {
+                    connect(first, second);
+                }
+            }
+        }
+
+        var assigned = {};
+        assigned[context.ruler] = {hue: 0, lightness: 0.506, rgb: PLAYER_UNIT_RED};
+        var colors = {0: CITY_ROAD_COLOR};
+        colors[context.ruler] = PLAYER_UNIT_RED;
+        var used = {};
+        var paletteIndexes = {};
+        var previous = factionColorCache && factionColorCache.layout === layout
+            ? factionColorCache.paletteIndexes : {};
+        var remaining = Object.keys(neighbors).filter(function (ruler) {
+            return Number(ruler) !== context.ruler;
+        });
+        while (remaining.length) {
+            remaining.sort(function (left, right) {
+                var leftNeighbors = Object.keys(neighbors[left]);
+                var rightNeighbors = Object.keys(neighbors[right]);
+                var leftAssigned = leftNeighbors.filter(function (ruler) {return assigned[ruler];}).length;
+                var rightAssigned = rightNeighbors.filter(function (ruler) {return assigned[ruler];}).length;
+                return rightAssigned - leftAssigned || rightNeighbors.length - leftNeighbors.length ||
+                    Number(left) - Number(right);
+            });
+            var ruler = remaining.shift();
+            var adjacent = Object.keys(neighbors[ruler]).filter(function (other) {return assigned[other];});
+            var allAssigned = Object.keys(assigned);
+            var bestIndex = -1;
+            var bestScore = -Infinity;
+            var previousIndex = previous[ruler];
+            for (var candidateIndex = 0; candidateIndex < factionColorPalette.length; candidateIndex++) {
+                var candidate = factionColorPalette[candidateIndex];
+                var neighborDistance = 180;
+                adjacent.forEach(function (other) {
+                    neighborDistance = Math.min(neighborDistance,
+                        factionColorSeparation(candidate, assigned[other]));
+                });
+                var globalDistance = 180;
+                allAssigned.forEach(function (other) {
+                    globalDistance = Math.min(globalDistance,
+                        factionColorSeparation(candidate, assigned[other]));
+                });
+                // 先保证颜色不重复，再优先拉开相邻色相；远处势力的差别仅用于同分排序。
+                var score = neighborDistance + globalDistance * 0.1 - (used[candidateIndex] ? 360 : 0);
+                if (candidateIndex === previousIndex && !used[candidateIndex] && neighborDistance >= 55) {
+                    bestIndex = candidateIndex;
+                    break;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIndex = candidateIndex;
+                }
+            }
+            assigned[ruler] = factionColorPalette[bestIndex];
+            colors[ruler] = assigned[ruler].rgb;
+            paletteIndexes[ruler] = bestIndex;
+            used[bestIndex] = true;
+        }
+        factionColorCache = {
+            signature: signature,
+            layout: layout,
+            colors: colors,
+            paletteIndexes: paletteIndexes
+        };
+        return colors;
     }
 
     /**
@@ -2383,6 +2554,7 @@
         var visibleRows = Math.floor(global.lcdHeight / 16);
         var viewport = context.data.g_CityPos;
         var coloredPixels = 0;
+        var factionColors = factionColorsForMap(context);
 
         for (var cityIndex = 0; cityIndex < context.cities.length; cityIndex++) {
             var position = context.data.g_CityPositions[cityIndex];
@@ -2395,7 +2567,7 @@
                 continue;
             }
 
-            var rgb = factionColor(context.cities[cityIndex].Belong, context.ruler);
+            var rgb = factionColors[context.cities[cityIndex].Belong];
             var startX = Math.round((relativeX * 16 + 4) * scaleX);
             var startY = Math.round((relativeY * 16 + 4) * scaleY);
             var endX = Math.min(pixelWidth, Math.round(startX + 8 * scaleX));
@@ -2580,49 +2752,6 @@
     }
 
     /**
-     * 按城池归属为当前主地图中的 8×8 城池图标着色。
-     *
-     * 地图底图使用深灰色，城池图标使用纯黑色；这里只替换图标范围内接近纯黑的像素，
-     * 不修改文字、地图纹理或右侧信息栏。地图 Hook 仅在重绘时触发，不参与逐帧循环。
-     */
-    function colorizeCityIcons() {
-        if (!cheatState.mainMapVisible) return;
-        var canvas = document.getElementById('lcd');
-        if (!canvas || !canvas.getContext || !global.lcdWidth || !global.lcdHeight) return;
-
-        try {
-            var drawing = canvas.getContext('2d');
-            var image = drawing.getImageData(0, 0, canvas.width, canvas.height);
-            var scaleX = canvas.width / global.lcdWidth;
-            var scaleY = canvas.height / global.lcdHeight;
-            if (cheatState.mainMapRoadsVisible) {
-                drawCityConnections(image.data, canvas.width, canvas.height, scaleX, scaleY);
-            }
-            if (cheatState.factionColors) {
-                colorizePixelData(
-                    image.data,
-                    canvas.width,
-                    canvas.height,
-                    scaleX,
-                    scaleY
-                );
-            }
-            if (cheatState.mainMapRoadsVisible) {
-                drawCityGeneralCounts(
-                    image.data,
-                    canvas.width,
-                    canvas.height,
-                    scaleX,
-                    scaleY
-                );
-            }
-            drawing.putImageData(image, 0, 0);
-        } catch (_) {
-            // Canvas 读取失败时保留原版黑白地图。
-        }
-    }
-
-    /**
      * 将触点坐标转换为游戏逻辑坐标。
      *
      * @param {HTMLCanvasElement} canvas 游戏画布。
@@ -2648,7 +2777,7 @@
      * @return {{point:Object, city:Object}|null} Flutter 可解析的数据。
      */
     function enemyCityAtPoint(canvas, clientX, clientY) {
-        if (!cheatState.mainMapVisible) return null;
+        if (!cheatState.mainMapOverlayVisible) return null;
         var context = gameContext();
         if (!context) return null;
         var point = gamePointFromClient(canvas, clientX, clientY);
@@ -2726,7 +2855,7 @@
         }
 
         canvas.addEventListener('touchstart', function (event) {
-            if (!cheatState.mainMapVisible || active || !event.targetTouches.length) return;
+            if (!cheatState.mainMapOverlayVisible || active || !event.targetTouches.length) return;
             cheatState.mainMapRoadsVisible = false;
             var touch = event.targetTouches[0];
             active = {
@@ -2776,15 +2905,17 @@
      * 安装 LCD 输出和输入状态桥。
      *
      * 主地图后续的周期刷新会在写入 Canvas 前直接处理 WASM RGBA 缓冲，避免先着色后又
-     * 被黑白帧覆盖。弹窗期间继续保留城池着色，只暂停道路重画，避免路线穿过弹窗。
+     * 被黑白帧覆盖。核心离开地图时同步关闭城池、道路和守将数字增强，防止弹窗里的
+     * 黑色文字或插图恰好落在旧城池坐标而被误染色。只在此输出入口处理当前帧，
+     * 不再排队读取、回写 Canvas，避免上一张地图的回调覆盖后续页面。
      */
     function installDisplayPipeline() {
         var originalFlush = global.bayeFlushLcdBuffer;
         if (typeof originalFlush === 'function') {
             global.bayeFlushLcdBuffer = function (buffer) {
-                var shouldColorCities = cheatState.factionColors && cheatState.mainMapVisible;
-                var shouldDrawRoads = cheatState.mainMapVisible && cheatState.mainMapRoadsVisible;
-                var shouldDrawCityCounts = cheatState.mainMapVisible &&
+                var shouldColorCities = cheatState.factionColors && cheatState.mainMapOverlayVisible;
+                var shouldDrawRoads = cheatState.mainMapOverlayVisible && cheatState.mainMapRoadsVisible;
+                var shouldDrawCityCounts = cheatState.mainMapOverlayVisible &&
                     cheatState.mainMapRoadsVisible;
                 var shouldColorBattle = global.baye && baye.data && isBattleActive(baye.data);
                 if (
@@ -2985,6 +3116,7 @@
     function isAutoBattleRunValid(runId) {
         return (
             cheatState.autoBattle && cheatState.autoBattlePlayerStage &&
+            cheatState.uiPauseDepth === 0 &&
             runId === cheatState.autoBattleRunId && global.baye && baye.data &&
             isBattleActive(baye.data)
         );
@@ -3436,7 +3568,8 @@
     function beginAutoBattlePlayerTurn() {
         cancelAutoBattleRun();
         cheatState.autoBattleEndTurnIssued = false;
-        if (!cheatState.autoBattle || !cheatState.autoBattlePlayerStage) return;
+        if (!cheatState.autoBattle || !cheatState.autoBattlePlayerStage ||
+            cheatState.uiPauseDepth > 0) return;
         scheduleAutoBattleGeneral(cheatState.autoBattleRunId);
     }
 
@@ -3448,7 +3581,7 @@
      */
     function syncAutoBattleChooseActionHook() {
         if (!autoBattleHooks || !autoBattleChooseActionHook) return;
-        if (cheatState.autoBattle) {
+        if (cheatState.autoBattle && cheatState.uiPauseDepth === 0) {
             autoBattleHooks.fightChooseAction = autoBattleChooseActionHook;
             return;
         }
@@ -3482,7 +3615,8 @@
      */
     function scheduleAutoEndTurnResume() {
         cancelAutoEndTurnResume();
-        if (!cheatState.autoEndTurn || cheatState.endTurnPending) return;
+        if (!cheatState.autoEndTurn || cheatState.endTurnPending ||
+            cheatState.uiPauseDepth > 0) return;
         var generation = cheatState.autoEndTurnResumeGeneration;
         cheatState.autoEndTurnResumeTimer = global.setTimeout(function () {
             if (generation !== cheatState.autoEndTurnResumeGeneration) return;
@@ -3500,8 +3634,42 @@
     function resetAutoEndTurnMapState() {
         cancelAutoEndTurnResume();
         cheatState.mainMapVisible = false;
-        cheatState.mainMapRoadsVisible = false;
+        hideMainMapOverlays();
         cheatState.endTurnPending = false;
+    }
+
+    /**
+     * 停止已离开页面的地图增强，等待下一次核心地图重绘再开启。
+     *
+     * 此处不清理自动策略的地图就绪状态：结束策略时核心先退出 GetCitySet，随后
+     * 才执行系统菜单的一次性选项。如果混用这两个状态，会让正常结束策略被取消。
+     */
+    function hideMainMapOverlays() {
+        cheatState.mainMapOverlayVisible = false;
+        cheatState.mainMapRoadsVisible = false;
+    }
+
+    /**
+     * 原生详情面板打开时暂挂自动按键和策略跳过，不改写持久化开关。
+     *
+     * 使用嵌套计数支持作弊面板再打开将领编辑器；已经排队的任务按代次失效。
+     * 核心已开始的战斗或命令只在正常输入/回合边界停下，不中断结算中的数据写入。
+     */
+    function beginUiPause() {
+        cheatState.uiPauseDepth++;
+        cancelAutoEndTurnResume();
+        cancelAutoBattleRun();
+        syncAutoBattleChooseActionHook();
+    }
+
+    /** 仅在最后一个原生面板关闭后，恢复用户仍开启的自动任务；重复释放不产生操作。 */
+    function endUiPause() {
+        if (cheatState.uiPauseDepth <= 0) return;
+        cheatState.uiPauseDepth--;
+        if (cheatState.uiPauseDepth > 0) return;
+        syncAutoBattleChooseActionHook();
+        if (cheatState.autoBattlePlayerStage) beginAutoBattlePlayerTurn();
+        if (cheatState.mainMapVisible) scheduleAutoEndTurnResume();
     }
 
     /**
@@ -3542,13 +3710,16 @@
         autoEndTurnOriginalTacticStageUser = hooks.tacticStageUser || null;
         autoEndTurnOriginalMainSystemMenu = hooks.mainSystemMenu || null;
         autoEndTurnTacticStageUserHook = function (context) {
-            if (cheatState.autoEndTurn) return cheatState.mainMapVisible ? 0 : -1;
+            if (cheatState.autoEndTurn) {
+                return cheatState.mainMapVisible && cheatState.uiPauseDepth === 0 ? 0 : -1;
+            }
             return autoEndTurnOriginalTacticStageUser
                 ? autoEndTurnOriginalTacticStageUser(context)
                 : -1;
         };
         autoEndTurnMainSystemMenuHook = function (context) {
-            if (cheatState.autoEndTurn && cheatState.mainMapVisible) return 0;
+            if (cheatState.autoEndTurn && cheatState.mainMapVisible &&
+                cheatState.uiPauseDepth === 0) return 0;
             return autoEndTurnOriginalMainSystemMenu
                 ? autoEndTurnOriginalMainSystemMenu(context)
                 : 0xff;
@@ -3732,6 +3903,158 @@
         return true;
     }
 
+    /**
+     * 向独立文字区推送战绩，合并100毫秒内的群攻事件，不扫描人物或轮询WebView。
+     *
+     * @param {boolean} immediate 新开局、读档和存档时立即发布最新快照。
+     */
+    function publishBattleStatistics(immediate) {
+        if (immediate && battleStatisticsTimer != null) {
+            global.clearTimeout(battleStatisticsTimer);
+            battleStatisticsTimer = null;
+        }
+        if (!immediate) {
+            if (battleStatisticsTimer != null) return;
+            var generation = battleStatisticsGeneration;
+            battleStatisticsTimer = global.setTimeout(function () {
+                if (generation !== battleStatisticsGeneration) return;
+                battleStatisticsTimer = null;
+                publishBattleStatistics(true);
+            }, 100);
+            return;
+        }
+        if (global.BbkSystemChannel) {
+            global.BbkSystemChannel.postMessage(JSON.stringify({
+                type: 'sgby_battle_statistics',
+                data: battleStatistics
+            }));
+        }
+    }
+
+    /**
+     * 在选择君主或读入没有战绩记录的旧档时建立独立的累计起点。
+     *
+     * @param {boolean} hasFullHistory 是否从本局选择君主时开始统计。
+     */
+    function resetBattleStatistics(hasFullHistory) {
+        battleStatisticsGeneration++;
+        battleStatisticsDeaths = {};
+        battleStatusSources = {};
+        battleStatistics = {
+            version: 1,
+            playerRuler: baye.data.g_PlayerKing + 1,
+            period: baye.data.g_PIdx,
+            startedYear: baye.data.g_YearDate,
+            startedMonth: baye.data.g_MonthDate,
+            hasFullHistory: hasFullHistory,
+            lostSoldiers: 0,
+            lostGenerals: 0,
+            killedSoldiers: 0,
+            killedGenerals: 0
+        };
+        publishBattleStatistics(true);
+    }
+
+    /**
+     * 累计实际战斗减员，仅我方损失和我方造成的敌军死亡入账。
+     *
+     * @param {Object} event 核心扣除伤害后的归属和实际减员，不使用预估伤害。
+     */
+    function recordBattleArmsLoss(event) {
+        if (!battleStatistics || !event) return;
+        var loss = Number(event.loss);
+        var source = Number(event.sourceBelong);
+        var victim = Number(event.victimBelong);
+        var ruler = baye.data.g_PlayerKing + 1;
+        if (!Number.isSafeInteger(loss) || loss <= 0 || !victim || victim === CAPTIVE_BELONG) return;
+        var field = victim === ruler ? 'lostSoldiers'
+            : source === ruler ? 'killedSoldiers' : null;
+        if (!field) return;
+        battleStatistics[field] = Math.min(Number.MAX_SAFE_INTEGER, battleStatistics[field] + loss);
+        battleStatistics.playerRuler = ruler;
+        publishBattleStatistics(false);
+    }
+
+    /**
+     * 累计已确认的将领死亡，并计入处死时仍然存活的士兵；重复通知只入账一次。
+     *
+     * @param {Object} event 死亡前的归属、剩余兵力和胜方势力。
+     */
+    function recordBattleGeneralDeath(event) {
+        if (!battleStatistics || !event) return;
+        var personIndex = Number(event.personIndex);
+        var victim = Number(event.belong);
+        var winner = Number(event.winnerBelong);
+        var ruler = baye.data.g_PlayerKing + 1;
+        if (!Number.isInteger(personIndex) || personIndex < 0 ||
+            personIndex >= baye.data.g_Persons.length || battleStatisticsDeaths[personIndex] ||
+            !victim || victim === CAPTIVE_BELONG) return;
+        var field = victim === ruler ? 'lostGenerals'
+            : winner === ruler ? 'killedGenerals' : null;
+        if (!field) return;
+        battleStatisticsDeaths[personIndex] = true;
+        recordBattleArmsLoss({sourceBelong: winner, victimBelong: victim, loss: event.arms});
+        battleStatistics[field] = Math.min(Number.MAX_SAFE_INTEGER, battleStatistics[field] + 1);
+        battleStatistics.playerRuler = ruler;
+        publishBattleStatistics(false);
+    }
+
+    /**
+     * 存档成功后按真实档位保存附属战绩，并同步到Flutter的串行备份队列。
+     *
+     * @param {Object} context 核心提供的slotIndex，取消或存档失败不会调用此Hook。
+     */
+    function saveBattleStatistics(context) {
+        var slot = context ? Number(context.slotIndex) : NaN;
+        if (!battleStatistics || !Number.isInteger(slot) || slot < 0 || slot > 3) return;
+        try {
+            var key = BATTLE_STATISTICS_SLOT_PREFIX + slot;
+            var saved = Object.assign({}, battleStatistics, {deadPeople: Object.keys(battleStatisticsDeaths)});
+            var encoded = JSON.stringify(saved);
+            global.localStorage.setItem(key, encoded);
+            if (global.BbkSaveChannel) {
+                var entries = {};
+                entries[key] = encoded;
+                global.BbkSaveChannel.postMessage(JSON.stringify({entries: entries}));
+            }
+            publishBattleStatistics(true);
+        } catch (_) {
+            postSystemNotice(false, '当前档位的战绩保存失败，请检查剩余存储空间后重新存档');
+        }
+    }
+
+    /**
+     * 读档时恢复该档累计值，回档会同步回滚战绩；旧档从此次载入开始统计。
+     *
+     * @param {Object} context 核心读取成功的slotIndex。
+     */
+    function loadBattleStatistics(context) {
+        resetBattleStatistics(false);
+        var slot = context ? Number(context.slotIndex) : NaN;
+        if (!Number.isInteger(slot) || slot < 0 || slot > 3) return;
+        try {
+            var saved = JSON.parse(global.localStorage.getItem(BATTLE_STATISTICS_SLOT_PREFIX + slot));
+            var counters = ['lostSoldiers', 'lostGenerals', 'killedSoldiers', 'killedGenerals'];
+            if (!saved || saved.version !== 1 || saved.playerRuler !== battleStatistics.playerRuler ||
+                saved.period !== battleStatistics.period || typeof saved.hasFullHistory !== 'boolean' ||
+                !counters.every(function (field) {return Number.isSafeInteger(saved[field]) && saved[field] >= 0;}) ||
+                !Array.isArray(saved.deadPeople)) return;
+            counters.forEach(function (field) {battleStatistics[field] = saved[field];});
+            battleStatistics.hasFullHistory = saved.hasFullHistory;
+            battleStatistics.startedYear = saved.startedYear;
+            battleStatistics.startedMonth = saved.startedMonth;
+            saved.deadPeople.forEach(function (index) {
+                var personIndex = Number(index);
+                if (Number.isInteger(personIndex) && personIndex >= 0 && personIndex < baye.data.g_Persons.length) {
+                    battleStatisticsDeaths[personIndex] = true;
+                }
+            });
+            publishBattleStatistics(true);
+        } catch (_) {
+            // 旧档没有附属战绩或记录损坏时保持明确的新统计起点，不继承其他档位。
+        }
+    }
+
     /** 安装战斗、内政作弊和地图增强 Hook，重复调用不会重复包装。 */
     function initialize() {
         if (cheatState.hooksInstalled) return true;
@@ -3742,6 +4065,20 @@
         installAutoBattleHooks(hooks);
         installAutoEndTurnHooks(hooks);
         installQuickExpeditionHooks(hooks);
+        installObserverHook(hooks, 'battleArmsLost', recordBattleArmsLoss);
+        installObserverHook(hooks, 'battleGeneralDied', recordBattleGeneralDeath);
+        installObserverHook(hooks, 'battleStatusApplied', function (context) {
+            if (context.state === STATE_STONE) battleStatusSources[context.personIndex] = context.sourceBelong;
+            else delete battleStatusSources[context.personIndex];
+        });
+        installObserverHook(hooks, 'battleStatusArmsLost', function (context) {
+            recordBattleArmsLoss({
+                sourceBelong: battleStatusSources[context.personIndex],
+                victimBelong: context.victimBelong,
+                loss: context.loss
+            });
+        });
+        installObserverHook(hooks, 'didSaveGame', saveBattleStatistics);
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);
         });
@@ -3822,10 +4159,12 @@
             runAutoCityMaintenance('策略结束自动', true);
         });
         installObserverHook(hooks, 'didOpenNewGame', function () {
+            resetBattleStatistics(true);
             resetAutoEndTurnMapState();
             applyPersistentGeneralEffects();
         });
-        installObserverHook(hooks, 'didLoadGame', function () {
+        installObserverHook(hooks, 'didLoadGame', function (context) {
+            loadBattleStatistics(context);
             resetAutoEndTurnMapState();
             repairLoadedGameState();
             applyPersistentGeneralEffects();
@@ -3838,6 +4177,7 @@
             }
         });
         installObserverHook(hooks, 'enterBattle', function () {
+            battleStatusSources = {};
             // 保留自动策略开关，但下一次玩家阶段必须先重绘战略地图；只有收到
             // didShowMainMap后才允许恢复自动推进，避免停在战斗结果画面继续下一轮。
             cheatState.autoBattlePlayerStage = false;
@@ -3849,15 +4189,16 @@
         });
         installExpeditionFoodHook(hooks);
         installBattleUnitDrawing(hooks);
+        installObserverHook(hooks, 'didLeaveMainMap', hideMainMapOverlays);
 
         var originalMapHook = hooks.didShowMainMap;
         hooks.didShowMainMap = function (context) {
             var hookResult = originalMapHook ? originalMapHook(context) : 1;
             cheatState.mainMapVisible = true;
+            cheatState.mainMapOverlayVisible = true;
             cheatState.mainMapRoadsVisible = true;
             if (cheatState.quickExpedition) cheatState.quickExpedition = null;
             executeDefeatedCityCaptives();
-            global.requestAnimationFrame(colorizeCityIcons);
             if (cheatState.autoEndTurn && !cheatState.endTurnPending) {
                 scheduleAutoEndTurnResume();
             }
@@ -3980,13 +4321,15 @@
     function requestAutoEndCurrentTurn() {
         if (
             !cheatState.autoEndTurn || !cheatState.mainMapVisible ||
-            cheatState.endTurnPending || cheatState.quickSavePending
+            cheatState.endTurnPending || cheatState.quickSavePending ||
+            cheatState.uiPauseDepth > 0
         ) {
             return false;
         }
         cheatState.endTurnPending = true;
         installOneShotMenuSelection('mainSystemMenu', 0, function () {
-            return cheatState.autoEndTurn && cheatState.mainMapVisible;
+            return cheatState.autoEndTurn && cheatState.mainMapVisible &&
+                cheatState.uiPauseDepth === 0;
         });
         sendKey(VK_EXIT);
         return true;
@@ -4333,6 +4676,11 @@
                 for (var enemyIndex = PLAYER_GENERAL_LIMIT; enemyIndex < TOTAL_GENERAL_LIMIT; enemyIndex++) {
                     var enemyId = context.data.g_FgtParam.GenArray[enemyIndex];
                     if (!enemyId) continue;
+                    recordBattleArmsLoss({
+                        sourceBelong: context.ruler,
+                        victimBelong: context.people[enemyId - 1].Belong,
+                        loss: context.people[enemyId - 1].Arms
+                    });
                     context.data.g_GenPos[enemyIndex].state = STATE_DEAD;
                     context.people[enemyId - 1].Arms = 0;
                 }
@@ -4471,7 +4819,10 @@
         setWorldActivity: setWorldActivity,
         getCheatState: getCheatState,
         getSearchHistory: getSearchHistory,
-        getCheatData: getCheatData
+        getCheatData: getCheatData,
+        getBattleStatistics: function () {return JSON.stringify(battleStatistics);},
+        beginUiPause: beginUiPause,
+        endUiPause: endUiPause
     };
 
     installDisplayPipeline();

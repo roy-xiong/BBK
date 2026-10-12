@@ -379,6 +379,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 _viewModel.sgbyAutoBattleEnabled,
                             sgbyAutoEndTurnEnabled:
                                 _viewModel.sgbyAutoEndTurnEnabled,
+                            sgbyBattleStatistics:
+                                _viewModel.sgbyBattleStatistics,
                             onInput: _sendGameInput,
                           ),
                         ),
@@ -399,6 +401,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                               _viewModel.sgbyAutoBattleEnabled,
                           sgbyAutoEndTurnEnabled:
                               _viewModel.sgbyAutoEndTurnEnabled,
+                          sgbyBattleStatistics: _viewModel.sgbyBattleStatistics,
                           onInput: _sendGameInput,
                         ),
                       if (!guideVisible)
@@ -426,6 +429,7 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 game: widget.game,
                                 viewModel: _viewModel,
                               ),
+                              // 两款 RPG 共用剧情任务入口，网页仅显示列表，不绘制世界图集。
                               onMap: widget.game.id.isRpg
                                   ? () => unawaited(_viewModel.openFmjGuide())
                                   : null,
@@ -687,7 +691,7 @@ class _GameToolbar extends StatelessWidget {
           ),
           if (onMap != null)
             iconButton(
-              tooltip: '剧情帮助与地图',
+              tooltip: '剧情帮助与任务',
               onPressed: onMap!,
               icon: const Icon(Icons.map),
             ),

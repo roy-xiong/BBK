@@ -2,6 +2,8 @@
     'use strict';
     var data = global.FmjGuideData;
     if (!data || !global.FmjGuideEngine) return;
+    // 导航专用资源只显示剧情任务列表，不初始化世界图集、图块位图或绘制监听。
+    var worldMapEnabled = data.navigationOnly !== true;
     var isJyqxz = data.gameId === 'jyqxz', gameTitle = data.title || '伏魔记';
     var scopeKey = 'bbk/' + (data.gameId || 'fmj') + '_story_scope';
     var engine = new global.FmjGuideEngine(data), standalone = document.body.dataset.fmjAtlas === 'standalone';
@@ -15,14 +17,16 @@
     /** 一步的方向输入间隔，倍速只用于自动跑路。 */
     function runStepDelay() { return travelStepDelay / Math.max(1, Math.min(4, global.fmj && global.fmj.runSpeed || 1)); }
     var storySignature = '', layoutSignature = '', lastWidth = 0, lastHeight = 0;
-    var worldComponent = data.world && data.world.main;
-    data.tiles.forEach(function (t) { tileResources.set(t.id, t); });
-    data.scripts.forEach(function (s) {
-        s.maps.forEach(function (id) {
-            var names = scriptNamesByMap.get(id) || [];
-            names.push(s.name); scriptNamesByMap.set(id, names);
+    var worldComponent = worldMapEnabled && data.world && data.world.main;
+    if (worldMapEnabled) {
+        data.tiles.forEach(function (t) { tileResources.set(t.id, t); });
+        data.scripts.forEach(function (s) {
+            s.maps.forEach(function (id) {
+                var names = scriptNamesByMap.get(id) || [];
+                names.push(s.name); scriptNamesByMap.set(id, names);
+            });
         });
-    });
+    }
     var directions = [[0, -1], [1, 0], [0, 1], [-1, 0]];
     var esc = function (text) { return String(text == null ? '' : text).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
     var core = function () { return global['fmj.core'] && global['fmj.core'].fmj; };
@@ -95,9 +99,14 @@
         c.game.__fmjGuidePauseInstalled = true;
     }
 
-    function message(text) {
+    /**
+     * 地图内显示说明，地图外通过原系统通道提示。
+     * @param {string} text 与当前运行状态一致的提示。
+     * @param {boolean} [isSuccess=false] 正常完成说明不标记为操作失败。
+     */
+    function message(text, isSuccess) {
         if (root && open) element('message').textContent = text || '';
-        else if (text && global.BbkSystemChannel) global.BbkSystemChannel.postMessage(JSON.stringify({ type: 'fmj_notice', data: { ok: false, message: text } }));
+        else if (text && global.BbkSystemChannel) global.BbkSystemChannel.postMessage(JSON.stringify({ type: 'fmj_notice', data: { ok: isSuccess === true, message: text } }));
     }
 
     /**
@@ -148,6 +157,7 @@
 
     /** 将所有场景按真实宽高放入统一比例图集，排版留白不计为游戏距离。 */
     function layoutCards() {
+        if (!worldMapEnabled) return;
         var signature = layer + '/' + worldComponent + '/' + query + '/' + (layer === 'current' ? snapshot && snapshot.mapId : layer === 'region' ? snapshot && engine.key(snapshot) : '');
         if (cards.length && signature === layoutSignature) { scheduleDraw(); return; }
         layoutSignature = signature;
@@ -210,12 +220,12 @@
         camera.y = (viewport.height - bounds.height * camera.zoom) / 2 - bounds.y * camera.zoom;
         scheduleDraw();
     }
-    function scheduleDraw() { if (drawPending || !open) return; drawPending = true; requestAnimationFrame(function () { drawPending = false; draw(); }); }
+    function scheduleDraw() { if (!worldMapEnabled || drawPending || !open) return; drawPending = true; requestAnimationFrame(function () { drawPending = false; draw(); }); }
     function circle(x, y, color, radius) { context.beginPath(); context.arc(x, y, radius, 0, Math.PI * 2); context.fillStyle = color; context.fill(); }
 
     /** 只渲染可见卡片；地图、路线、人物与格子都共用同一相机矩阵。 */
     function draw() {
-        if (!open || !canvas) return;
+        if (!worldMapEnabled || !open || !canvas) return;
         var viewport = size(), dpr = Math.min(2, global.devicePixelRatio || 1);
         if (canvas.width !== Math.round(viewport.width * dpr) || canvas.height !== Math.round(viewport.height * dpr)) { canvas.width = Math.round(viewport.width * dpr); canvas.height = Math.round(viewport.height * dpr); }
         context.setTransform(dpr, 0, 0, dpr, 0, 0); context.fillStyle = '#090d13'; context.fillRect(0, 0, viewport.width, viewport.height);
@@ -482,6 +492,7 @@
         if (!initial || initial.busy) { message('请先完成当前对话、战斗或关闭游戏菜单。'); return { ok: false }; }
         var plan = destination.exitTask ? engine.exitPlan(initial) : destination.currentTask ? engine.taskPlan(initial) : engine.route(initial, destination);
         if (!plan || plan.unavailable) {
+            if (plan && plan.reason === 'no_target') { message(plan.goal.hint, true); return { ok: false, reason: 'no_target' }; }
             message(plan && plan.reason === 'outside' ? '当前位置已经在室外。' : destination.exitTask ? '当前出口仍有条件限制；若此迷宫使用引路石返回，请先确认持有引路石。' : '尚无可通行路线到「' + (plan && plan.goal ? plan.goal.label : destination.label || '目标地点') + '」，请先处理当前道路或剧情条件。'); return { ok: false, reason: 'locked' };
         }
         var token = ++travelToken; close(false); navigating = true;
@@ -597,6 +608,7 @@
         if (!current) { message('请先开始或载入游戏。'); return { ok: false }; }
         if (current.busy) { message('请先完成当前对话、战斗或关闭游戏菜单。'); return { ok: false }; }
         var next = engine.nextGoal(current);
+        if (isJyqxz && next.noTarget) { message(next.hint, true); return { ok: false, reason: 'no_target' }; }
         if (!next.event && next.scriptId === current.scriptId && !(isJyqxz && next.flag)) { message(next.hint); return { ok: false, reason: 'interaction' }; }
         return travel(Object.assign({}, next, { allowBoundary: true, currentTask: true }));
     }
@@ -610,6 +622,7 @@
         storySignature = signature;
         if (isJyqxz) { renderJyqxzStory(aside); return; }
         if (!snapshot) {
+            if (!worldMapEnabled) { aside.innerHTML='<h2>伏魔记 · 剧情与任务</h2><p>请先开始或载入游戏，再查看当前目标、故事进度和支线。</p>'; return; }
             aside.innerHTML = '<h2>游戏世界地图</h2><p>按原出口方向展开全部城镇、山道、桥梁和道路实例。相同底图在不同地点重复使用时，分别标出实际位置。</p><p class="subtle">上北下南、左西右东；所有地图 1 格 = 1 步，横纵比例相同。可拖动、缩放、搜索地点和测量地图内的真实路径。</p><p class="subtle">点击建筑或洞口的原入口，打开其房屋、洞穴层。跨层转场和特殊闭环不虚构直线距离。</p><h2>地点</h2><div class="place-list">' + data.world.components.flatMap(function(c){return c.nodes.filter(function(n){return !n.navFlags && /宫|村|城|镇|院|北海|鹤鸣|南山|周处/.test(n.name);}).map(function(n){return '<button data-place="'+esc(n.id)+'" data-component="'+c.id+'">'+esc(n.name)+'</button>';});}).join('') + '</div>'; return;
         }
         goal = engine.nextGoal(snapshot);
@@ -633,23 +646,65 @@
      * @param {HTMLElement} aside 地图侧栏。
      */
     function renderJyqxzStory(aside) {
-        if (!snapshot) { aside.innerHTML='<h2>金庸群侠传 · 地图与剧情</h2><p>32 张原图、170 个场景脚本。图集排版不表示地图间的地理距离；可缩放、搜索和测距。</p>'; return; }
+        if (!snapshot) { aside.innerHTML=worldMapEnabled?'<h2>金庸群侠传 · 地图与剧情</h2><p>32 张原图、170 个场景脚本。图集排版不表示地图间的地理距离；可缩放、搜索和测距。</p>':'<h2>金庸群侠传 · 剧情与任务</h2><p>请先开始或载入游戏，再查看当前目标、门派与支线。</p>'; return; }
         goal=engine.nextGoal(snapshot);
         var rows=engine.progress(snapshot),quests=engine.questTasks(snapshot);
-        aside.innerHTML='<div class="goal-card"><p class="subtle">'+esc(snapshot.sceneName)+' · '+snapshot.level+' 级</p><h2>'+esc(goal.label)+'</h2><p>'+esc(goal.hint)+'</p><button class="primary" data-action="next"'+(snapshot.busy?' disabled':'')+'>一键前往当前目标</button><p class="subtle">自动逐格行走，遇到剧情或战斗立即停止。</p></div>';
+        aside.innerHTML='<div class="goal-card"><p class="subtle">'+esc(snapshot.sceneName)+' · '+snapshot.level+' 级</p><h2>'+esc(goal.label)+'</h2><p>'+esc(goal.hint)+'</p><button class="primary" data-action="next"'+(snapshot.busy||goal.noTarget?' disabled':'')+'>'+(goal.noTarget?'暂无可前往目标':'一键前往当前目标')+'</button><p class="subtle">'+(goal.noTarget?worldMapEnabled?'可在下方选择支线、门派，或点选地图地点继续探索。':'可在下方选择支线或门派继续探索。':'自动逐格行走，遇到剧情或战斗立即停止。')+'</p></div>';
         var scope=document.createElement('select');scope.setAttribute('aria-label','流程范围');scope.dataset.id='story-scope';
         scope.innerHTML='<option value="complete">完整流程：主线 + 支线</option><option value="main">仅主线</option>';scope.value=snapshot.questMode;
         scope.addEventListener('change',function(){try{if(global.FmjPreferences)global.FmjPreferences.set('storyScope',this.value);else global.localStorage.setItem(scopeKey,this.value);global.localStorage.removeItem('bbk/jyqxz_goal');}catch(_){}storySignature='';renderStory();});aside.prepend(scope);
         function section(title,tasks){
-            var node=document.createElement('section');node.innerHTML='<h2>'+esc(title)+'</h2>'+tasks.map(function(t){return '<div class="stage '+(t.done||t.status==='done'?'done':'')+'"><div><h3>'+esc(t.label||t.title)+'</h3><p class="subtle">'+esc(t.detail||t.hint||'原剧情由你正常操作')+'</p>'+(!t.done&&t.status!=='done'?'<button data-jy-goal="'+esc(t.id||'main-'+t.flag)+'"'+(snapshot.busy?' disabled':'')+'>设为目标并前往</button>':'<span>✓ 已完成</span>')+'</div></div>';}).join('');aside.appendChild(node);
+            var node=document.createElement('section');node.innerHTML='<h2>'+esc(title)+'</h2>'+tasks.map(function(t){return '<div class="stage '+(t.done||t.status==='done'?'done':'')+'"><div><h3>'+esc(t.label||t.title)+'</h3><p class="subtle">状态：'+esc(t.statusLabel||(t.done?'已完成':'待完成'))+'</p><p class="subtle">'+esc(t.detail||t.hint||'原剧情由你正常操作')+'</p>'+(!t.done&&t.status!=='done'?'<button data-jy-goal="'+esc(t.id||'main-'+t.flag)+'"'+(snapshot.busy?' disabled':'')+'>设为目标并前往</button>':'<span>✓ 已完成</span>')+'</div></div>';}).join('');aside.appendChild(node);
         }
+        var schoolNode=document.createElement('details');schoolNode.innerHTML='<summary>门派入门导航</summary>'+global.JyqxzQuests.schools.filter(function(s){return s[3]===snapshot.actor;}).map(function(s){return '<button data-jy-school="'+s[0]+'">'+esc(s[1])+'</button>';}).join('');
+        if (!worldMapEnabled) { schoolNode.open=true; aside.appendChild(schoolNode); }
         section('主线 · '+rows.filter(function(r){return r.done;}).length+' / '+rows.length,global.JyqxzQuests.main.map(function(t){return Object.assign({},t,{done:!!snapshot.flags[t.flag]});}));
         section('门派与支线',quests);
-        var schoolNode=document.createElement('details');schoolNode.innerHTML='<summary>门派入门导航</summary>'+global.JyqxzQuests.schools.filter(function(s){return s[3]===snapshot.actor;}).map(function(s){return '<button data-jy-school="'+s[0]+'">'+esc(s[1])+'</button>';}).join('');aside.appendChild(schoolNode);
+        if (worldMapEnabled) aside.appendChild(schoolNode);
+    }
+
+    /**
+     * 两种面板共用任务操作，前往仍走原导航与剧情入口。
+     * @param {HTMLButtonElement} button 当前点击的按钮。
+     * @return {boolean} 是否已经处理，无需继续执行世界地图操作。
+     */
+    function handleStoryAction(button) {
+        if (button.disabled) return true;
+        if(isJyqxz&&(button.dataset.jyGoal||button.dataset.jySchool)){
+            var current=readState(),chosen;
+            if(current){chosen=engine.questTasks(current).concat(global.JyqxzQuests.main.map(function(t){return Object.assign({id:'main-'+t.flag,hint:'按原入口触发剧情，遇对白或战斗停下。'},t);})).find(function(t){return t.id===button.dataset.jyGoal;});
+                if(button.dataset.jySchool){var school=global.JyqxzQuests.schools.find(function(s){return String(s[0])===button.dataset.jySchool;});if(school)chosen={label:'拜访'+school[1]+'掌门',scriptId:school[2],event:1,hint:'原版入门要求和互斥门派由原对话检查。'};}
+            }
+            if(chosen){if(chosen.deferFlag)core().script.ScriptResources.globalEvents[chosen.deferFlag]=false;try{global.localStorage.setItem('bbk/jyqxz_goal',JSON.stringify(chosen));}catch(_){}travel(Object.assign({},chosen,{allowBoundary:true}));}
+            return true;
+        }
+        if (button.dataset.quest && engine.questTasks) {
+            var state = readState(), quest = state && engine.questTasks(state).find(function (row) { return row.id === button.dataset.quest; });
+            if (quest) { if (quest.deferFlag) core().script.ScriptResources.globalEvents[quest.deferFlag] = false; if (quest.id === 'daughter-rescue') core().script.ScriptResources.globalEvents[2335] = false; travel(Object.assign({}, quest, { allowBoundary: true })); }
+            return true;
+        }
+        switch (button.dataset.action) {
+            case 'close': close(true); return true;
+            case 'refresh': renderStory(); scheduleDraw(); return true;
+            case 'next': goToNextGoal(); return true;
+            case 'exit': goToExit(); return true;
+            default: return false;
+        }
     }
 
     function build() {
         root = document.createElement('section'); root.id = 'fmj-guide'; root.hidden = true; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', '伏魔记剧情帮助与完整地图');
+        if (!worldMapEnabled) {
+            // 直接创建纯列表，不生成隐藏 Canvas，也不访问缺省的世界数据或注册缩放监听。
+            root.classList.add('story-only');
+            root.setAttribute('aria-label', gameTitle+'剧情与任务');
+            root.innerHTML='<header><h1>'+esc(gameTitle)+' · 剧情与任务</h1><button data-action="refresh">刷新</button><button data-action="exit">前往出口</button><button data-action="close">返回游戏</button></header><div class="guide-message" data-id="message"></div><div class="guide-layout"><aside data-id="story"></aside></div>';
+            document.body.appendChild(root);
+            root.addEventListener('click', function (event) { var button=event.target.closest('button'); if(button)handleStoryAction(button); });
+            root.addEventListener('keydown', function (event) { event.stopPropagation(); if(event.key==='Escape')close(true); });
+            root.addEventListener('keyup', function (event) { event.stopPropagation(); });
+            return;
+        }
         root.innerHTML = '<header><h1>' + (standalone ? '伏魔记 · 完整等比例地图' : '伏魔记 · 剧情帮助与地图') + '</h1><button class="mobile-story" data-action="story">剧情 / 说明</button><button data-action="refresh">刷新</button>' + (standalone ? '' : '<button data-action="close">返回游戏</button>') + '</header><div class="guide-message" data-id="message"></div><div class="guide-layout"><aside data-id="story"></aside><div class="map-area"><div class="map-tools"><select data-id="layer" aria-label="地图分层"><option value="all">全部 83 张原图</option><option value="1">室外区域</option><option value="2">房屋内部</option><option value="3">洞穴迷宫</option>' + (standalone ? '' : '<option value="current">当前地图</option>') + '</select><input data-id="search" placeholder="搜索地点" aria-label="搜索地点"><button data-action="fit">全图</button><button data-action="current">定位</button><button data-action="zoom-in">＋</button><button data-action="zoom-out">－</button><button data-action="grid">格子</button><button data-action="measure">路线测距</button></div><div class="canvas-wrap"><canvas aria-label="游戏原始等比例地图"></canvas><div class="map-status" data-id="status"></div></div><div class="selection"><div class="description"><div data-id="selected"><p>点选地图查看坐标、人物和真实出入口</p><p class="subtle"><span class="legend-dot"></span>出口 / 剧情 <span class="legend-dot npc"></span>人物 <span class="legend-dot player"></span>玩家</p></div><div class="port-buttons" data-id="ports"></div></div><select data-id="destination" hidden aria-label="实际剧情目的地"></select><button class="primary" data-id="travel-point" hidden>前往此处</button></div></div></div>';
         document.body.appendChild(root); canvas = root.querySelector('canvas'); context = canvas.getContext('2d');
         root.querySelector('h1').textContent = standalone ? '伏魔记 · 游戏世界地图' : '伏魔记 · 剧情与世界地图';
@@ -665,17 +720,7 @@
         root.addEventListener('click', function (event) {
             var button = event.target.closest('button'); if (!button) return;
             var action = button.dataset.action;
-            if(isJyqxz&&(button.dataset.jyGoal||button.dataset.jySchool)){
-                var current=readState(),chosen;
-                if(current){chosen=engine.questTasks(current).concat(global.JyqxzQuests.main.map(function(t){return Object.assign({id:'main-'+t.flag,hint:'按原入口触发剧情，遇对白或战斗停下。'},t);})).find(function(t){return t.id===button.dataset.jyGoal;});
-                    if(button.dataset.jySchool){var school=global.JyqxzQuests.schools.find(function(s){return String(s[0])===button.dataset.jySchool;});if(school)chosen={label:'拜访'+school[1]+'掌门',scriptId:school[2],event:1,hint:'原版入门要求和互斥门派由原对话检查。'};}
-                }
-                if(chosen){if(chosen.deferFlag)core().script.ScriptResources.globalEvents[chosen.deferFlag]=false;try{global.localStorage.setItem('bbk/jyqxz_goal',JSON.stringify(chosen));}catch(_){}travel(Object.assign({},chosen,{allowBoundary:true}));}return;
-            }
-            if (button.dataset.quest && engine.questTasks) {
-                var current = readState(), quest = current && engine.questTasks(current).find(function (row) { return row.id === button.dataset.quest; });
-                if (quest) { if (quest.deferFlag) core().script.ScriptResources.globalEvents[quest.deferFlag] = false; if (quest.id === 'daughter-rescue') core().script.ScriptResources.globalEvents[2335] = false; travel(Object.assign({}, quest, { allowBoundary: true })); } return;
-            }
+            if (handleStoryAction(button)) return;
             if (button.dataset.place) { layer='world';worldComponent=button.dataset.component;regions.value=worldComponent;query='';element('search').value='';element('layer').value=layer;layoutCards();var place=cards.find(function(c){return c.world.id===button.dataset.place;});if(place)fit(place);return; }
             if (button.dataset.portal) {
                 var nodes=data.world.components.flatMap(function(c){return c.nodes;}).concat(data.world.interiors);
@@ -683,11 +728,7 @@
                 var map=engine.maps.get(button.dataset.map);
                 if(map){layer=engine.isOutdoor(map)?'world':String(map.type);if(destination&&engine.isOutdoor(map)){worldComponent=destination.component;regions.value=worldComponent;}element('layer').value=layer;query='';element('search').value='';layoutCards();var card=cards.find(function(c){return destination&&layer==='world'?c.world&&c.world.id===destination.id:c.map.id===map.id;});if(card)fit(card);message('原入口连接到 '+(destination?destination.name:engine.scripts.get(button.dataset.portal)?.name||'目标场景')+'。');}return;
             }
-            if (action === 'close') close(true);
             if (action === 'story') element('story').classList.toggle('expanded');
-            if (action === 'refresh') { renderStory(); scheduleDraw(); }
-            if (action === 'next') goToNextGoal();
-            if (action === 'exit') goToExit();
             if (action === 'fit') fit();
             if (action === 'current') { var card = cards.find(function (c) { return snapshot && c.map.id === snapshot.mapId && (!c.world || c.world.scriptIds.includes(snapshot.scriptId)&&(!c.world.navFlags||c.world.navFlags===snapshot.flags.slice(100,114).map(Number).join(''))); }); if (!card && snapshot) { layer = 'current'; element('layer').value = layer; query = ''; element('search').value = ''; layoutCards(); card = cards[0]; } if (card) fit(card); else message('点选一个世界地点即可放大。'); }
             if (action === 'zoom-in' || action === 'zoom-out') zoom(action === 'zoom-in' ? 1.4 : 1 / 1.4, size().width / 2, size().height / 2);
@@ -733,7 +774,18 @@
     function notifyVisibility(visible) {
         if (global.BbkSystemChannel) global.BbkSystemChannel.postMessage(JSON.stringify({ type: 'fmj_guide_visibility', data: { visible: visible } }));
     }
-    function show() { if (navigating) travelToken++; if (global.sysSetGameLoopPaused) global.sysSetGameLoopPaused(true); if (!root) build(); installPause(); open = true; root.hidden = false; renderStory(); layoutCards(); notifyVisibility(true); return JSON.stringify({ ok: true }); }
+    /**
+     * 打开剧情任务列表；完整图集仅在离线图集资源模式下计算与绘制。
+     * @return {string} 可由 Flutter 桥解析的打开结果。
+     */
+    function show() {
+        if (navigating) travelToken++;
+        if (global.sysSetGameLoopPaused) global.sysSetGameLoopPaused(true);
+        if (!root) build();
+        installPause(); open = true; root.hidden = false;
+        renderStory(); if (worldMapEnabled) layoutCards(); notifyVisibility(true);
+        return JSON.stringify({ ok: true });
+    }
     function close(cancelTravel) { open = false; if (cancelTravel) travelToken++; if (root) root.hidden = true; if (global.sysSetGameLoopPaused) global.sysSetGameLoopPaused(false); notifyVisibility(false); }
     global.FmjGuide = { open: show, close: function () { close(true); }, state: readState, travel: travel, next: goToNextGoal, engine: engine, describePortals: describePortals, measuredPath: measuredPath, inspect: function () { return { cards: cards.length, layer:layer, worldComponent:worldComponent, worldNodes:cards.filter(function(c){return c.world;}).map(function(c){return {id:c.world.id,name:c.world.name,mapId:c.map.id,x:c.x,y:c.y,scriptId:c.world.scriptId,navFlags:c.world.navFlags};}), camera: Object.assign({}, camera), selected: selected && { map: selected.card.map.id, x: selected.x, y: selected.y }, open: open }; } };
     global.bbkOpenFmjGuide = show;

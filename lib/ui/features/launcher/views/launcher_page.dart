@@ -220,20 +220,7 @@ class _GameTile extends StatelessWidget {
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: isSelected
-                        ? selectionColor
-                        : const Color(0xFF303438),
-                    width: 3,
-                  ),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: selectionColor.withValues(alpha: 0.16),
-                            blurRadius: 14,
-                          ),
-                        ]
-                      : const [],
+                  border: Border.all(color: const Color(0xFF303438), width: 3),
                 ),
                 child: Material(
                   color: Colors.black,

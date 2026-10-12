@@ -1,3 +1,93 @@
+diff --git a/src/Fight.c b/src/Fight.c
+index 7529629..0ffa037 100644
+--- a/src/Fight.c
++++ b/src/Fight.c
+@@ -1151,6 +1151,15 @@ void FgtDrvState(void)
+         }
+         if(arms != per->Arms)
+         {
++            if (per->Arms < arms) {
++                U16 loss = arms - per->Arms;
++                IF_HAS_HOOK("battleStatusArmsLost") {
++                    BIND_U16EX("personIndex", &tmp);
++                    BIND_U16EX("victimBelong", &per->Belong);
++                    BIND_U16EX("loss", &loss);
++                    CALL_HOOK_S();
++                }
++            }
+             I32 hurt = per->Arms - arms;
+             FgtSetFocus(i);
+             if (hurt < 0) {
+diff --git a/src/FightSub.c b/src/FightSub.c
+index 09a085d..3ced540 100644
+--- a/src/FightSub.c
++++ b/src/FightSub.c
+@@ -253,6 +253,32 @@ void bind_skill_var(ObjectDef* def)
+ U8 FgtGetGenTer(U8 idx);
+ bool FgtChkAkRng(U8 x,U8 y);
+ 
++/**
++ * 在伤害实际扣除后通知显示层，避免把预估伤害、治疗或粮草减少算成战果。
++ *
++ * @param sourceIndex 实际攻击者的战场槽位，反击时使用反击者。
++ * @param targetIndex 受伤者的战场槽位。
++ * @param loss 本次实际减少的士兵数量。
++ */
++static void FgtNotifyArmsLoss(U8 sourceIndex,U8 targetIndex,U16 loss)
++{
++    PersonID sourcePerson,targetPerson,sourceBelong,victimBelong;
++    if (!loss || sourceIndex >= FGTA_MAX || targetIndex >= FGTA_MAX)
++        return;
++    sourcePerson = g_FgtParam.GenArray[sourceIndex];
++    targetPerson = g_FgtParam.GenArray[targetIndex];
++    if (!sourcePerson || !targetPerson || sourcePerson > PERSON_COUNT || targetPerson > PERSON_COUNT)
++        return;
++    sourceBelong = g_Persons[sourcePerson - 1].Belong;
++    victimBelong = g_Persons[targetPerson - 1].Belong;
++    IF_HAS_HOOK("battleArmsLost") {
++        BIND_U16EX("sourceBelong", &sourceBelong);
++        BIND_U16EX("victimBelong", &victimBelong);
++        BIND_U16EX("loss", &loss);
++        CALL_HOOK_S();
++    }
++}
++
+ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx) {
+     U16 arms, prov, up;
+     U8 bidx, state, buf[25], *ptr;
+@@ -267,6 +293,16 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
+     CountSklHurt(param, &arms, &prov, originIdx, &state);		/* 计算该技能的兵力和粮草伤害 */
+     stateChanged = g_GenPos[aIdx].state != state;
+     g_GenPos[aIdx].state = state;
++    if (stateChanged && g_FgtParam.GenArray[sIdx] && g_FgtParam.GenArray[aIdx]) {
++        PersonID personIndex = g_FgtParam.GenArray[aIdx] - 1;
++        PersonID sourceBelong = g_Persons[g_FgtParam.GenArray[sIdx] - 1].Belong;
++        IF_HAS_HOOK("battleStatusApplied") {
++            BIND_U16EX("personIndex", &personIndex);
++            BIND_U16EX("sourceBelong", &sourceBelong);
++            BIND_U8EX("state", &state);
++            CALL_HOOK_S();
++        }
++    }
+     if(state == STATE_DS)		/* 定身状态时，设置将领的移动力为1 */
+         g_GenPos[aIdx].move = NO_MOV;
+     I32 rv = call_hook_a("willShowPKAnimation", NULL);
+@@ -292,6 +328,7 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
+         {
+             bidx = dFgtArmsH;
+             arms = CountPlusSub(g_GenAtt[1].arms,arms);
++            FgtNotifyArmsLoss(sIdx,aIdx,arms);
+         }
+         if(g_LookMovie)
+         {
+@@ -512,6 +549,7 @@ U8 FgtAtkAction(U8 aIdx)
+ 
+     hurt = CountAtkHurt();
+     speId = CountPlusSub(g_GenAtt[1].arms,hurt);
++    FgtNotifyArmsLoss(g_GenAtt[0].generalIndex,aIdx,speId);
+     dead = (hurt != speId);			/* dead = true 被攻击将领被击溃 */
+     hurt = speId;
+ 
 diff --git a/src/baye/attribute.h b/src/baye/attribute.h
 index 3898b16..24159bc 100644
 --- a/src/baye/attribute.h
@@ -412,7 +502,7 @@ index 4c06630..7f52b07 100644
  }
  
 diff --git a/src/citycmdd.c b/src/citycmdd.c
-index bb23bde..29e4f8c 100644
+index bb23bde..c2aff64 100644
 --- a/src/citycmdd.c
 +++ b/src/citycmdd.c
 @@ -23,6 +23,48 @@
@@ -556,7 +646,7 @@ index bb23bde..29e4f8c 100644
                  BIND_U8EX("city", &o);
                  fight = CALL_HOOK_A();
              } else for (i = 0;i < 10;i ++)
-@@ -422,6 +493,62 @@ FAR U8 BattleDrv(OrderType *Order)
+@@ -422,6 +493,73 @@ FAR U8 BattleDrv(OrderType *Order)
      return(1);
  }
  
@@ -584,6 +674,17 @@ index bb23bde..29e4f8c 100644
 +static void MarkPersonDead(PersonID person,U8 city)
 +{
 +    PersonType *pptr = &g_Persons[person];
++    /* 在归属与剩余兵力被清空前报告真实死亡。俘虏、逃跑和同一次重复清理不计阵亡。 */
++    if (pptr->Belong && pptr->Belong != PID(0xffff) && city < CITY_MAX) {
++        PersonID winnerBelong = g_Cities[city].Belong;
++        IF_HAS_HOOK("battleGeneralDied") {
++            BIND_U16EX("personIndex", &person);
++            BIND_U16EX("belong", &pptr->Belong);
++            BIND_U16EX("arms", &pptr->Arms);
++            BIND_U16EX("winnerBelong", &winnerBelong);
++            CALL_HOOK_S();
++        }
++    }
 +    ReturnLoserEquipment(person,city);
 +    pptr->OldBelong = pptr->Belong;
 +    pptr->Belong = PID(0xffff);
@@ -619,7 +720,7 @@ index bb23bde..29e4f8c 100644
  /******************************************************************************
   * 函数名:FightResultDeal
   * 说  明:战斗结束处理
-@@ -545,7 +672,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -545,7 +683,6 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
  {
      SBUF str,astr;
      U8 i;
@@ -627,7 +728,7 @@ index bb23bde..29e4f8c 100644
      PersonID cking;
      PersonID p;
      U8 rnd;
-@@ -558,6 +684,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -558,6 +695,45 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
          {
              p = PID(lqueue[i] - 1);
              pptr = &g_Persons[p];
@@ -673,7 +774,7 @@ index bb23bde..29e4f8c 100644
              rnd = gam_rand() % 100;
              if (rnd > pptr->IQ)
              {
-@@ -579,17 +744,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -579,17 +755,7 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
                          continue;
                      }
  
@@ -692,7 +793,7 @@ index bb23bde..29e4f8c 100644
                      if (FGT_AUTO != g_FgtParam.Mode)
                      {
                          GetPersonName(p,str);
-@@ -619,17 +774,58 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
+@@ -619,17 +785,58 @@ PersonID TheLoserDeal(U8 city,PersonID *lqueue)
   ******************************************************************************/
  void HoldCaptive(PersonID person,U8 city)
  {
@@ -759,7 +860,7 @@ index bb23bde..29e4f8c 100644
  /******************************************************************************
   * 函数名:LostEscape
   * 说  明:逃跑处理
-@@ -650,7 +846,11 @@ U8 LostEscape(PersonID person,U8 city)
+@@ -650,7 +857,11 @@ U8 LostEscape(PersonID person,U8 city)
      U8 *cqptr;
  
      cqptr = SHARE_MEM;
@@ -772,7 +873,7 @@ index bb23bde..29e4f8c 100644
      if (pcount)
      {
          rnd = gam_rand() % pcount;
-@@ -677,19 +877,53 @@ PersonID BeOccupied(PersonID person,U8 city)
+@@ -677,19 +888,53 @@ PersonID BeOccupied(PersonID person,U8 city)
  {
      U32 i,pcount;
      PersonID p, rev;
@@ -830,7 +931,7 @@ index bb23bde..29e4f8c 100644
          if (pptr->Belong == (p + 1))
          {
              rev = p;
-@@ -707,6 +941,59 @@ PersonID BeOccupied(PersonID person,U8 city)
+@@ -707,6 +952,59 @@ PersonID BeOccupied(PersonID person,U8 city)
      return (rev);
  }
  
@@ -890,7 +991,7 @@ index bb23bde..29e4f8c 100644
  /******************************************************************************
   * 函数名:KingOverDeal
   * 说  明:君主被俘虏或战死处理
-@@ -734,7 +1021,7 @@ FAR void KingOverDeal(PersonID king)
+@@ -734,7 +1032,7 @@ FAR void KingOverDeal(PersonID king)
      ccount = GetKingCitys(king,cqptr);
      if (ccount)
      {
@@ -899,7 +1000,7 @@ index bb23bde..29e4f8c 100644
          if (pcount)
          {
              if (king == g_PlayerKing)
-@@ -782,6 +1069,7 @@ FAR void KingOverDeal(PersonID king)
+@@ -782,6 +1080,7 @@ FAR void KingOverDeal(PersonID king)
          /*提示势力灭亡*/
          WeightOverNote(king);
      }
@@ -907,7 +1008,7 @@ index bb23bde..29e4f8c 100644
  }
  
  /******************************************************************************
-@@ -1049,7 +1337,6 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
+@@ -1049,7 +1348,6 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
      U32 i;
      U8 *fiptr;
      PersonID*fptr;
@@ -915,7 +1016,7 @@ index bb23bde..29e4f8c 100644
      
      fiptr = FIGHTERS_IDX;
      for (i = 0;i < FIGHT_ORDER_MAX;i ++)
-@@ -1059,10 +1346,8 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
+@@ -1059,10 +1357,8 @@ FAR U8 AddFightOrder(OrderType *Order,PersonID *Fighters)
              Order->Person = i;
              if (AddOrderEnd(Order)) {
                  fiptr[i] = 1;
@@ -929,7 +1030,7 @@ index bb23bde..29e4f8c 100644
              }
          }
 diff --git a/src/cityedit.c b/src/cityedit.c
-index 1372c6f..852b396 100644
+index 1372c6f..e98f455 100644
 --- a/src/cityedit.c
 +++ b/src/cityedit.c
 @@ -578,7 +578,7 @@ FAR U8 GetRoundSelfCity(U8 city,U8 *cqueue)
@@ -950,8 +1051,35 @@ index 1372c6f..852b396 100644
              {
                  if (cqueue) cqueue[count] = inf[i] - 1;
                  count += 1;
+@@ -933,6 +933,9 @@ FAR U8 GetCitySetInner(CitySetType *pos);
+ FAR U8 GetCitySet(CitySetType *pos) {
+     int prev = SysScrollingTimerOpen(0);
+     U8 rv = GetCitySetInner(pos);
++    /* 所有按键和触摸返回路径统一关闭地图增强。调用者随后可能直接显示菜单、
++     * 消息或空城获胜提示，不能依赖 enterBattle 或下一次输入来清理显示状态。 */
++    call_hook_s("didLeaveMainMap", NULL);
+     SysScrollingTimerOpen(prev);
+     return rv;
+ }
+@@ -1032,6 +1035,8 @@ FAR U8 GetCitySetInner(CitySetType *pos)
+                     return(0xff);
+                     break;
+                 case VK_SEARCH:
++                    /* 小地图仍在选城循环内，也必须先停止战略地图的着色和附加绘制。 */
++                    call_hook_s("didLeaveMainMap", NULL);
+                     if (call_hook_a("showMiniMap", NULL) == -1) {
+                         gam_clrlcd(WK_SX,WK_SY,WK_EX,WK_EY);
+                         gam_drawpic(TACTIC_ICON, 0, WK_SX + (WK_EX - WK_SX - 84) / 2,WK_SY + (WK_EY - WK_SY - 64) / 2, 1);
+@@ -1039,6 +1044,7 @@ FAR U8 GetCitySetInner(CitySetType *pos)
+                     tpicflag = 1;
+                     break;
+                 case VK_HELP:
++                    call_hook_s("didLeaveMainMap", NULL);
+                     if (call_hook_a("showMainHelp", NULL) == -1) {
+                         U8 ver[64];
+                         sprintf((char*)ver, "Ver %s", g_engineVersion);
 diff --git a/src/gamEng.c b/src/gamEng.c
-index 824cab5..38a8c39 100644
+index 824cab5..59ea75d 100644
 --- a/src/gamEng.c
 +++ b/src/gamEng.c
 @@ -907,9 +907,45 @@ bool GamLoadRcd(U8 idx)
@@ -1001,7 +1129,19 @@ index 824cab5..38a8c39 100644
  
      int seed = 0;
      read_all((U8 *)&seed,sizeof(seed), 1, fp);
-@@ -953,7 +989,7 @@ bool GamSaveRcd(U8 idx)
+@@ -918,7 +954,10 @@ bool GamLoadRcd(U8 idx)
+     }
+     
+     gam_fclose(fp);
+-    call_hook("didLoadGame", NULL);
++    IF_HAS_HOOK("didLoadGame") {
++        BIND_U8EX("slotIndex", &idx);
++        CALL_HOOK_A();
++    }
+     return true;	
+ }
+ /***********************************************************************
+@@ -953,7 +992,7 @@ bool GamSaveRcd(U8 idx)
          return false;
      }
      
@@ -1010,7 +1150,7 @@ index 824cab5..38a8c39 100644
      U16 pcount = GamGetPersonCount();
      gam_fwrite((U8 *)&ver,1,1,fp);
      gam_fwrite((U8 *)&g_PIdx,1,1,fp);
-@@ -997,7 +1033,7 @@ bool GamSaveRcd(U8 idx)
+@@ -997,7 +1036,7 @@ bool GamSaveRcd(U8 idx)
      }
      
      gam_fwrite((U8 *)FIGHTERS_IDX,1,FIGHT_ORDER_MAX,fp);
@@ -1019,7 +1159,19 @@ index 824cab5..38a8c39 100644
      gam_fwrite((U8 *)ORDERQUEUE,sizeof(OrderType),ORDER_MAX,fp);
      gam_fwrite((U8 *)g_Cities,sizeof(CityType),CITY_MAX,fp);
      {
-@@ -1038,7 +1074,13 @@ EngineConfig g_engineConfig = {
+@@ -1006,6 +1045,11 @@ bool GamSaveRcd(U8 idx)
+     }
+     
+     gam_fclose(fp);
++    /* 两个存档文件都写完后，才保存该档位的附属统计；失败或取消不改变其他档位。 */
++    IF_HAS_HOOK("didSaveGame") {
++        BIND_U8EX("slotIndex", &idx);
++        CALL_HOOK_S();
++    }
+     return true;
+ }
+ 
+@@ -1038,7 +1082,13 @@ EngineConfig g_engineConfig = {
      .promptCityDisaster = 1, // 提示城池灾害
      .showStartMovie = 1, // 显示开场动画
      .compressCustomData = 0,
@@ -1033,11 +1185,80 @@ index 824cab5..38a8c39 100644
      .theme = {
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,
+diff --git a/src/platform/js/timer.c b/src/platform/js/timer.c
+index edfa7af..8f3c8d4 100644
+--- a/src/platform/js/timer.c
++++ b/src/platform/js/timer.c
+@@ -7,6 +7,7 @@
+ //
+ #include <stdio.h>
+ #include <emscripten.h>
++#include <emscripten/eventloop.h>
+ #include "../common/timer.h"
+ 
+ #define NULL ((void*)0)
+@@ -90,10 +91,43 @@ U8 gam_check_timer_on(U8 n) {
+ static timer_t timer2 = {
+     0, 0, 1, NULL
+ };
++static int timer2_handle = -1;
++
++/**
++ * 执行显示刷新回调，不经过用于游戏动画和消息的可加速定时器。
++ *
++ * @param data 显示定时器状态；关闭后已经排队的回调通过active检查失效。
++ */
++static void _timer2_cb(void *data)
++{
++    timer_t *timer = (timer_t*)data;
++    if (timer && timer->active && timer->cb)
++        timer->cb();
++}
+ 
++/**
++ * 使用独立的浏览器interval调度LCD刷新，避免4倍、8倍游戏速度放大整屏转换频率。
++ *
++ * Emscripten的set_interval直接使用浏览器setInterval，不经过增强层的safeSetTimeout。
++ * 刷新间隔至少16毫秒；原版interval=2仍保持20毫秒。重复打开先释放旧定时器，
++ * interval非正数或回调为空时停止刷新，避免重复任务持有游戏内存。
++ *
++ * @param interval 原版以10毫秒为单位的显示刷新间隔。
++ * @param callback 显示刷新函数；为空时关闭定时器。
++ */
+ void gam_timer2_open(int interval, void(*callback)())
+ {
++    double milliseconds;
++    if (timer2_handle >= 0)
++        emscripten_clear_interval(timer2_handle);
++    timer2_handle = -1;
+     timer2.interval = interval;
+     timer2.cb = callback;
+-    _timer_open(&timer2);
+-}
+\ No newline at end of file
++    timer2.active = interval > 0 && callback != NULL;
++    if (!timer2.active)
++        return;
++    milliseconds = interval * ratio;
++    if (milliseconds < 16.0)
++        milliseconds = 16.0;
++    timer2_handle = emscripten_set_interval(_timer2_cb,milliseconds,&timer2);
++}
 diff --git a/src/tactic.c b/src/tactic.c
-index 1c792f8..a4be04c 100644
+index 1c792f8..d3718d8 100644
 --- a/src/tactic.c
 +++ b/src/tactic.c
-@@ -93,7 +93,15 @@ U8 PlayerTactic(void)
+@@ -23,6 +23,9 @@
+ #include "baye/enghead.h"
+ #include "touch.h"
+ #include "baye/script.h"
++#ifdef __EMSCRIPTEN__
++#include <emscripten.h>
++#endif
+ 
+ /*void ComputerTacticInterior(U8 city);
+  void ComputerTacticDiplomatism(U8 city);
+@@ -93,7 +96,15 @@ U8 PlayerTactic(void)
                  continue;
              }
  
@@ -1054,7 +1275,7 @@ index 1c792f8..a4be04c 100644
              switch (cral)
              {
                  case 0xff:
-@@ -127,6 +135,282 @@ U8 PlayerTactic(void)
+@@ -127,6 +138,282 @@ U8 PlayerTactic(void)
  /*const U8 KingTacticOddsIH[5] = {50,40,30,20,10};
   const U8 KingTacticOddsD[5] = {80,70,70,40,20};*/
  
@@ -1337,7 +1558,7 @@ index 1c792f8..a4be04c 100644
  void ComputerTactic(void)
  {
      U32 i;
-@@ -170,8 +454,12 @@ void ComputerTactic(void)
+@@ -170,8 +457,12 @@ void ComputerTactic(void)
              cptr->Food = 500;
          if (cptr->Money > 10000)
              cptr->Money /= 2;
@@ -1350,7 +1571,7 @@ index 1c792f8..a4be04c 100644
          if (TacticOddsIH[g_Persons[b - 1].Character] > rnd)			/*执行内政、协调策略*/
          {
              ComputerTacticInterior(i);
-@@ -179,11 +467,28 @@ void ComputerTactic(void)
+@@ -179,11 +470,28 @@ void ComputerTactic(void)
          }
          else if (TacticOddsD[g_Persons[b - 1].Character] > rnd)		/*执行外交策略*/
          {
@@ -1381,7 +1602,7 @@ index 1c792f8..a4be04c 100644
          }
      }
  }
-@@ -302,6 +607,8 @@ void ComputerTacticDiplomatism(U8 city)
+@@ -302,6 +610,8 @@ void ComputerTacticDiplomatism(U8 city)
      for (i = 0;i < pcount;i ++)
      {
          rnd = gam_rand() % 8;
@@ -1390,7 +1611,7 @@ index 1c792f8..a4be04c 100644
          ecount = GetCityCaptives(city,eqptr);
          if (ecount)
          {
-@@ -419,17 +726,15 @@ void ComputerTacticDiplomatism(U8 city)
+@@ -419,17 +729,15 @@ void ComputerTacticDiplomatism(U8 city)
   ******************************************************************************/
  void ComputerTacticHarmonize(U8 city)
  {
@@ -1412,7 +1633,7 @@ index 1c792f8..a4be04c 100644
      pcount = GetCityPersons(city,pqptr);
      for (i = 0;i < pcount;i ++)
      {
-@@ -462,25 +767,10 @@ void ComputerTacticHarmonize(U8 city)
+@@ -462,25 +770,10 @@ void ComputerTacticHarmonize(U8 city)
                  {
                      continue;
                  }
@@ -1441,7 +1662,7 @@ index 1c792f8..a4be04c 100644
                  order.OrderId = MOVE;
                  break;
              case 6:
-@@ -518,6 +808,23 @@ void ComputerTacticArmament(U8 city)
+@@ -518,6 +811,23 @@ void ComputerTacticArmament(U8 city)
      U32 pcount,fpcount,fcount;
      OrderType order;
      PersonType *pptr;
@@ -1465,7 +1686,7 @@ index 1c792f8..a4be04c 100644
  
      pqptr = (PersonID*)SHARE_MEM;
      cqptr = (U8*)(pqptr + PERSON_COUNT);
-@@ -534,7 +841,17 @@ void ComputerTacticArmament(U8 city)
+@@ -534,7 +844,17 @@ void ComputerTacticArmament(U8 city)
      }
      for (i = 0;i < pcount;i ++)
      {
@@ -1483,7 +1704,7 @@ index 1c792f8..a4be04c 100644
          switch (rnd)
          {
              case 0:
-@@ -579,12 +896,20 @@ void ComputerTacticArmament(U8 city)
+@@ -579,12 +899,20 @@ void ComputerTacticArmament(U8 city)
                  {
                      continue;
                  }
@@ -1508,7 +1729,7 @@ index 1c792f8..a4be04c 100644
                  fpcount = GetCityPersons(city,pqptr);
                  if (fpcount)
                  {
-@@ -607,12 +932,12 @@ void ComputerTacticArmament(U8 city)
+@@ -607,12 +935,12 @@ void ComputerTacticArmament(U8 city)
                          }
                      }
  
@@ -1523,7 +1744,7 @@ index 1c792f8..a4be04c 100644
                      {
                          continue;
                      }
-@@ -621,7 +946,7 @@ void ComputerTacticArmament(U8 city)
+@@ -621,7 +949,7 @@ void ComputerTacticArmament(U8 city)
                          /*添加出征命今生成代码*/
                          order.OrderId = BATTLE;
                          gam_memset(fp,0,10*sizeof(PersonID));
@@ -1532,3 +1753,16 @@ index 1c792f8..a4be04c 100644
                          if (fpcount > 10)
                          {
                              fpcount = 10;
+@@ -708,6 +1036,12 @@ FAR U8 GameDevDrv(void)
+ 
+     while (1)
+     {
++#ifdef __EMSCRIPTEN__
++        /* 自动策略可能跳过全部输入等待。每月计算开始前让出浏览器执行权，
++         * 使Flutter按钮请求、原生详情面板暂挂和显示刷新能在安全回合边界执行。
++         * 零毫秒等待不受游戏倍率缩短，也不改变月份、随机数和命令结算结果。 */
++        emscripten_sleep(0);
++#endif
+         if (IsLoss())
+         {
+             /*提示玩家全军覆没*/

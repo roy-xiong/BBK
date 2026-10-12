@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { buildWorldAtlas } from './build_fmj_world_atlas.mjs';
+import { writeNavigationData } from './generate_rpg_navigation_data.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const game = path.join(root, 'assets/games/fmj');
@@ -90,6 +91,7 @@ for (const script of scripts) {
   script.name = script.commands.find(c => c.op === 54)?.text ?? (script.id === '1:1' ? '开场' : `剧情 ${script.id}`);
 }
 const data = { version: 1, sha256: crypto.createHash('sha256').update(binary).digest('hex'), maps, tiles, objects, scripts };
+writeNavigationData(game, data);
 data.world = buildWorldAtlas(data);
 const js = `/* 此文件由 tool/generate_fmj_guide.mjs 从原始 ROM 生成。 */\nwindow.FmjGuideData=${JSON.stringify(data)};\n`;
 fs.writeFileSync(path.join(game, 'js/guide-data.js'), js);

@@ -11,6 +11,7 @@ import '../../../../data/services/local_game_server.dart';
 import '../../../../domain/models/app_settings.dart';
 import '../../../../domain/models/fmj_exploration.dart';
 import '../../../../domain/models/game_definition.dart';
+import '../../../../domain/models/sgby_battle_statistics.dart';
 
 /// 游戏引擎执行作弊操作后的结构化结果。
 class CheatResult {
@@ -449,6 +450,9 @@ class GameViewModel extends ChangeNotifier {
   int _sgbyBattleSpeedMultiplier = 2;
   bool _sgbyAutoBattleEnabled = false;
   bool _sgbyAutoEndTurnEnabled = false;
+  final ValueNotifier<SgbyBattleStatistics?> _sgbyBattleStatistics =
+      ValueNotifier(null);
+  int _battleStatisticsMessageVersion = 0;
   Object? _error;
 
   WebViewController? get webViewController => _webViewController;
@@ -461,6 +465,8 @@ class GameViewModel extends ChangeNotifier {
   int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
   bool get sgbyAutoBattleEnabled => _sgbyAutoBattleEnabled;
   bool get sgbyAutoEndTurnEnabled => _sgbyAutoEndTurnEnabled;
+  ValueListenable<SgbyBattleStatistics?> get sgbyBattleStatistics =>
+      _sgbyBattleStatistics;
   Object? get error => _error;
 
   Future<void> initialize() async {
@@ -469,6 +475,7 @@ class GameViewModel extends ChangeNotifier {
     _isReady = false;
     _fmjGuideVisible = false;
     _progress = 0;
+    _sgbyBattleStatistics.value = null;
     notifyListeners();
 
     if (game.id == GameId.sgby) {
@@ -801,6 +808,45 @@ class GameViewModel extends ChangeNotifier {
       return const CheatResult(isSuccess: false, message: '游戏返回了无效结果');
     } on Object {
       return const CheatResult(isSuccess: false, message: '操作失败，请稍后重试');
+    }
+  }
+
+  /// 展示原生详情面板期间暂挂三国霸业自动操作，关闭后恢复原有开关。
+  ///
+  /// 暂挂请求先提交，但不等待WebView返回才展示面板，保证按钮点击能立即反馈。
+  /// 面板关闭时先等待暂挂请求结束，再配对释放；脚本使用嵌套计数，支持作弊面板
+  /// 内再次打开将领编辑器。页面销毁或旧脚本不支持暂挂时不阻断原生面板流程。
+  ///
+  /// @param showPanel 原生面板展示任务，Future应在面板关闭后结束。
+  Future<void> withSgbyAutomationPaused(
+    Future<void> Function() showPanel,
+  ) async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby ||
+        !_isReady ||
+        controller == null ||
+        _disposed) {
+      await showPanel();
+      return;
+    }
+    Future<void> updatePause(String action) async {
+      if (_disposed) return;
+      try {
+        await controller.runJavaScript(
+          'window.BbkSgby && typeof window.BbkSgby.$action === "function" && '
+          'window.BbkSgby.$action();',
+        );
+      } on Object {
+        // 页面刷新或销毁时，临时脚本状态随页面释放，原生面板仍可正常关闭。
+      }
+    }
+
+    final pauseRequest = updatePause('beginUiPause');
+    try {
+      await showPanel();
+    } finally {
+      await pauseRequest;
+      await updatePause('endUiPause');
     }
   }
 
@@ -1174,6 +1220,7 @@ class GameViewModel extends ChangeNotifier {
       unawaited(setFmjHighDefinition(_fmjHighDefinition));
       unawaited(setSgbyWorldActivity(_sgbyWorldActivity));
       unawaited(_restoreSgbyControlState());
+      unawaited(_restoreBattleStatistics());
       unawaited(_syncFmjWideView());
       unawaited(_syncFmjAutoBattle());
       unawaited(_syncFmjRunSpeed());
@@ -1203,6 +1250,12 @@ class GameViewModel extends ChangeNotifier {
               message: data['message'] as String? ?? '自动处理已完成',
             ),
           );
+        } else if (type == 'sgby_battle_statistics' && game.id == GameId.sgby) {
+          _battleStatisticsMessageVersion++;
+          final statistics = SgbyBattleStatistics.tryParse(data);
+          if (statistics != null || data == null) {
+            _sgbyBattleStatistics.value = statistics;
+          }
         } else if (type == 'sgby_control_state' && data is Map) {
           final autoEndTurn = data['autoEndTurn'];
           if (autoEndTurn is bool && autoEndTurn != _sgbyAutoEndTurnEnabled) {
@@ -1215,6 +1268,26 @@ class GameViewModel extends ChangeNotifier {
       } on Object {
         // 敌城详情属于辅助展示，解析失败不影响游戏主循环。
       }
+    }
+  }
+
+  /// 就绪时补取当前战绩。期间若收到更新事件，丢弃较早的异步快照以防数字倒退。
+  Future<void> _restoreBattleStatistics() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby || controller == null || _disposed) return;
+    final version = _battleStatisticsMessageVersion;
+    try {
+      final raw = await controller.runJavaScriptReturningResult(
+        'window.BbkSgby ? window.BbkSgby.getBattleStatistics() : "null";',
+      );
+      if (_disposed || version != _battleStatisticsMessageVersion) return;
+      final decoded = _decodeJavaScriptResult(raw);
+      final statistics = SgbyBattleStatistics.tryParse(decoded);
+      if (statistics != null || decoded == null) {
+        _sgbyBattleStatistics.value = statistics;
+      }
+    } on Object {
+      // 页面重载期间桥可能不可用，后续核心事件仍会恢复独立文字区。
     }
   }
 
@@ -1277,6 +1350,7 @@ class GameViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _sgbyBattleStatistics.dispose();
     unawaited(_controllerService.dispose());
     super.dispose();
   }

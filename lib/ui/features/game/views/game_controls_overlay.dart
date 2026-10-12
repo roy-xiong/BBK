@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../domain/models/game_definition.dart';
+import '../../../../domain/models/sgby_battle_statistics.dart';
+import 'sgby_battle_statistics_text.dart';
 
 /// 两款游戏共用的屏幕按键层。
 class GameControlsOverlay extends StatelessWidget {
@@ -19,6 +22,7 @@ class GameControlsOverlay extends StatelessWidget {
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
+    this.sgbyBattleStatistics,
   });
 
   final bool hapticsEnabled;
@@ -31,6 +35,7 @@ class GameControlsOverlay extends StatelessWidget {
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
+  final ValueListenable<SgbyBattleStatistics?>? sgbyBattleStatistics;
 
   @override
   Widget build(BuildContext context) {
@@ -55,13 +60,26 @@ class GameControlsOverlay extends StatelessWidget {
               Positioned(
                 right: 18,
                 bottom: buttonSize * 2.5 + gap * 2,
-                child: _SgbyUtilityButtons(
-                  isDarkTheme: true,
-                  hapticsEnabled: hapticsEnabled,
-                  battleSpeedMultiplier: battleSpeedMultiplier,
-                  autoBattleEnabled: sgbyAutoBattleEnabled,
-                  autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
-                  onInput: onInput,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 300,
+                      child: SgbyBattleStatisticsText(
+                        isDarkTheme: true,
+                        statistics: sgbyBattleStatistics,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _SgbyUtilityButtons(
+                      isDarkTheme: true,
+                      hapticsEnabled: hapticsEnabled,
+                      battleSpeedMultiplier: battleSpeedMultiplier,
+                      autoBattleEnabled: sgbyAutoBattleEnabled,
+                      autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
+                      onInput: onInput,
+                    ),
+                  ],
                 ),
               ),
             if (showFmjUtilityButtons)
@@ -111,6 +129,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
+    this.sgbyBattleStatistics,
   });
 
   final bool isDarkTheme;
@@ -124,6 +143,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
+  final ValueListenable<SgbyBattleStatistics?>? sgbyBattleStatistics;
 
   @override
   Widget build(BuildContext context) {
@@ -150,8 +170,13 @@ class PortraitGameControlsPanel extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         child: Transform.translate(
-                          // 两行功能区不向父容器外平移，保证绘制与触摸边界一致。
-                          offset: Offset(0, showFmjUtilityButtons ? 0 : -24),
+                          // 功能区首行不能平移到父容器之外，否则按钮上半部可见却无法点击。
+                          offset: Offset(
+                            0,
+                            showFmjUtilityButtons || showSgbyUtilityButtons
+                                ? 0
+                                : -24,
+                          ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -166,6 +191,11 @@ class PortraitGameControlsPanel extends StatelessWidget {
                                 const SizedBox(height: 14),
                               ],
                               if (showSgbyUtilityButtons) ...[
+                                SgbyBattleStatisticsText(
+                                  isDarkTheme: isDarkTheme,
+                                  statistics: sgbyBattleStatistics,
+                                ),
+                                const SizedBox(height: 6),
                                 _SgbyUtilityButtons(
                                   isDarkTheme: isDarkTheme,
                                   hapticsEnabled: hapticsEnabled,
@@ -186,10 +216,15 @@ class PortraitGameControlsPanel extends StatelessWidget {
                                     hapticsEnabled: hapticsEnabled,
                                     onInput: onInput,
                                   ),
-                                  _NesSystemButtons(
-                                    isDarkTheme: isDarkTheme,
-                                    hapticsEnabled: hapticsEnabled,
-                                    onInput: onInput,
+                                  Flexible(
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: _NesSystemButtons(
+                                        isDarkTheme: isDarkTheme,
+                                        hapticsEnabled: hapticsEnabled,
+                                        onInput: onInput,
+                                      ),
+                                    ),
                                   ),
                                   _NesActionButtons(
                                     buttonSize: actionButtonSize,

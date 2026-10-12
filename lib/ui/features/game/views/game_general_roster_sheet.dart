@@ -59,13 +59,15 @@ Future<void> showSgbyGeneralRosterSheet(
   BuildContext context, {
   required GameViewModel viewModel,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) => FractionallySizedBox(
-      heightFactor: 0.88,
-      child: _SgbyGeneralRosterSheet(viewModel: viewModel),
+  return viewModel.withSgbyAutomationPaused(
+    () => showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.88,
+        child: _SgbyGeneralRosterSheet(viewModel: viewModel),
+      ),
     ),
   );
 }

@@ -172,6 +172,17 @@ Future<void> showGameCheatSheet(
   BuildContext context, {
   required GameDefinition game,
   required GameViewModel viewModel,
+}) {
+  return viewModel.withSgbyAutomationPaused(
+    () => _showGameCheatSheetContent(context, game: game, viewModel: viewModel),
+  );
+}
+
+/// 在自动操作已暂挂的期间读取作弊状态并展示面板，保留原有配置与确认流程。
+Future<void> _showGameCheatSheetContent(
+  BuildContext context, {
+  required GameDefinition game,
+  required GameViewModel viewModel,
 }) async {
   final options = switch (game.id) {
     GameId.sgby => const <_CheatOption>[
@@ -812,16 +823,18 @@ Future<void> showSgbyGeneralEditor(
   BuildContext context, {
   required GameViewModel viewModel,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) {
-      return FractionallySizedBox(
-        heightFactor: 0.88,
-        child: _SgbyGeneralEditorSheet(viewModel: viewModel),
-      );
-    },
+  return viewModel.withSgbyAutomationPaused(
+    () => showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return FractionallySizedBox(
+          heightFactor: 0.88,
+          child: _SgbyGeneralEditorSheet(viewModel: viewModel),
+        );
+      },
+    ),
   );
 }
 

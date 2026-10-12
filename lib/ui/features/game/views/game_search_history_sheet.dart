@@ -7,13 +7,15 @@ Future<void> showSgbySearchHistorySheet(
   BuildContext context, {
   required GameViewModel viewModel,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) => FractionallySizedBox(
-      heightFactor: 0.8,
-      child: _SgbySearchHistorySheet(viewModel: viewModel),
+  return viewModel.withSgbyAutomationPaused(
+    () => showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.8,
+        child: _SgbySearchHistorySheet(viewModel: viewModel),
+      ),
     ),
   );
 }

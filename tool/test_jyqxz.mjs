@@ -19,10 +19,10 @@ async function select(id){
   assert.equal(result.ok,true,JSON.stringify({id,result}));await delay(40);return result;
 }
 try{
-  const ready=await b.evaluate(`({ready:document.body.dataset.gameReady,wide:FmjWideView.state(),maps:FmjGuideData.maps.length,world:FmjGuideData.world,stages:JyqxzStages.data.length})`);
+  const ready=await b.evaluate(`({ready:document.body.dataset.gameReady,wide:FmjWideView.state(),maps:FmjGuideData.maps.length,navigationOnly:FmjGuideData.navigationOnly,hasWorld:Object.hasOwn(FmjGuideData,'world'),stages:JyqxzStages.data.length})`);
   assert.equal(ready.ready,'true');assert.equal(ready.wide.width,320);assert.equal(ready.wide.height,192);assert.equal(ready.maps,32);
-  assert.ok(ready.world.links.length>0);assert.ok(ready.world.components.some(c=>c.nodes.length>10));
-  report.checks.push('离线资源、320×192 远视野、世界真实连接');
+  assert.equal(ready.navigationOnly,true);assert.equal(ready.hasWorld,false);
+  report.checks.push('离线导航资源、320×192 远视野、停用世界图集加载');
   await b.evaluate(`localStorage.setItem('sav/fmjsave0','fmj-sentinel');`);
   assert.equal(await b.evaluate(`sysStorageHas('sav/fmjsave0')`),false);
   await b.evaluate(`sysStorageSet('sav/jyqxz-isolation-test','jyqxz-sentinel')`);
@@ -118,12 +118,13 @@ try{
   assert.deepEqual(report.stageFailures,[]);report.checks.push('全部 '+listing.stages.filter(s=>s.id!=='restore-backup').length+' 个节点加载与原地图身份检查');
   await select('scene-9:11');await stable();
   const guide=JSON.parse(await b.evaluate('bbkOpenFmjGuide()'));assert.equal(guide.ok,true);
-  assert.equal(await b.evaluate('fmj.updateInterval===null'),true);assert.equal(await b.evaluate('document.querySelector("#fmj-guide h1").textContent'),'金庸群侠传 · 剧情与世界地图');
+  assert.equal(await b.evaluate('fmj.updateInterval===null'),true);assert.equal(await b.evaluate('document.querySelector("#fmj-guide h1").textContent'),'金庸群侠传 · 剧情与任务');
   assert.equal(await b.evaluate('document.querySelectorAll("[data-jy-goal]").length>10'),true);
+  assert.equal(await b.evaluate('document.querySelector("#fmj-guide canvas")===null'),true);
   const mobile=await b.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await delay(80);
   if(process.argv.includes('--capture')){const shot=await b.cdp('Page.captureScreenshot',{format:'png'});fs.writeFileSync('/Users/xiongjian/Downloads/JYQXZ-地图与任务.png',Buffer.from(shot.data,'base64'));}
   await b.evaluate('FmjGuide.close()');assert.equal(await b.evaluate('fmj.updateInterval!=null'),true);
-  report.checks.push('地图 DOM、任务与门派入口、手机尺寸、暂停恢复');
+  report.checks.push('剧情任务与门派入口恢复，无世界地图 Canvas，手机尺寸及暂停恢复');
   const savedState=await b.evaluate(`sysStorageGet('sav/fmjsave0')`);
   await b.evaluate(`bbkSetFmjRunSpeed(3);bbkSetFmjAutoBattle(true);FmjWideView.setEnabled(false);FmjPreferences.set('storyScope','main');`);
   const preferences=await b.evaluate(`JSON.parse(bbkExportState())['bbk/jyqxz_controls']`);assert.ok(preferences);

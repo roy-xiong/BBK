@@ -81,7 +81,24 @@
             var task=tasks.find(function(t){return t.status==='ready'&&(school?(school[0]===101&&t.id.startsWith('huashan-')||school[0]===151&&t.id.startsWith('beggar-')||t.id.startsWith('school-')):false);})||tasks.find(function(t){return t.status==='ready'&&!t.id.startsWith('huashan-')&&!t.id.startsWith('beggar-')&&!t.id.startsWith('school-');});
             if(task)return task;
         }
-        var next=main.find(function(t){return !state.flags[t.flag];})||{label:'主线已完成，自由探索江湖',scriptId:state.scriptId,event:0};
+        var next=main.find(function(t){return !state.flags[t.flag];});
+        if(!next){
+            // 无目标是独立状态，不能伪造当前场景的初始化任务。这里只统计导览已登记
+            // 的任务，不将“主线完成”误报为所有门派、支线及未登记剧情均已完成。
+            var hint='主线已完成，当前暂无可自动前往的目标。';
+            if(state.questMode==='main'){
+                hint+='当前为「仅主线」模式，可切换到「完整流程」查看支线，或手动选择门派'+(data.navigationOnly?'。':'与地图地点。');
+            }else{
+                var remaining=tasks||this.questTasks(state);
+                var deferred=remaining.filter(function(t){return t.status==='deferred';}).length;
+                var pending=remaining.filter(function(t){return t.status==='pending';}).length;
+                if(deferred)hint+=deferred+' 条支线已暂缓，可在「门派与支线」中重新设为目标。';
+                if(pending)hint+=pending+' 条任务尚未满足门派、等级或前置条件。';
+                if(!school)hint+='你尚未加入门派，可在「门派入门导航」选择。';
+                if(!deferred&&!pending)hint+='当前已登记的支线均已完成，可自由探索'+(data.navigationOnly?'。':'或手动选择地图地点。');
+            }
+            return {kind:'idle',noTarget:true,label:'主线已完成，暂无可前往目标',hint:hint,scriptId:state.scriptId,event:0};
+        }
         if(next.item&&!state.goods[next.item])return {label:'西夏杂货铺：为王处一购买毒龙涎',scriptId:'10:13',event:42,hint:'到杂货铺购买毒龙涎后再返回京城客栈。'};
         return Object.assign({hint:next.event?'到达后按确认与人物交互。':'沿真实入口进入场景，开场剧情由原引擎执行。'},next);
     };
@@ -93,6 +110,7 @@
      */
     Engine.prototype.taskPlan=function(initial){
         var goal=this.nextGoal(initial),target=Object.assign({},goal,{allowBoundary:true});
+        if(goal.noTarget)return {unavailable:true,reason:'no_target',goal:goal};
         if(!goal.event&&goal.flag&&initial.scriptId===goal.scriptId){
             var flood=this.flood(initial);
             if(flood)for(var exit of this.navigationExits(initial,flood)){

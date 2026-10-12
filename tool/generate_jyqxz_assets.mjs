@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { buildJyqxzWorld } from './build_jyqxz_world.mjs';
+import { writeNavigationData } from './generate_rpg_navigation_data.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const game = path.join(root, 'assets/games/jyqxz');
@@ -74,6 +75,7 @@ for(const script of scripts)if(script.name.startsWith('剧情 ')){const [type,in
 const outdoorMaps=maps.filter(m=>[2,3,4,9].includes(m.type)||m.type===5&&m.index<10).map(m=>m.id);
 const skills=resources.filter(r=>r.kind===4).map(r=>({id:`${r.type}:${r.index}`,actors:[...new Set(scripts.flatMap(s=>s.commands.filter(c=>c.op===44&&c.a[1]===r.type&&c.a[2]===r.index).map(c=>c.a[0])))]}));
 const data={version:1,gameId:'jyqxz',title:'金庸群侠传',sha256:hash,maps,tiles,objects,goods,skills,scripts,outdoorMaps,incoming:Object.fromEntries(incoming)};
+writeNavigationData(game,data);
 // 地理关系由原事件构建，执行导航仍使用实时旗标与碰撞。
 data.world=buildJyqxzWorld(data);
 fs.writeFileSync(path.join(game,'js/guide-data.js'),'/* 从固定 JYQXZ ROM 生成，不可手改。 */\nwindow.FmjGuideData='+JSON.stringify(data)+';\n');
