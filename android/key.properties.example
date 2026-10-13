@@ -1,0 +1,7 @@
+# 复制为 android/key.properties 后填写；实际 key.properties 已被 .gitignore 忽略。
+# 云端也可设置 BBK_RELEASE_STORE_PASSWORD、BBK_RELEASE_KEY_PASSWORD、
+# BBK_RELEASE_KEY_ALIAS、BBK_RELEASE_STORE_FILE；storeFile 相对于 android 目录。
+storePassword=替换为keystore密码
+keyPassword=替换为key密码
+keyAlias=bbk-release
+storeFile=keystore/bbk-release.jks
