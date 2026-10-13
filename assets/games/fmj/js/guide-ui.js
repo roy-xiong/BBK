@@ -648,13 +648,13 @@
         if (!current) { message('请先开始或载入游戏。'); return { ok: false }; }
         if (current.busy) {
             var c = core(), scene = c && c.game.mainScene, process = scene && scene.scriptProcess;
-            // 原对白和选择框的当前交互等同玩家主动按一次 A，不连续确认或自动跑路。
-            if (scene && c.game.getCurScreen() === scene && process && process.curOp_0 &&
-                !c.combat.Combat.Companion.IsActive() && global.bbkSendInput) {
+            // 原对白、选择框和战斗都沿原 A 键入口，每次只确认一次，不启动自动跑路。
+            if (scene && c.game.getCurScreen() === scene && global.bbkSendInput &&
+                (c.combat.Combat.Companion.IsActive() || process && process.curOp_0)) {
                 global.bbkSendInput('confirm');
                 return { ok: true, mode: 'confirm' };
             }
-            message('请先完成当前战斗或关闭游戏菜单。'); return { ok: false };
+            message('请先关闭游戏菜单。'); return { ok: false };
         }
         var next = engine.nextGoal(current);
         if (isJyqxz && next.noTarget) { message(next.hint, true); return { ok: false, reason: 'no_target' }; }
