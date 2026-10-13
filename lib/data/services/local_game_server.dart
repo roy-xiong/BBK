@@ -19,9 +19,19 @@ class LocalGameServer {
   final GameSaveRepository _gameSaveRepository;
   HttpServer? _server;
   Uri? _baseUri;
+  Future<void>? _starting;
+  Future<void>? _stopping;
+  Future<void>? _checking;
 
-  Future<void> start() async {
-    if (_server != null) return;
+  /// 合并并发启动请求；关闭期间等待旧监听释放，避免遗留服务及来源切换。
+  Future<void> start() {
+    final stopping = _stopping;
+    if (stopping != null) return stopping.then((_) => start());
+    if (_server != null) return Future<void>.value();
+    return _starting ??= _bind().whenComplete(() => _starting = null);
+  }
+
+  Future<void> _bind() async {
     HttpServer? server;
     for (final port in _candidatePorts) {
       try {
@@ -34,7 +44,49 @@ class LocalGameServer {
     server ??= await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     _server = server;
     _baseUri = Uri.parse('http://127.0.0.1:${server.port}/');
-    server.listen(_handleRequest, onError: (_) {});
+    final listeningServer = server;
+    server.listen(
+      _handleRequest,
+      onError: (_) {},
+      onDone: () {
+        if (identical(_server, listeningServer)) {
+          _server = null;
+          _baseUri = null;
+        }
+      },
+    );
+  }
+
+  /// 进入或重新加载网页前检查真实回环监听，失效时恢复服务及入口来源。
+  ///
+  /// 检查只访问本应用的健康端点，不读游戏资源或存档；请求有超时限制且共用
+  /// 同一个进行中的检查，避免多次恢复互相关闭刚创建的监听。
+  Future<void> ensureRunning() =>
+      _checking ??= _ensureHealthy().whenComplete(() => _checking = null);
+
+  Future<void> _ensureHealthy() async {
+    await start();
+    final baseUri = _baseUri;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 1);
+    try {
+      if (baseUri == null) throw StateError('本地游戏服务尚未启动');
+      final request = await client
+          .getUrl(baseUri.resolve('__health__'))
+          .timeout(const Duration(seconds: 1));
+      final response = await request.close().timeout(
+        const Duration(seconds: 1),
+      );
+      final healthy =
+          response.statusCode == HttpStatus.noContent &&
+          response.headers.value('X-Bbk-Server') == 'ready';
+      await response.drain<void>().timeout(const Duration(seconds: 1));
+      if (!healthy) throw StateError('本地游戏服务健康检查失败');
+    } on Object {
+      await stop();
+      await start();
+    } finally {
+      client.close(force: true);
+    }
   }
 
   Uri entryUri(GameDefinition game) {
@@ -52,7 +104,16 @@ class LocalGameServer {
         uri.port == baseUri.port;
   }
 
-  Future<void> stop() async {
+  /// 等待尚未完成的绑定后再关闭，避免销毁阶段出现没有所有者的监听。
+  Future<void> stop() =>
+      _stopping ??= _close(_starting).whenComplete(() => _stopping = null);
+
+  Future<void> _close(Future<void>? starting) async {
+    try {
+      await starting;
+    } on Object {
+      /* 绑定失败后仍须清理状态。 */
+    }
     final server = _server;
     _server = null;
     _baseUri = null;
@@ -69,7 +130,11 @@ class LocalGameServer {
       return;
     }
     try {
-      if (request.uri.path.startsWith('/__state__/')) {
+      if (request.uri.path == '/__health__') {
+        response.statusCode = HttpStatus.noContent;
+        response.headers.set('X-Bbk-Server', 'ready');
+        await response.close();
+      } else if (request.uri.path.startsWith('/__state__/')) {
         await _serveState(request);
       } else {
         await _serveAsset(request);

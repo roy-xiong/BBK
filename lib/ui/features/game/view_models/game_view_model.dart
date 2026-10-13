@@ -454,6 +454,8 @@ class GameViewModel extends ChangeNotifier {
       ValueNotifier(null);
   int _battleStatisticsMessageVersion = 0;
   Object? _error;
+  int _networkRecoveryCount = 0;
+  bool _recoveringInitialLoad = false;
 
   WebViewController? get webViewController => _webViewController;
   int get progress => _progress;
@@ -476,64 +478,124 @@ class GameViewModel extends ChangeNotifier {
     _fmjGuideVisible = false;
     _progress = 0;
     _sgbyBattleStatistics.value = null;
+    _networkRecoveryCount = 0;
     notifyListeners();
 
-    if (game.id == GameId.sgby) {
-      final edition = _initialSettings.sgbyEdition;
-      await _saveRepository.updateEntries(GameId.sgby, <String, String>{
-        'baye/libpath': edition.assetPath,
-        'baye/libname': edition.title,
-        'baye/resolution': '0',
-      });
-    }
+    try {
+      await _localGameServer.ensureRunning();
+      if (_disposed) return;
+      if (game.id == GameId.sgby) {
+        final edition = _initialSettings.sgbyEdition;
+        await _saveRepository.updateEntries(GameId.sgby, <String, String>{
+          'baye/libpath': edition.assetPath,
+          'baye/libname': edition.title,
+          'baye/resolution': '0',
+        });
+      }
 
-    // 页面可能在存档恢复期间退出，避免继续建立旧会话的 WebView 和手柄监听。
-    if (_disposed) return;
-    final controller = WebViewController();
-    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-    await controller.setBackgroundColor(const Color(0xFF000000));
-    await controller.addJavaScriptChannel(
-      'BbkSaveChannel',
-      onMessageReceived: _onSaveMessage,
-    );
-    await controller.addJavaScriptChannel(
-      'BbkSystemChannel',
-      onMessageReceived: _onSystemMessage,
-    );
-    await controller.setNavigationDelegate(
-      NavigationDelegate(
-        onProgress: (progress) {
-          if (_disposed) return;
-          _progress = progress;
-          notifyListeners();
-        },
-        onPageFinished: (_) {
-          if (_disposed) return;
-          _progress = 100;
-          notifyListeners();
-        },
-        onWebResourceError: (resourceError) {
-          if (_disposed) return;
-          if (resourceError.isForMainFrame ?? true) {
-            _error = StateError(resourceError.description);
+      // 页面可能在存档恢复期间退出，避免继续建立旧会话的 WebView 和手柄监听。
+      if (_disposed) return;
+      final controller = WebViewController();
+      await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await controller.setBackgroundColor(const Color(0xFF000000));
+      await controller.addJavaScriptChannel(
+        'BbkSaveChannel',
+        onMessageReceived: _onSaveMessage,
+      );
+      await controller.addJavaScriptChannel(
+        'BbkSystemChannel',
+        onMessageReceived: _onSystemMessage,
+      );
+      await controller.setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (progress) {
+            if (_disposed) return;
+            _progress = progress;
             notifyListeners();
-          }
-        },
-        onNavigationRequest: (request) {
-          return _localGameServer.isLocalUrl(request.url)
-              ? NavigationDecision.navigate
-              : NavigationDecision.prevent;
-        },
-      ),
-    );
-    if (_disposed) return;
-    _webViewController = controller;
-    _controllerService.start(sendInput);
+          },
+          onPageFinished: (_) {
+            if (_disposed) return;
+            _progress = 100;
+            notifyListeners();
+          },
+          onWebResourceError: (resourceError) {
+            if (_disposed || controller != _webViewController) return;
+            // 仅启动阶段的连接错误自动恢复一次，避免在游玩中重载丢失当前局。
+            if (!_isReady &&
+                _isConnectionError(resourceError) &&
+                _networkRecoveryCount == 0 &&
+                !_recoveringInitialLoad) {
+              unawaited(_recoverInitialLoad(controller));
+              return;
+            }
+            if (resourceError.isForMainFrame ?? true) {
+              _error = StateError(resourceError.description);
+              notifyListeners();
+            }
+          },
+          onNavigationRequest: (request) {
+            return _localGameServer.isLocalUrl(request.url)
+                ? NavigationDecision.navigate
+                : NavigationDecision.prevent;
+          },
+        ),
+      );
+      if (_disposed) return;
+      _webViewController = controller;
+      _controllerService.start(sendInput);
+      notifyListeners();
+      await controller.loadRequest(_localGameServer.entryUri(game));
+    } on Object catch (error) {
+      if (!_disposed) {
+        _error = error;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Android 与 iOS 的回环连接拒绝、断开及超时均由同一个恢复入口处理。
+  bool _isConnectionError(WebResourceError error) =>
+      <WebResourceErrorType>{
+        WebResourceErrorType.connect,
+        WebResourceErrorType.hostLookup,
+        WebResourceErrorType.io,
+        WebResourceErrorType.timeout,
+      }.contains(error.errorType) ||
+      <int>{
+        -2,
+        -6,
+        -7,
+        -8,
+        -1001,
+        -1003,
+        -1004,
+        -1005,
+        -1009,
+      }.contains(error.errorCode);
+
+  /// 恢复本地服务后重新解析入口 URL；失败保留重试界面，销毁后不再操作视图。
+  Future<void> _recoverInitialLoad(WebViewController controller) async {
+    _recoveringInitialLoad = true;
+    _networkRecoveryCount++;
+    _error = null;
+    _progress = 0;
     notifyListeners();
-    await controller.loadRequest(_localGameServer.entryUri(game));
+    try {
+      await _localGameServer.ensureRunning();
+      if (_disposed || controller != _webViewController) return;
+      await controller.loadRequest(_localGameServer.entryUri(game));
+    } on Object catch (error) {
+      if (!_disposed && controller == _webViewController) {
+        _error = error;
+        notifyListeners();
+      }
+    } finally {
+      _recoveringInitialLoad = false;
+    }
   }
 
   Future<void> reload() async {
+    if (_disposed || _recoveringInitialLoad) return;
     final controller = _webViewController;
     if (controller == null) {
       await initialize();
@@ -542,8 +604,18 @@ class GameViewModel extends ChangeNotifier {
     _error = null;
     _isReady = false;
     _fmjGuideVisible = false;
+    _networkRecoveryCount = 0;
     notifyListeners();
-    await controller.reload();
+    try {
+      await _localGameServer.ensureRunning();
+      if (_disposed || controller != _webViewController) return;
+      await controller.loadRequest(_localGameServer.entryUri(game));
+    } on Object catch (error) {
+      if (!_disposed) {
+        _error = error;
+        notifyListeners();
+      }
+    }
   }
 
   void sendInput(GameInput input) {

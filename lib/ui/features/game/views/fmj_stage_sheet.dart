@@ -84,8 +84,8 @@ class _StageListState extends State<_StageList> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
                 widget.viewModel.game.id.name == 'jyqxz'
-                    ? '按节点和门派性别条件准备角色及物资。当前局另存备份，可恢复；不覆盖正常存档。'
-                    : '选择后切换当前进度，自动准备物品、队伍和装备；不覆盖已有存档。',
+                    ? '按节点和门派条件准备角色及物资，当前局另存备份。任务节点自动覆盖第一档，第二、三档保留。'
+                    : '切换进度并准备物品、队伍和装备。任务节点自动覆盖第一档，第二、三档保留。',
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ),

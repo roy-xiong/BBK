@@ -14,11 +14,11 @@
         var out=new module.java.ObjectOutputStream(new module.java.File('sav/jyqxz-stage-backup'));
         c.scene.SaveLoadGame.write_bvlcvx$(c.game,out);c.script.ScriptResources.write_vcd9jg$(out);out.close();
     }
-    /** 选关列表与正常存档分离；切换前另存完整序列化备份，不覆盖档位。 */
+    /** 切换前另存完整序列化备份；稳定任务节点由自动存档覆盖第一档，其余档位保留。 */
     global.bbkOpenFmjStages=function(){
         if(global.FmjGuide)global.FmjGuide.close();global.sysSetGameLoopPaused(true);
         var list=stages.map(function(s){return {id:s.id,title:s.title,chapter:s.chapter,scene:s.scene,kind:s.kind,preparation:s.preparation};});
-        if(global.sysStorageHas('sav/jyqxz-stage-backup'))list.unshift({id:'restore-backup',title:'恢复选关前进度',chapter:'进度恢复',scene:'选关前的当前局',kind:'备份',preparation:'读取独立选关备份，不覆盖三个正常档位'});
+        if(global.sysStorageHas('sav/jyqxz-stage-backup'))list.unshift({id:'restore-backup',title:'恢复选关前进度',chapter:'进度恢复',scene:'选关前的当前局',kind:'备份',preparation:'读取独立备份；任务节点自动保存到第一档，第二、三档保留'});
         return JSON.stringify({ok:true,stages:list});
     };
     global.bbkCloseFmjStages=close;

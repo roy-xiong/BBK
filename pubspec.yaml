@@ -38,6 +38,7 @@ dependencies:
   path_provider: ^2.1.6
 
 dev_dependencies:
+  webview_flutter_platform_interface: ^2.15.1
   flutter_test:
     sdk: flutter
 

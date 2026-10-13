@@ -488,6 +488,7 @@
         if (!point) throw new Error('目标位置已变化，请重新前往');
         // 原版部分出口格同时放着机关 NPC。原方向输入先检查道路事件、再判断
         // 能否移动，不能仅凭 NPC 占格拒绝合法事件；碰撞和放行条件仍由原引擎判断。
+        if (global.BbkRpgAutoSave) global.BbkRpgAutoSave.checkpoint();
         activateExit({
             kind: event <= 40 ? 'object' : 'road_event', event: event,
             anchorX: current.x, anchorY: current.y,
@@ -610,6 +611,7 @@
                 }
                 if (arrival.stopped) return { ok: true, stopped: arrival.stopped };
                 if (plan.boundary) {
+                    if (destination.currentTask && global.BbkRpgAutoSave) global.BbkRpgAutoSave.checkpoint();
                     activateExit(plan.exit);
                     return { ok: true, stopped: 'story' };
                 }
@@ -644,7 +646,16 @@
     async function goToNextGoal() {
         var current = readState();
         if (!current) { message('请先开始或载入游戏。'); return { ok: false }; }
-        if (current.busy) { message('请先完成当前对话、战斗或关闭游戏菜单。'); return { ok: false }; }
+        if (current.busy) {
+            var c = core(), scene = c && c.game.mainScene, process = scene && scene.scriptProcess;
+            // 原对白和选择框的当前交互等同玩家主动按一次 A，不连续确认或自动跑路。
+            if (scene && c.game.getCurScreen() === scene && process && process.curOp_0 &&
+                !c.combat.Combat.Companion.IsActive() && global.bbkSendInput) {
+                global.bbkSendInput('confirm');
+                return { ok: true, mode: 'confirm' };
+            }
+            message('请先完成当前战斗或关闭游戏菜单。'); return { ok: false };
+        }
         var next = engine.nextGoal(current);
         if (isJyqxz && next.noTarget) { message(next.hint, true); return { ok: false, reason: 'no_target' }; }
         if (!next.event && next.scriptId === current.scriptId && !(isJyqxz && next.flag)) { message(next.hint); return { ok: false, reason: 'interaction' }; }
