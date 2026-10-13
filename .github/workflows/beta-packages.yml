@@ -2,6 +2,12 @@ name: BBK four-platform beta
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: '需要打包的平台'
+        type: choice
+        default: all
+        options: [all, android, ios, macos, windows]
   push:
     branches: [main]
     paths:
@@ -23,6 +29,7 @@ concurrency:
 
 jobs:
   android:
+    if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android') && !contains(github.event.head_commit.message, '[macos-only]')"
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -46,6 +53,7 @@ jobs:
           retention-days: 14
           compression-level: 0
   ios:
+    if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'ios') && !contains(github.event.head_commit.message, '[macos-only]')"
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -67,6 +75,7 @@ jobs:
           retention-days: 14
           compression-level: 0
   macos:
+    if: "github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos'"
     runs-on: macos-15
     timeout-minutes: 35
     steps:
@@ -85,6 +94,7 @@ jobs:
           retention-days: 14
           compression-level: 0
   windows:
+    if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows') && !contains(github.event.head_commit.message, '[macos-only]')"
     runs-on: windows-2022
     timeout-minutes: 45
     steps:

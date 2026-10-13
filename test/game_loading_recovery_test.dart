@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:bbk_classics/data/repositories/game_save_repository.dart';
 import 'package:bbk_classics/data/services/app_file_store.dart';
@@ -8,6 +7,7 @@ import 'package:bbk_classics/domain/models/app_settings.dart';
 import 'package:bbk_classics/domain/models/game_definition.dart';
 import 'package:bbk_classics/ui/features/game/view_models/game_view_model.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
@@ -29,16 +29,19 @@ void main() {
     return (server, saves);
   }
 
-  GameViewModel viewModel(LocalGameServer server, GameSaveRepository saves) =>
-      GameViewModel(
-        game: GameDefinition.all.first,
-        initialSettings: AppSettings.defaults,
-        saveRepository: saves,
-        localGameServer: server,
-        onExitRequested: () {},
-        onEnemyCityRequested: (_) {},
-        onNoticeRequested: (_) {},
-      );
+  GameViewModel viewModel(
+    LocalGameServer server,
+    GameSaveRepository saves, {
+    GameDefinition? game,
+  }) => GameViewModel(
+    game: game ?? GameDefinition.all.first,
+    initialSettings: AppSettings.defaults,
+    saveRepository: saves,
+    localGameServer: server,
+    onExitRequested: () {},
+    onEnemyCityRequested: (_) {},
+    onNoticeRequested: (_) {},
+  );
 
   test('并发启动只建立一个本地监听，停止后释放端口', () async {
     final (server, _) = await dependencies();
@@ -49,6 +52,25 @@ void main() {
       }),
     );
     expect(origins.toSet(), hasLength(1));
+  });
+
+  test('macOS 不调用尚未实现的背景 API，三款游戏均能加载入口', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final (server, saves) = await dependencies();
+    for (final game in GameDefinition.all) {
+      final platform = _TestPlatform(server, failures: 0);
+      WebViewPlatform.instance = platform;
+      final model = viewModel(server, saves, game: game);
+      try {
+        await model.initialize();
+        expect(model.error, isNull, reason: '${game.title} 不能被 opaque 初始化异常阻断');
+        expect(platform.controller?.loads, 1);
+        expect(model.isReady, isTrue);
+      } finally {
+        model.dispose();
+      }
+    }
   });
 
   test('首个网页请求连接失败时重启服务并自动恢复游戏', () async {
@@ -127,7 +149,12 @@ class _TestController extends PlatformWebViewController {
   @override
   Future<void> setJavaScriptMode(JavaScriptMode mode) async {}
   @override
-  Future<void> setBackgroundColor(Color color) async {}
+  Future<void> setBackgroundColor(Color color) async {
+    if (defaultTargetPlatform == TargetPlatform.macOS) {
+      throw UnimplementedError('opaque is not implemented on macOS');
+    }
+  }
+
   @override
   Future<void> addJavaScriptChannel(JavaScriptChannelParams params) async {
     channels[params.name] = params;

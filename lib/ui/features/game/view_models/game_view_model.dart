@@ -500,7 +500,11 @@ class GameViewModel extends ChangeNotifier {
       if (_disposed) return;
       final controller = WebViewController();
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-      await controller.setBackgroundColor(const Color(0xFF000000));
+      // WKWebView 的 macOS 实现尚不支持 opaque/backgroundColor。网页 CSS 和
+      // Flutter 承载层已经提供黑色背景，macOS 跳过此调用，避免阻断所有游戏载入。
+      if (defaultTargetPlatform != TargetPlatform.macOS) {
+        await controller.setBackgroundColor(const Color(0xFF000000));
+      }
       await controller.addJavaScriptChannel(
         'BbkSaveChannel',
         onMessageReceived: _onSaveMessage,
@@ -1377,6 +1381,7 @@ class GameViewModel extends ChangeNotifier {
   Future<void> _restoreSgbyControlState() async {
     if (game.id != GameId.sgby) return;
     final state = await getCheatState();
+    if (_disposed) return;
     final restoredSpeed = state['battleSpeed8x'] == true
         ? 8
         : state['battleSpeed6x'] == true
