@@ -35,7 +35,7 @@ jobs:
         with:
           flutter-version: '3.44.4'
           channel: stable
-      - run: sdkmanager 'ndk;27.2.12479018'
+      - run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"'
       - run: flutter pub get
       - run: flutter build apk --release --build-number=${{ github.run_number }}
       - run: mkdir -p build/beta && cp build/app/outputs/flutter-apk/app-release.apk build/beta/BBK-android-beta.apk
