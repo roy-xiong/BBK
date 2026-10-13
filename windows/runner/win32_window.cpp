@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <algorithm>
 
 #include "resource.h"
 
@@ -17,6 +18,8 @@ namespace {
 #endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+constexpr int kMinimumClientWidth = 360;
+constexpr int kMinimumClientHeight = 540;
 
 /// Registry key for app theme preference.
 ///
@@ -132,12 +135,47 @@ bool Win32Window::Create(const std::wstring& title,
                               static_cast<LONG>(origin.y)};
   HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+  if (dpi == 0) {
+    dpi = 96;
+  }
   double scale_factor = dpi / 96.0;
+
+  // 与 macOS 相同，默认按手机内容比例设置窗口；扣除工作区余量后再按 DPI
+  // 换算像素，标题栏和边框单独补入，避免高分屏或小屏幕改变游戏区域比例。
+  MONITORINFO monitor_info{};
+  monitor_info.cbSize = sizeof(monitor_info);
+  RECT work_area{0, 0, GetSystemMetrics(SM_CXSCREEN),
+                 GetSystemMetrics(SM_CYSCREEN)};
+  if (GetMonitorInfo(monitor, &monitor_info)) {
+    work_area = monitor_info.rcWork;
+  }
+  if (size.width == 0 || size.height == 0) {
+    return false;
+  }
+  const int available_height =
+      static_cast<int>((work_area.bottom - work_area.top) / scale_factor) - 72;
+  const int content_height = std::min(
+      static_cast<int>(size.height),
+      std::max(kMinimumClientHeight, available_height));
+  const int content_width = std::max(
+      kMinimumClientWidth,
+      static_cast<int>(content_height *
+                       (static_cast<double>(size.width) / size.height)));
+  RECT frame{0, 0, Scale(content_width, scale_factor),
+             Scale(content_height, scale_factor)};
+  if (!AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi)) {
+    return false;
+  }
+  const int frame_width = frame.right - frame.left;
+  const int frame_height = frame.bottom - frame.top;
+  const int left = work_area.left + std::max(
+      0, static_cast<int>(work_area.right - work_area.left - frame_width) / 2);
+  const int top = work_area.top + std::max(
+      0, static_cast<int>(work_area.bottom - work_area.top - frame_height) / 2);
 
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      left, top, frame_width, frame_height,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -179,6 +217,28 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_GETMINMAXINFO: {
+      auto bounds = reinterpret_cast<MINMAXINFO*>(lparam);
+      if (bounds == nullptr) {
+        break;
+      }
+      UINT dpi = GetDpiForWindow(hwnd);
+      if (dpi == 0) {
+        dpi = 96;
+      }
+      const double scale_factor = dpi / 96.0;
+      RECT minimum{0, 0, Scale(kMinimumClientWidth, scale_factor),
+                   Scale(kMinimumClientHeight, scale_factor)};
+      const DWORD style = static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_STYLE));
+      const DWORD extended_style =
+          static_cast<DWORD>(GetWindowLongPtr(hwnd, GWL_EXSTYLE));
+      if (AdjustWindowRectExForDpi(&minimum, style, FALSE, extended_style, dpi)) {
+        // 只约束最小内容尺寸，不锁定宽高比；Flutter 按真实窗口尺寸自适应布局。
+        bounds->ptMinTrackSize.x = minimum.right - minimum.left;
+        bounds->ptMinTrackSize.y = minimum.bottom - minimum.top;
+      }
+      return 0;
+    }
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
