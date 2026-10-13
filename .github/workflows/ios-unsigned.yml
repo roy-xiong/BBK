@@ -2,16 +2,6 @@ name: iOS unsigned IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/ios-unsigned.yml'
-      - 'ios/**'
-      - 'lib/**'
-      - 'assets/**'
-      - 'pubspec.yaml'
-      - 'pubspec.lock'
-      - 'tool/package_ios_unsigned.sh'
 
 permissions:
   contents: read

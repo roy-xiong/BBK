@@ -187,7 +187,18 @@ class LocalGameServer {
       await response.close();
       return;
     }
-    final bytes = Uint8List.sublistView(data);
+    var bytes = Uint8List.sublistView(data);
+    if ((Platform.isMacOS || Platform.isWindows) &&
+        assetKey.endsWith('.html')) {
+      // 所有桌面游戏共用可配置输入桥，先于原版硬编码监听安装，避免重复按键。
+      final html = utf8
+          .decode(bytes)
+          .replaceFirst(
+            '<head>',
+            '<head><script src="/desktop-controls.js"></script>',
+          );
+      bytes = Uint8List.fromList(utf8.encode(html));
+    }
     response.headers.set(HttpHeaders.contentTypeHeader, _contentType(assetKey));
     response.contentLength = bytes.length;
     if (request.method == 'GET') response.add(bytes);

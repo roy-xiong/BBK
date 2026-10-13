@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../domain/models/game_definition.dart';
 
@@ -14,6 +15,10 @@ class GameControllerService {
   StreamSubscription<dynamic>? _subscription;
 
   void start(void Function(GameInput input) onInput) {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
+      return;
+    }
     unawaited(_subscription?.cancel());
     _subscription = _eventChannel.receiveBroadcastStream().listen(
       (event) {

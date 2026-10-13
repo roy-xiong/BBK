@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../data/repositories/settings_repository.dart';
 import '../../../../domain/models/app_settings.dart';
 import '../../../../domain/models/game_definition.dart';
+import '../../../../domain/models/game_keyboard_bindings.dart';
 
 /// 设置页面和游戏按键层共享的状态持有者。
 class SettingsViewModel extends ChangeNotifier {
@@ -41,6 +42,11 @@ class SettingsViewModel extends ChangeNotifier {
 
   void setHapticsEnabled(bool value) {
     _update(_settings.copyWith(hapticsEnabled: value));
+  }
+
+  /// 保存完整键盘映射，动作可包含多个键；不影响鼠标和屏幕按键。
+  void setKeyboardBindings(GameKeyboardBindings value) {
+    _update(_settings.copyWith(keyboardBindings: value));
   }
 
   void setSgbyEdition(SgbyEdition value) {

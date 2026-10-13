@@ -1,4 +1,5 @@
 import 'game_definition.dart';
+import 'game_keyboard_bindings.dart';
 
 /// 悬浮工具栏在当前可拖动区域内的归一化位置。
 ///
@@ -37,6 +38,7 @@ class AppSettings {
     this.sgbyWorldActivity = defaultSgbyWorldActivity,
     this.fmjHighDefinition = true,
     this.toolbarPositions = const <GameId, GameToolbarPosition>{},
+    this.keyboardBindings = GameKeyboardBindings.defaults,
   });
 
   /// 世界活跃度的合法范围和兼容基准。
@@ -73,6 +75,7 @@ class AppSettings {
 
   /// 两款游戏各自的悬浮工具栏位置。
   final Map<GameId, GameToolbarPosition> toolbarPositions;
+  final GameKeyboardBindings keyboardBindings;
 
   AppSettings copyWith({
     bool? controlsVisible,
@@ -81,6 +84,7 @@ class AppSettings {
     int? sgbyWorldActivity,
     bool? fmjHighDefinition,
     Map<GameId, GameToolbarPosition>? toolbarPositions,
+    GameKeyboardBindings? keyboardBindings,
   }) {
     return AppSettings(
       controlsVisible: controlsVisible ?? this.controlsVisible,
@@ -89,11 +93,13 @@ class AppSettings {
       sgbyWorldActivity: sgbyWorldActivity ?? this.sgbyWorldActivity,
       fmjHighDefinition: fmjHighDefinition ?? this.fmjHighDefinition,
       toolbarPositions: toolbarPositions ?? this.toolbarPositions,
+      keyboardBindings: keyboardBindings ?? this.keyboardBindings,
     );
   }
 
   Map<String, Object> toJson() => <String, Object>{
-    'version': 4,
+    'version': 5,
+    'keyboardBindings': keyboardBindings.toJson(),
     'controlsVisible': controlsVisible,
     'hapticsEnabled': hapticsEnabled,
     'sgbyEdition': sgbyEdition.storageValue,
@@ -119,6 +125,7 @@ class AppSettings {
       }
     }
     return AppSettings(
+      keyboardBindings: GameKeyboardBindings.fromJson(json['keyboardBindings']),
       controlsVisible: json['controlsVisible'] is bool
           ? json['controlsVisible'] as bool
           : defaults.controlsVisible,

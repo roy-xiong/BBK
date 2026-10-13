@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../app.dart';
@@ -45,6 +46,10 @@ class _LauncherPageState extends State<LauncherPage> {
 
   /// 首页和返回首页时保持竖屏，避免启动区随游戏中的方向选择变成横屏。
   Future<void> _restoreLauncherChrome() async {
+    if (defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows) {
+      return;
+    }
     await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,

@@ -361,7 +361,7 @@ packages:
     source: hosted
     version: "4.14.1"
   webview_flutter_platform_interface:
-    dependency: "direct dev"
+    dependency: "direct main"
     description:
       name: webview_flutter_platform_interface
       sha256: "1221c1b12f5278791042f2ec2841743784cf25c5a644e23d6680e5d718824f04"
@@ -372,10 +372,18 @@ packages:
     dependency: transitive
     description:
       name: webview_flutter_wkwebview
-      sha256: fe359c7fac1002124b5b9e2ba3a41906bbb9b2d029ccb4a0067404d8f3704730
+      sha256: "0f784be1b080e5b918ef7c2c070c1f4616899fd23f1d001feb74b4978f92bdbc"
       url: "https://pub.flutter-io.cn"
     source: hosted
-    version: "3.26.1"
+    version: "3.26.2"
+  webview_windows:
+    dependency: "direct main"
+    description:
+      name: webview_windows
+      sha256: "47fcad5875a45db29dbb5c9e6709bf5c88dcc429049872701343f91ed7255730"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.4.0"
   xdg_directories:
     dependency: transitive
     description:

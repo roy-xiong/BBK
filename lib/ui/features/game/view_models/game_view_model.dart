@@ -8,6 +8,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../../../data/repositories/game_save_repository.dart';
 import '../../../../data/services/game_controller_service.dart';
 import '../../../../data/services/local_game_server.dart';
+import '../../../../data/services/windows_webview_platform.dart';
 import '../../../../domain/models/app_settings.dart';
 import '../../../../domain/models/fmj_exploration.dart';
 import '../../../../domain/models/game_definition.dart';
@@ -419,6 +420,7 @@ class GameViewModel extends ChangeNotifier {
     required VoidCallback onExitRequested,
     required ValueChanged<SgbyEnemyCityInfo> onEnemyCityRequested,
     required ValueChanged<CheatResult> onNoticeRequested,
+    this.onDesktopKey,
   }) : _initialSettings = initialSettings,
        _fmjHighDefinition = initialSettings.fmjHighDefinition,
        _sgbyWorldActivity = initialSettings.sgbyWorldActivity,
@@ -436,6 +438,7 @@ class GameViewModel extends ChangeNotifier {
   final ValueChanged<SgbyEnemyCityInfo> _onEnemyCityRequested;
   final ValueChanged<CheatResult> _onNoticeRequested;
   final GameControllerService _controllerService = GameControllerService();
+  final void Function(String code, bool repeat)? onDesktopKey;
 
   WebViewController? _webViewController;
   int _progress = 0;
@@ -1303,6 +1306,13 @@ class GameViewModel extends ChangeNotifier {
         final decoded = jsonDecode(message.message);
         if (decoded is! Map) return;
         final type = decoded['type'];
+        if (type == 'desktop_key') {
+          final data = decoded['data'];
+          if (data is Map && data['code'] is String) {
+            onDesktopKey?.call(data['code'] as String, data['repeat'] == true);
+          }
+          return;
+        }
         final data = decoded['data'];
         if (type == 'fmj_guide_visibility' && data is Map) {
           final visible = data['visible'];
@@ -1422,6 +1432,8 @@ class GameViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    final platform = _webViewController?.platform;
+    if (platform is WindowsGameWebViewController) unawaited(platform.dispose());
     _sgbyBattleStatistics.dispose();
     unawaited(_controllerService.dispose());
     super.dispose();

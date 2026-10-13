@@ -1,0 +1,105 @@
+name: BBK four-platform beta
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/beta-packages.yml'
+      - 'android/**'
+      - 'ios/**'
+      - 'macos/**'
+      - 'windows/**'
+      - 'lib/**'
+      - 'assets/**'
+      - 'pubspec.*'
+      - 'tool/package_*'
+
+permissions:
+  contents: read
+concurrency:
+  group: beta-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+      - run: sdkmanager 'ndk;27.2.12479018'
+      - run: flutter pub get
+      - run: flutter build apk --release --build-number=${{ github.run_number }}
+      - run: mkdir -p build/beta && cp build/app/outputs/flutter-apk/app-release.apk build/beta/BBK-android-beta.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-beta-android
+          path: build/beta/BBK-android-beta.apk
+          retention-days: 14
+          compression-level: 0
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze --no-pub
+      - run: flutter test --no-pub
+      - run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
+      - run: bash tool/package_ios_unsigned.sh
+      - run: mkdir -p build/beta && cp build/ipa/bbk-unsigned.ipa build/beta/BBK-ios-unsigned-beta.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-beta-ios
+          path: build/beta/BBK-ios-unsigned-beta.ipa
+          retention-days: 14
+          compression-level: 0
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build macos --release --build-number=${{ github.run_number }}
+      - run: bash tool/package_macos_beta.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-beta-macos
+          path: build/beta/BBK-macos-beta.dmg
+          retention-days: 14
+          compression-level: 0
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.4'
+          channel: stable
+      - run: flutter pub get
+      - run: flutter build windows --release --build-number=${{ github.run_number }}
+      - shell: pwsh
+        run: ./tool/package_windows_beta.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-beta-windows
+          path: build/beta/BBK-windows-x64-portable-beta.zip
+          retention-days: 14
+          compression-level: 0
