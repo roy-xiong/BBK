@@ -108,6 +108,8 @@
         autoEndTurn: persistedCheatState.autoEndTurn === true,
         attackAnyCity: persistedCheatState.attackAnyCity === true,
         enemyEscapeRoute: persistedCheatState.enemyEscapeRoute === true,
+        diplomacyProtection: persistedCheatState.diplomacyProtection === true,
+        hideSpecialGenerals: persistedCheatState.hideSpecialGenerals === true,
         animationsDisabled: persistedCheatState.animationsDisabled === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
@@ -167,6 +169,19 @@
     var autoEndTurnTacticStageUserHook = null;
     var autoEndTurnMainSystemMenuHook = null;
     var engineSendKey = null;
+    var specialGenerals = global.BbkSgbySpecialGenerals
+        ? global.BbkSgbySpecialGenerals.create({
+            getContext: gameContext,
+            isBattleActive: isBattleActive,
+            isEnabled: function () {return cheatState.hideSpecialGenerals;},
+            notice: postSystemNotice,
+            onPlayerRulerChanged: function (ruler) {
+                if (battleStatistics) {
+                    battleStatistics.playerRuler = ruler;
+                    publishBattleStatistics(true);
+                }
+            }
+        }) : null;
 
     /**
      * 构造供 Flutter 解析的统一返回值。
@@ -308,6 +323,9 @@
         if (typeof config.enemyEscapeRoute !== 'undefined') {
             config.enemyEscapeRoute = cheatState.enemyEscapeRoute ? 1 : 0;
         }
+        if (typeof config.playerDiplomacyProtection !== 'undefined') {
+            config.playerDiplomacyProtection = cheatState.diplomacyProtection ? 1 : 0;
+        }
         if (typeof config.battleLoserOutcome !== 'undefined') {
             var values = {};
             values[BATTLE_LOSER_OUTCOME_ORIGINAL] = 0;
@@ -323,7 +341,7 @@
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 6,
+                version: 7,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -335,6 +353,8 @@
                 autoEndTurn: cheatState.autoEndTurn,
                 attackAnyCity: cheatState.attackAnyCity,
                 enemyEscapeRoute: cheatState.enemyEscapeRoute,
+                diplomacyProtection: cheatState.diplomacyProtection,
+                hideSpecialGenerals: cheatState.hideSpecialGenerals,
                 animationsDisabled: cheatState.animationsDisabled,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
@@ -1886,7 +1906,7 @@
             var availablePeople = 0;
             cityPersonIndexes(game, {index: cityIndex, value: city}).forEach(function (personIndex) {
                 var person = game.people[personIndex];
-                if (person && person.Belong === city.Belong) availablePeople++;
+                if (person && person.Belong === city.Belong && person.Arms > 0) availablePeople++;
             });
             cheatState.expeditionFoodSelection = availablePeople > 0 ? {
                 cityIndex: cityIndex,
@@ -1945,7 +1965,7 @@
         if (!cityEntry) return result(false, '请先在战略地图选中一座我方城市');
         var availablePeople = cityPersonIndexes(context, cityEntry).filter(function (personIndex) {
             var person = context.people[personIndex];
-            return person && person.Belong === context.ruler;
+            return person && person.Belong === context.ruler && person.Arms > 0;
         });
         if (!availablePeople.length) return result(false, '当前城市没有可出征武将');
 
@@ -4081,6 +4101,9 @@
             });
         });
         installObserverHook(hooks, 'didSaveGame', saveBattleStatistics);
+        installObserverHook(hooks, 'didSaveGame', function (context) {
+            if (specialGenerals) specialGenerals.save(context);
+        });
         installOverrideHook(hooks, 'countSkillHurt', function (context) {
             return overrideDamage(context, true);
         });
@@ -4163,12 +4186,14 @@
         installObserverHook(hooks, 'didOpenNewGame', function () {
             resetBattleStatistics(true);
             resetAutoEndTurnMapState();
+            if (specialGenerals) specialGenerals.newGame();
             applyPersistentGeneralEffects();
         });
         installObserverHook(hooks, 'didLoadGame', function (context) {
             loadBattleStatistics(context);
             resetAutoEndTurnMapState();
             repairLoadedGameState();
+            if (specialGenerals) specialGenerals.load(context);
             applyPersistentGeneralEffects();
         });
         installObserverHook(hooks, 'exitBattle', function () {
@@ -4508,6 +4533,23 @@
                         : '任意攻城已关闭：恢复原版相邻路线限制'
                 );
             }
+            if (action === 'sgby_diplomacy_protection') {
+                cheatState.diplomacyProtection = !cheatState.diplomacyProtection;
+                syncEngineCheatSettings();
+                savePersistentCheatState();
+                return result(true, cheatState.diplomacyProtection
+                    ? '我方外交保护已开启，敌方外交无法改变我方武将归属、忠诚或城池'
+                    : '我方外交保护已关闭');
+            }
+            if (action === 'sgby_hide_special_generals') {
+                if (!specialGenerals) return result(false, '特殊武将管理器尚未载入，请重新打开游戏');
+                var hideResult = cheatState.hideSpecialGenerals
+                    ? specialGenerals.restore() : specialGenerals.apply();
+                if (!hideResult.ok) return result(false, hideResult.message);
+                cheatState.hideSpecialGenerals = !cheatState.hideSpecialGenerals;
+                savePersistentCheatState();
+                return result(true, hideResult.message);
+            }
             if (action === 'sgby_enemy_escape_route') {
                 cheatState.enemyEscapeRoute = !cheatState.enemyEscapeRoute;
                 syncEngineCheatSettings();
@@ -4778,6 +4820,8 @@
             autoEndTurn: cheatState.autoEndTurn,
             attackAnyCity: cheatState.attackAnyCity,
             enemyEscapeRoute: cheatState.enemyEscapeRoute,
+            diplomacyProtection: cheatState.diplomacyProtection,
+            hideSpecialGenerals: cheatState.hideSpecialGenerals,
             animationsDisabled: cheatState.animationsDisabled,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,

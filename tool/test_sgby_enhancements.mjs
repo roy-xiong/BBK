@@ -6,6 +6,9 @@ const enhancementSource = readFileSync(
   new URL('../assets/games/sgby/js/bbk-enhancements.js', import.meta.url),
   'utf8',
 );
+const specialGeneralsSource = readFileSync(
+  new URL('../assets/games/sgby/js/bbk-special-generals.js', import.meta.url), 'utf8',
+);
 const corePatchSource = readFileSync(
   new URL('../third_party/ibaye/ai-world-activity.patch', import.meta.url),
   'utf8',
@@ -210,6 +213,7 @@ function createHarness(storage = new Map(), options = {}) {
       autoBattleDefense: 0,
       playerAttackAnyCity: 0,
       enemyEscapeRoute: 0,
+      playerDiplomacyProtection: 0,
     },
     g_FgtParam: {
       Mode: 1,
@@ -261,7 +265,7 @@ function createHarness(storage = new Map(), options = {}) {
   const baye = {
     data,
     hooks,
-    getPersonName: (index) => `武将${index}`,
+    getPersonName: (index) => options.personNames?.[index] ?? `武将${index}`,
     getCityName: (index) => `城池${index}`,
     getToolName: (index) => `物品${index}`,
     getArmType: (index) => people[index]?.ArmsType ?? 0,
@@ -383,6 +387,7 @@ function createHarness(storage = new Map(), options = {}) {
     };
   }
   vm.createContext(context);
+  vm.runInContext(specialGeneralsSource, context, {filename: 'bbk-special-generals.js'});
   vm.runInContext(enhancementSource, context, {
     filename: 'bbk-enhancements.js',
   });
@@ -619,7 +624,9 @@ function person(overrides) {
   hooks.didSaveGame({slotIndex: 0});
   hooks.battleArmsLost({sourceBelong: 1, victimBelong: 5, loss: 100});
   hooks.didSaveGame({slotIndex: 1});
-  assert.equal(saveMessages.length, 2, '每个成功存档都要同步该档统计到Flutter备份');
+  assert.equal(saveMessages.filter(message => Object.keys(message.entries).some(key =>
+    key.startsWith('baye/bbkSgbyBattleStatistics/'))).length, 2,
+  '每个成功存档都要同步该档统计到Flutter备份');
   hooks.didLoadGame({slotIndex: 0});
   assert.equal(statistics().killedSoldiers, 700, '读回第一档应回滚该档之后的战绩');
   hooks.didLoadGame({slotIndex: 1});
@@ -1987,6 +1994,81 @@ function apply(api, action) {
   api.endUiPause();
   assert.equal(JSON.parse(api.getCheatState()).autoBattle, true);
   assert.ok(scheduledTimers.length > oldTimers.length, '面板关闭后应重新安排自动战斗');
+}
+
+{
+  const storage = new Map();
+  const {api, data} = createHarness(storage);
+  assert.equal(data.g_engineConfig.playerDiplomacyProtection, 0);
+  assert.equal(JSON.parse(api.applyCheat('sgby_diplomacy_protection')).ok, true);
+  assert.equal(data.g_engineConfig.playerDiplomacyProtection, 1);
+  assert.equal(JSON.parse(createHarness(storage).api.getCheatState()).diplomacyProtection, true);
+  api.applyCheat('sgby_diplomacy_protection');
+  assert.equal(data.g_engineConfig.playerDiplomacyProtection, 0);
+}
+
+{
+  const harness = createHarness();
+  harness.data.g_FgtOver = 1;
+  harness.hooks.didShowMainMap({});
+  harness.people[0].Arms = harness.people[1].Arms = 0;
+  const before = harness.sentKeys.length;
+  assert.equal(JSON.parse(harness.api.handleControl('quickExpedition')).ok, false);
+  assert.equal(harness.sentKeys.length, before, '全城零兵时不能发起出征或改变自动策略');
+}
+
+{
+  const storage = new Map();
+  const names = {0: '通宵虫', 4: '南方小鬼'};
+  const harness = createHarness(storage, {personNames: names});
+  const {api, data, people, hooks} = harness;
+  assert.equal(JSON.parse(api.applyCheat('sgby_hide_special_generals')).ok, false, '战斗中不允许改君主与参战队列');
+  data.g_FgtOver = 1;
+  hooks.didOpenNewGame({});
+  const counters = JSON.parse(api.getBattleStatistics());
+  // 核心绑定数组只有length和数字属性，没有Array.prototype.forEach。
+  data.g_Cities = Object.assign({length: data.g_Cities.length}, data.g_Cities);
+  data.g_Persons = Object.assign({length: people.length}, people);
+  data.g_OrderQueue = Object.assign({length: data.g_OrderQueue.length}, data.g_OrderQueue);
+  assert.equal(JSON.parse(api.applyCheat('sgby_hide_special_generals')).ok, true);
+  assert.equal(data.g_PlayerKing, 1);
+  assert.equal(data.g_Cities[0].Belong, 2);
+  assert.equal(data.g_Cities[2].Belong, 6);
+  assert.equal(people[0].Belong, 0xffff);
+  assert.equal(people[4].Belong, 0xffff);
+  assert.equal(data.g_PersonsQueue.includes(0), false);
+  assert.equal(data.g_PersonsQueue.includes(4), false);
+  assert.equal(JSON.parse(api.getBattleStatistics()).lostGenerals, counters.lostGenerals);
+  assert.equal(JSON.parse(api.getBattleStatistics()).killedGenerals, counters.killedGenerals);
+  assert.equal(JSON.parse(api.getCheatData()).generals.some(person => person.index === 0 || person.index === 4), false);
+  hooks.didSaveGame({slotIndex: 1});
+  const slot = JSON.parse(storage.get('baye/bbkSgbyHiddenGenerals/slot-1'));
+  assert.equal(slot.people.length, 2);
+  const hiddenState = JSON.parse(JSON.stringify(data));
+  assert.equal(JSON.parse(api.applyCheat('sgby_hide_special_generals')).ok, true);
+  assert.equal(data.g_PlayerKing, 1, '关闭隐藏不能让原君主夺位');
+  assert.equal(people[0].Belong, 2);
+  assert.equal(people[4].Belong, 6);
+  assert.equal(people[0].Arms, 100);
+  assert.equal(people[4].Arms, 500);
+  // 全局开关已关闭；重新载入隐藏状态档位时，应使用该档备份恢复。
+  Object.assign(data, hiddenState);
+  hooks.didLoadGame({slotIndex: 1});
+  assert.equal(data.g_Persons[0].Belong, 2);
+  assert.equal(data.g_Persons[4].Belong, 6);
+  assert.equal(data.g_PersonsQueue.filter(index => index === 0).length, 1);
+  assert.equal(data.g_PersonsQueue.filter(index => index === 4).length, 1);
+  assert.equal(data.g_PlayerKing, 1);
+}
+
+{
+  const harness = createHarness(new Map(), {personNames: {0: '通宵虫', 4: '南方小鬼'}});
+  harness.data.g_FgtOver = 1;
+  harness.people[5].Belong = harness.people[7].Belong = 0;
+  const before = JSON.stringify(harness.data);
+  assert.equal(JSON.parse(harness.api.applyCheat('sgby_hide_special_generals')).ok, false);
+  assert.equal(JSON.stringify(harness.data), before, '无人继位时整次操作必须无副作用');
+  assert.equal(JSON.parse(harness.api.getCheatState()).hideSpecialGenerals, false);
 }
 
 console.log('三国霸业增强回归测试通过');

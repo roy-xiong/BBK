@@ -22,7 +22,7 @@ function extractFunction(source, name) {
     /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g,
     (value) => ' '.repeat(value.length),
   );
-  const signature = new RegExp(`(?:static\\s+)?(?:FAR\\s+)?(?:void|U8)\\s+${name}\\s*\\([^)]*\\)\\s*\\{`);
+  const signature = new RegExp(`(?:static\\s+)?(?:FAR\\s+)?(?:void|U8|U32)\\s+${name}\\s*\\([^)]*\\)\\s*\\{`);
   const match = signature.exec(masked);
   assert.ok(match, `缺少核心函数：${name}`);
   let depth = 1;
@@ -44,6 +44,7 @@ const functionNames = [
 ];
 const core = [
   extractFunction(citySource, 'GetRoundEnemyCity'),
+  extractFunction(citySource, 'GetCityFighters'),
   ...functionNames.map((name) => extractFunction(tacticSource, name)),
 ].join('\n\n');
 const fixture = readFileSync(new URL('fixtures/sgby_ai_strategy_test.c', import.meta.url), 'utf8');

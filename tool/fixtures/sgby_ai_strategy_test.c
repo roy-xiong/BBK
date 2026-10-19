@@ -185,7 +185,7 @@ int main(void)
     const U8 activities[] = {0,1,25,50,80,100};
     U32 i;
 
-    /* 真实ComputerTactic入口：所有活跃度下单将、零兵力均可出征无人城。 */
+    /* 真实ComputerTactic入口：所有活跃度均拒绝零兵将，有1名士兵即可出征无人城。 */
     for (i = 0;i < sizeof(activities);i++) {
         resetWorld();
         g_engineConfig.aiWorldActivity = activities[i];
@@ -194,9 +194,29 @@ int main(void)
         linkCities(0,1);linkCities(1,4);
         placePerson(1,0,0);
         ComputerTactic();
+        assert(orderCount == 0 && personCities[1] == 0);
+        g_Persons[1].Arms = 1;
+        ComputerTactic();
         assert(orderCount == 1 && orders[0].OrderId == BATTLE && orders[0].Object == 1);
         assert(orderFighters[0][0] == 2 && personCities[1] == -1);
     }
+
+    /* 混合队列中零兵将留在城内，不占用出征名额；常规军备入口同样过滤。 */
+    resetWorld();
+    g_Cities[0].Belong = 2;g_Cities[4].Belong = 1;
+    linkCities(0,1);linkCities(1,4);
+    placePerson(1,0,0);placePerson(2,0,1);placePerson(3,0,0);
+    assert(AiAdvanceStrategicFront(0) == 1);
+    assert(orderCount == 1 && orderFighters[0][0] == 3 && orderFighters[0][1] == 0);
+    assert(personCities[1] == 0 && personCities[2] == -1 && personCities[3] == 0);
+    resetWorld();
+    g_Cities[0].Belong = 2;g_Cities[1].Belong = 1;
+    linkCities(0,1);placePerson(1,0,0);placePerson(2,0,0);
+    ComputerTacticArmament(0);
+    assert(orderCount == 0 && personCities[1] == 0 && personCities[2] == 0);
+    g_Persons[2].Arms = 1;
+    ComputerTacticArmament(0);
+    assert(orderCount == 1 && orderFighters[0][0] == 3 && orderFighters[0][1] == 0);
 
     /* 真实军备出征：无人城 > 强玩家城 > 弱第三方城。 */
     resetWorld();
@@ -259,7 +279,7 @@ int main(void)
     /* 队列拒绝命令不能删将；玩家不自动出征；没有己方道路不能越境调兵。 */
     resetWorld();
     g_Cities[0].Belong = 2;g_Cities[4].Belong = 1;
-    linkCities(0,1);placePerson(1,0,0);rejectOrders = 1;
+    linkCities(0,1);placePerson(1,0,1);rejectOrders = 1;
     assert(AiAdvanceStrategicFront(0) == 0 && personCities[1] == 0);
     assert(AiAdvanceStrategicFront(4) == 0 && orderCount == 0);
     assert(AiFrontlineNextCity(4) == 0xff);

@@ -5,6 +5,8 @@
 - iBaye: https://gitee.com/bgwp/iBaye
   - 固定基线：`62241e294f3ba3d4589d6e1205e6deb486a6c2d9`
   - 本地世界活跃度补丁：`third_party/ibaye/ai-world-activity.patch`
+  - 云构建源码快照：`third_party/ibaye/upstream-62241e2.tar.gz`，仅包含上述提交的 `src`、根 CMake 配置和许可证；由 `git archive` 原样生成。
+  - `tool/prepare_sgby_engine.sh` 校验快照摘要并应用补丁；云端先运行核心回归、重建 WASM，再封装平台应用。
   - 许可证：MIT，全文见 `third_party/ibaye/LICENSE`
 - baye-alpha: https://gitee.com/bgwp/baye-alpha
   - 固定基线：`5d19e8fd5828547cfd6dc310e3c6d27429d37de9`

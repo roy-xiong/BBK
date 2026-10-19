@@ -228,6 +228,20 @@ Future<void> _showGameCheatSheetContent(
         stateKey: 'attackAnyCity',
       ),
       _CheatOption(
+        action: 'sgby_diplomacy_protection',
+        title: '我方外交保护',
+        description: '阻止敌方招降、招揽、离间、策反、反间和劝降，不影响战斗结局',
+        icon: Icons.verified_user,
+        stateKey: 'diplomacyProtection',
+      ),
+      _CheatOption(
+        action: 'sgby_hide_special_generals',
+        title: '隐藏通宵虫和南方小鬼',
+        description: '君主由同势力其他武将继任；关闭后恢复为普通武将，请在战略地图切换',
+        icon: Icons.person_off,
+        stateKey: 'hideSpecialGenerals',
+      ),
+      _CheatOption(
         action: 'sgby_enemy_escape_route',
         title: '敌军逃跑遵循路线',
         description: '敌方君主和武将战败逃跑时，只能沿连线经过原势力城市撤退',

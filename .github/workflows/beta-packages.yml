@@ -20,6 +20,10 @@ on:
       - 'assets/**'
       - 'pubspec.*'
       - 'tool/package_*'
+      - 'tool/prepare_sgby_engine.sh'
+      - 'tool/test_sgby*'
+      - 'tool/fixtures/sgby*'
+      - 'third_party/ibaye/**'
 
 permissions:
   contents: read
@@ -28,12 +32,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sgby-engine:
+    runs-on: ubuntu-24.04
+    container: emscripten/emsdk:3.1.51
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare pinned game engine
+        run: bash tool/prepare_sgby_engine.sh
+      - name: Verify actual game rules
+        run: |
+          node tool/test_sgby_ai_strategy.mjs build/sgby-engine
+          node tool/test_sgby_order_rules.mjs build/sgby-engine
+          node tool/test_sgby_attack_range.mjs build/sgby-engine
+          node tool/test_sgby_core_timing.mjs build/sgby-engine
+          node tool/test_sgby_enhancements.mjs
+      - name: Build game WebAssembly
+        run: |
+          emcmake cmake -S build/sgby-engine -B build/sgby-wasm
+          cmake --build build/sgby-wasm --target baye -j 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: |
+            build/sgby-wasm/src/baye.js
+            build/sgby-wasm/src/baye.wasm
+          if-no-files-found: error
+          retention-days: 14
   android:
+    needs: sgby-engine
     if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'android') && !contains(github.event.head_commit.message, '[macos-only]') && !contains(github.event.head_commit.message, '[windows-only]')"
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -53,11 +92,16 @@ jobs:
           retention-days: 14
           compression-level: 0
   ios:
+    needs: sgby-engine
     if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'ios') && !contains(github.event.head_commit.message, '[macos-only]') && !contains(github.event.head_commit.message, '[windows-only]')"
     runs-on: macos-15
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.4'
@@ -75,16 +119,23 @@ jobs:
           retention-days: 14
           compression-level: 0
   macos:
+    needs: sgby-engine
     if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'macos') && !contains(github.event.head_commit.message, '[windows-only]')"
     runs-on: macos-15
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.4'
           channel: stable
       - run: flutter pub get
+      - run: flutter analyze --no-pub
+      - run: flutter test --no-pub
       - run: flutter build macos --release --build-number=${{ github.run_number }}
       - run: bash tool/package_macos_beta.sh
       - uses: actions/upload-artifact@v4
@@ -94,11 +145,16 @@ jobs:
           retention-days: 14
           compression-level: 0
   windows:
+    needs: sgby-engine
     if: "(github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows') && !contains(github.event.head_commit.message, '[macos-only]')"
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.4'
