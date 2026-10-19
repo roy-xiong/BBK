@@ -12,7 +12,6 @@ typedef U16 PersonID;
 #define PID(value) ((PersonID)(value))
 #define PERSON_COUNT 8
 #define CITY_MAX 4
-#define FIGHT_ORDER_MAX 3
 #define FIGHTERS_PER_ORDER 10
 #define WK_SX 0
 #define WK_SY 0
@@ -36,7 +35,6 @@ typedef U16 PersonID;
 
 typedef struct {PersonID Belong;U16 Arms;} PersonType;
 typedef struct {PersonID Belong;U16 Food;} CityType;
-typedef struct {U8 OrderId,City,TimeCount;PersonID Person,Object;U16 Food;} OrderType;
 typedef struct {U8 setx,sety;} CitySetType;
 static PersonType g_Persons[PERSON_COUNT];
 static CityType g_Cities[CITY_MAX];

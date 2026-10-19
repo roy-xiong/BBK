@@ -31,7 +31,8 @@ const bindingStart = order.indexOf('    {\n#define _ST OrderType');
 const dispatchStart = order.indexOf('    switch (Order->OrderId)');
 assert.ok(bindingStart > 0 && dispatchStart > bindingStart);
 const dispatch = order.slice(0, bindingStart) + order.slice(dispatchStart);
-const drivers = [...new Set([...dispatch.matchAll(/\b(\w+Drv)\(Order\);/g)].map(match => match[1]))];
+const uncommentedDispatch = dispatch.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
+const drivers = [...new Set([...uncommentedDispatch.matchAll(/\b(\w+Drv)\(Order\);/g)].map(match => match[1]))];
 const fixture = readFileSync(new URL('fixtures/sgby_order_rules_test.c', import.meta.url), 'utf8');
 const code = fixture.replace('/* ENGINE_ORDER_CONSTANTS */', readFileSync(join(directory, 'src/baye/order.h'), 'utf8'))
   .replace('/* ENGINE_FIGHTERS */', extract('cityedit.c', 'GetCityFighters'))
