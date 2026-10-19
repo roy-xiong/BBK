@@ -453,6 +453,8 @@ class GameViewModel extends ChangeNotifier {
   int _sgbyBattleSpeedMultiplier = 2;
   bool _sgbyAutoBattleEnabled = false;
   bool _sgbyAutoEndTurnEnabled = false;
+  bool _sgbyTroopIconsEnabled = false;
+  bool _sgbyTroopIconsTogglePending = false;
   final ValueNotifier<SgbyBattleStatistics?> _sgbyBattleStatistics =
       ValueNotifier(null);
   int _battleStatisticsMessageVersion = 0;
@@ -470,6 +472,7 @@ class GameViewModel extends ChangeNotifier {
   int get sgbyBattleSpeedMultiplier => _sgbyBattleSpeedMultiplier;
   bool get sgbyAutoBattleEnabled => _sgbyAutoBattleEnabled;
   bool get sgbyAutoEndTurnEnabled => _sgbyAutoEndTurnEnabled;
+  bool get sgbyTroopIconsEnabled => _sgbyTroopIconsEnabled;
   ValueListenable<SgbyBattleStatistics?> get sgbyBattleStatistics =>
       _sgbyBattleStatistics;
   Object? get error => _error;
@@ -656,6 +659,10 @@ class GameViewModel extends ChangeNotifier {
       unawaited(_toggleSgbyAutoEndTurn());
       return;
     }
+    if (input == GameInput.toggleTroopIcons) {
+      unawaited(_toggleSgbyTroopIcons());
+      return;
+    }
     if (input == GameInput.quickExpedition) {
       unawaited(_startSgbyQuickExpedition());
       return;
@@ -678,9 +685,51 @@ class GameViewModel extends ChangeNotifier {
 
   /// 切换自动战斗，并以增强脚本返回的持久化状态校准按钮。
   ///
-  /// UI 先显示用户期望的状态以保证点击反馈及时；如果 WebView 已离开游戏、脚本拒绝
-  /// 操作或页面恰好被销毁，则恢复旧值并通过页面顶部提示失败。所有状态更新都发生在
-  /// Flutter 主 isolate，避免后台回调直接刷新界面。
+  /// 切换河流中的原兵种图标，只采用引擎实际返回的状态；串行保护防止快速连点反转。
+  ///
+  /// 页面释放后不再刷新UI，通道失败时保留原状态，并提示用户重新尝试。
+  Future<void> _toggleSgbyTroopIcons() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby ||
+        !_isReady ||
+        controller == null ||
+        _disposed ||
+        _sgbyTroopIconsTogglePending) {
+      return;
+    }
+    _sgbyTroopIconsTogglePending = true;
+    try {
+      final raw = await controller.runJavaScriptReturningResult(
+        'window.bbkSendInput ? window.bbkSendInput("toggleTroopIcons") : '
+        'JSON.stringify({ok:false,message:"兵种显示模块尚未加载"});',
+      );
+      if (_disposed) return;
+      final result = _decodeJavaScriptResult(raw);
+      if (result is! Map ||
+          result['ok'] != true ||
+          result['enabled'] is! bool) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '无法切换兵种显示'),
+        );
+        return;
+      }
+      final enabled = result['enabled'] as bool;
+      if (_sgbyTroopIconsEnabled != enabled) {
+        _sgbyTroopIconsEnabled = enabled;
+        notifyListeners();
+      }
+    } on Object {
+      if (!_disposed) {
+        _onNoticeRequested(
+          const CheatResult(isSuccess: false, message: '无法切换兵种显示'),
+        );
+      }
+    } finally {
+      _sgbyTroopIconsTogglePending = false;
+    }
+  }
+
+  /// UI先显示用户期望的状态；脚本拒绝或页面销毁时恢复原值，所有UI更新在主隔离区。
   Future<void> _toggleSgbyAutoBattle() async {
     final controller = _webViewController;
     if (game.id != GameId.sgby || !_isReady || controller == null) return;
@@ -1343,11 +1392,18 @@ class GameViewModel extends ChangeNotifier {
             _sgbyBattleStatistics.value = statistics;
           }
         } else if (type == 'sgby_control_state' && data is Map) {
+          var changed = false;
           final autoEndTurn = data['autoEndTurn'];
           if (autoEndTurn is bool && autoEndTurn != _sgbyAutoEndTurnEnabled) {
             _sgbyAutoEndTurnEnabled = autoEndTurn;
-            notifyListeners();
+            changed = true;
           }
+          final troopIcons = data['showTroopIcons'];
+          if (troopIcons is bool && troopIcons != _sgbyTroopIconsEnabled) {
+            _sgbyTroopIconsEnabled = troopIcons;
+            changed = true;
+          }
+          if (changed) notifyListeners();
         }
       } on FormatException {
         // 游戏可能发送未来版本的普通文本消息；无法识别时静默忽略。
@@ -1395,14 +1451,17 @@ class GameViewModel extends ChangeNotifier {
         : 1;
     final restoredAutoBattle = state['autoBattle'] == true;
     final restoredAutoEndTurn = state['autoEndTurn'] == true;
+    final restoredTroopIcons = state['showTroopIcons'] == true;
     if (restoredSpeed == _sgbyBattleSpeedMultiplier &&
         restoredAutoBattle == _sgbyAutoBattleEnabled &&
-        restoredAutoEndTurn == _sgbyAutoEndTurnEnabled) {
+        restoredAutoEndTurn == _sgbyAutoEndTurnEnabled &&
+        restoredTroopIcons == _sgbyTroopIconsEnabled) {
       return;
     }
     _sgbyBattleSpeedMultiplier = restoredSpeed;
     _sgbyAutoBattleEnabled = restoredAutoBattle;
     _sgbyAutoEndTurnEnabled = restoredAutoEndTurn;
+    _sgbyTroopIconsEnabled = restoredTroopIcons;
     notifyListeners();
   }
 

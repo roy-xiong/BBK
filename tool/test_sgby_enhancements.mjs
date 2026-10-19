@@ -261,7 +261,7 @@ function createHarness(storage = new Map(), options = {}) {
     data.g_engineConfig.useCustomFont = 0;
     data.g_engineConfig.useCustomFontEn = 0;
   }
-  const hooks = {};
+  const hooks = {...options.hooks};
   const baye = {
     data,
     hooks,
@@ -2069,6 +2069,59 @@ function apply(api, action) {
   assert.equal(JSON.parse(harness.api.applyCheat('sgby_hide_special_generals')).ok, false);
   assert.equal(JSON.stringify(harness.data), before, '无人继位时整次操作必须无副作用');
   assert.equal(JSON.parse(harness.api.getCheatState()).hideSpecialGenerals, false);
+}
+
+{
+  const storage = new Map();
+  const {api, data, context, hooks, drawnImages, systemMessages} = createHarness(storage);
+  data.g_paintColor = 0xff;
+  hooks.drawOneGeneral({index: 0, pic: 12, x: 0, y: 0, frame: 1});
+  assert.equal(drawnImages.at(-1).picIndex, 12, '默认保留河流船图');
+  const switched = JSON.parse(api.handleControl('toggleTroopIcons'));
+  assert.equal(switched.ok, true);
+  assert.equal(switched.enabled, true);
+  assert.equal(systemMessages.at(-1).data.showTroopIcons, true);
+  for (let arms = 0; arms < 6; arms++) {
+    // 使用装备后的实际兵种，不能依赖人物基础ArmsType或河流临时图标。
+    context.baye.getArmType = () => arms;
+    for (const [index, facing] of [[0, 0], [10, 16]]) {
+      for (const frame of [0, 1]) {
+        const drawing = {index, pic: facing + 12 + frame, x: 0, y: 0, frame: 1};
+        hooks.drawOneGeneral(drawing);
+        assert.equal(drawnImages.at(-1).picIndex, facing + arms * 2 + frame);
+        assert.equal(drawnImages.at(-1).paintColor, index === 0 ? 0x80 : 0xff);
+        assert.equal(drawing.pic, facing + 12 + frame, '绘制后不能污染核心临时图块索引');
+        assert.equal(data.g_paintColor, 0xff);
+      }
+    }
+  }
+  for (const picture of [0, 3, 10, 14, 15, 37]) {
+    hooks.drawOneGeneral({index: 0, pic: picture, x: 0, y: 0, frame: 1});
+    assert.equal(drawnImages.at(-1).picIndex, picture, '陆地、异常状态与自定义图不能被替换');
+  }
+  data.g_FgtParam.GenArray[0] = 0;
+  hooks.drawOneGeneral({index: 0, pic: 12, x: 0, y: 0, frame: 0});
+  assert.equal(drawnImages.at(-1).picIndex, 12, '无效战场人物不能越界查询兵种');
+  assert.equal(JSON.parse(createHarness(storage).api.getCheatState()).showTroopIcons, true);
+  assert.equal(JSON.parse(api.handleControl('toggleTroopIcons')).enabled, false);
+  hooks.drawOneGeneral({index: 10, pic: 29, x: 0, y: 0, frame: 1});
+  assert.equal(drawnImages.at(-1).picIndex, 29, '关闭立即恢复敌方船图');
+  assert.equal(JSON.parse(createHarness(storage).api.getCheatState()).showTroopIcons, false);
+}
+
+{
+  const received = [];
+  const {api, hooks, data, context} = createHarness(new Map(), {hooks: {
+    drawOneGeneral(event) {received.push({...event}); return 7;},
+  }});
+  context.baye.getArmType = () => 2;
+  api.handleControl('toggleTroopIcons');
+  data.g_paintColor = 0xff;
+  const drawing = {index: 10, pic: 29, x: 16, y: 32, frame: 1};
+  assert.equal(hooks.drawOneGeneral(drawing), 7, '保留模组原Hook的返回值');
+  assert.equal(received[0].pic, 21, '模组绘制接收到原兵种与原朝向、原动画帧');
+  assert.equal(drawing.pic, 29);
+  assert.equal(data.g_paintColor, 0xff);
 }
 
 console.log('三国霸业增强回归测试通过');

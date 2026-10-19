@@ -456,6 +456,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                   _viewModel.sgbyAutoBattleEnabled,
                               sgbyAutoEndTurnEnabled:
                                   _viewModel.sgbyAutoEndTurnEnabled,
+                              sgbyTroopIconsEnabled:
+                                  _viewModel.sgbyTroopIconsEnabled,
                               sgbyBattleStatistics:
                                   _viewModel.sgbyBattleStatistics,
                               onInput: _sendGameInput,
@@ -480,6 +482,8 @@ class _GamePageState extends State<GamePage> with WidgetsBindingObserver {
                                 _viewModel.sgbyAutoBattleEnabled,
                             sgbyAutoEndTurnEnabled:
                                 _viewModel.sgbyAutoEndTurnEnabled,
+                            sgbyTroopIconsEnabled:
+                                _viewModel.sgbyTroopIconsEnabled,
                             sgbyBattleStatistics:
                                 _viewModel.sgbyBattleStatistics,
                             onInput: _sendGameInput,

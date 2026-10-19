@@ -51,6 +51,7 @@ enum GameInput {
   cycleFmjRunSpeed,
   selectFmjStage,
   toggleBattleSpeed,
+  toggleTroopIcons,
   searchHistory,
   generalRoster;
 

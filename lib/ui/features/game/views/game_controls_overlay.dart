@@ -23,6 +23,7 @@ class GameControlsOverlay extends StatelessWidget {
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
+    this.sgbyTroopIconsEnabled = false,
     this.sgbyBattleStatistics,
   });
 
@@ -36,6 +37,7 @@ class GameControlsOverlay extends StatelessWidget {
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
+  final bool sgbyTroopIconsEnabled;
   final ValueListenable<SgbyBattleStatistics?>? sgbyBattleStatistics;
 
   @override
@@ -78,6 +80,7 @@ class GameControlsOverlay extends StatelessWidget {
                       battleSpeedMultiplier: battleSpeedMultiplier,
                       autoBattleEnabled: sgbyAutoBattleEnabled,
                       autoEndTurnEnabled: sgbyAutoEndTurnEnabled,
+                      troopIconsEnabled: sgbyTroopIconsEnabled,
                       onInput: onInput,
                     ),
                   ],
@@ -130,6 +133,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
     this.battleSpeedMultiplier = 2,
     this.sgbyAutoBattleEnabled = false,
     this.sgbyAutoEndTurnEnabled = false,
+    this.sgbyTroopIconsEnabled = false,
     this.sgbyBattleStatistics,
   });
 
@@ -144,6 +148,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
   final int battleSpeedMultiplier;
   final bool sgbyAutoBattleEnabled;
   final bool sgbyAutoEndTurnEnabled;
+  final bool sgbyTroopIconsEnabled;
   final ValueListenable<SgbyBattleStatistics?>? sgbyBattleStatistics;
 
   @override
@@ -205,6 +210,7 @@ class PortraitGameControlsPanel extends StatelessWidget {
                                       autoBattleEnabled: sgbyAutoBattleEnabled,
                                       autoEndTurnEnabled:
                                           sgbyAutoEndTurnEnabled,
+                                      troopIconsEnabled: sgbyTroopIconsEnabled,
                                       onInput: onInput,
                                     ),
                                     const SizedBox(height: 14),
@@ -416,6 +422,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
     required this.battleSpeedMultiplier,
     required this.autoBattleEnabled,
     required this.autoEndTurnEnabled,
+    required this.troopIconsEnabled,
     required this.onInput,
   });
 
@@ -424,6 +431,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
   final int battleSpeedMultiplier;
   final bool autoBattleEnabled;
   final bool autoEndTurnEnabled;
+  final bool troopIconsEnabled;
   final ValueChanged<GameInput> onInput;
 
   @override
@@ -563,6 +571,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
               button(
                 tooltip: '切换为 ${nextSpeed}x 游戏速度',
                 input: GameInput.toggleBattleSpeed,
+                width: 46,
                 child: Text(
                   '${battleSpeedMultiplier}x',
                   style: const TextStyle(
@@ -576,7 +585,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
               button(
                 tooltip: '查看战场形势',
                 input: GameInput.battleInfo,
-                width: 100,
+                width: 84,
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -594,10 +603,28 @@ class _SgbyUtilityButtons extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 6),
+              // 第二行仍为400逻辑像素宽、52高，新增按钮不改变方向键布局位置。
+              button(
+                tooltip: troopIconsEnabled ? '显示兵种：已开启' : '显示兵种：已关闭',
+                input: GameInput.toggleTroopIcons,
+                width: 70,
+                active: troopIconsEnabled,
+                child: Text(
+                  '显示兵种',
+                  style: TextStyle(
+                    color: iconColor,
+                    fontSize: 13,
+                    fontWeight: troopIconsEnabled
+                        ? FontWeight.w900
+                        : FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
               button(
                 tooltip: '结束当前回合',
                 input: GameInput.endTurn,
-                width: 110,
+                width: 86,
                 child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -618,7 +645,7 @@ class _SgbyUtilityButtons extends StatelessWidget {
               button(
                 tooltip: autoEndTurnEnabled ? '关闭自动策略结束' : '开启自动策略结束',
                 input: GameInput.autoEndTurn,
-                width: 110,
+                width: 90,
                 active: autoEndTurnEnabled,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,

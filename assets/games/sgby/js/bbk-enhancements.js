@@ -110,6 +110,7 @@
         enemyEscapeRoute: persistedCheatState.enemyEscapeRoute === true,
         diplomacyProtection: persistedCheatState.diplomacyProtection === true,
         hideSpecialGenerals: persistedCheatState.hideSpecialGenerals === true,
+        showTroopIcons: persistedCheatState.showTroopIcons === true,
         animationsDisabled: persistedCheatState.animationsDisabled === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
@@ -341,7 +342,7 @@
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 7,
+                version: 8,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -355,6 +356,7 @@
                 enemyEscapeRoute: cheatState.enemyEscapeRoute,
                 diplomacyProtection: cheatState.diplomacyProtection,
                 hideSpecialGenerals: cheatState.hideSpecialGenerals,
+                showTroopIcons: cheatState.showTroopIcons,
                 animationsDisabled: cheatState.animationsDisabled,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
@@ -1566,7 +1568,8 @@
             data: {
                 autoBattle: cheatState.autoBattle,
                 autoEndTurn: cheatState.autoEndTurn,
-                battleSpeedMultiplier: cheatState.battleSpeedMultiplier
+                battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
+                showTroopIcons: cheatState.showTroopIcons
             }
         }));
     }
@@ -3814,22 +3817,53 @@
     }
 
     /**
-     * 接管单个战场单位绘制，为我方单位写入专用调色标记。
+     * 将河流船图替换为人物实际兵种图，装备改变兵种时使用装备后的兵种。
      *
-     * @param {Object} hooks 游戏 Hook 集合。
+     * 仅识别核心船图12/13及敌方28/29；动画帧取原图索引低位，已行动单位不会被
+     * 错误加上动画帧。石阵、混乱等专用状态图及模组自定义图不参与替换。
+     * @param {Object} context 单位绘制Hook，包含战场槽位和核心生成的图块序号。
+     * @return {number} 本次绘制图块序号；数据不完整时保留核心原图。
+     */
+    function battleUnitPicture(context) {
+        var picture = Number(context.pic);
+        var index = Number(context.index);
+        if (!cheatState.showTroopIcons || !Number.isInteger(index) ||
+            index < 0 || index >= TOTAL_GENERAL_LIMIT || !Number.isInteger(picture)) return picture;
+        var facing = index < PLAYER_GENERAL_LIMIT ? 0 : 16;
+        var frame = picture - facing - 12;
+        if (frame !== 0 && frame !== 1) return picture;
+        var fighters = baye.data.g_FgtParam && baye.data.g_FgtParam.GenArray;
+        var person = fighters ? Number(fighters[index]) - 1 : -1;
+        if (!Number.isInteger(person) || person < 0 || person >= baye.data.g_Persons.length ||
+            typeof baye.getArmType !== 'function') return picture;
+        try {
+            var armsType = Number(baye.getArmType(person));
+            return Number.isInteger(armsType) && armsType >= 0 && armsType < ARM_NAMES.length
+                ? armsType * 2 + facing + frame : picture;
+        } catch (_) {
+            return picture;
+        }
+    }
+
+    /**
+     * 接管战场单位图标与我方调色标记，绘制结束后归还原图索引和颜色。
+     * @param {Object} hooks 游戏Hook集合。
      */
     function installBattleUnitDrawing(hooks) {
         var original = hooks.drawOneGeneral;
         hooks.drawOneGeneral = function (context) {
             var generalIndex = Number(context.index);
             var originalColor = baye.data.g_paintColor;
+            var originalPicture = context.pic;
             try {
+                context.pic = battleUnitPicture(context);
                 if (Number.isInteger(generalIndex) && generalIndex < PLAYER_GENERAL_LIMIT) {
                     baye.data.g_paintColor = PLAYER_UNIT_MARKER_COLOR;
                 }
                 if (original) return original(context);
                 baye.drawImage(context.x, context.y, 5, 0, context.pic, 1);
             } finally {
+                context.pic = originalPicture;
                 baye.data.g_paintColor = originalColor;
             }
 
@@ -4370,6 +4404,16 @@
      */
     function handleControl(action) {
         start();
+        if (action === 'toggleTroopIcons') {
+            cheatState.showTroopIcons = !cheatState.showTroopIcons;
+            savePersistentCheatState();
+            postControlState();
+            return JSON.stringify({
+                ok: true,
+                enabled: cheatState.showTroopIcons,
+                message: cheatState.showTroopIcons ? '显示兵种已开启' : '显示兵种已关闭'
+            });
+        }
         if (action === 'toggleBattleSpeed') {
             cheatState.battleSpeedMultiplier = nextGameSpeedMultiplier(
                 cheatState.battleSpeedMultiplier
@@ -4822,6 +4866,7 @@
             enemyEscapeRoute: cheatState.enemyEscapeRoute,
             diplomacyProtection: cheatState.diplomacyProtection,
             hideSpecialGenerals: cheatState.hideSpecialGenerals,
+            showTroopIcons: cheatState.showTroopIcons,
             animationsDisabled: cheatState.animationsDisabled,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,
