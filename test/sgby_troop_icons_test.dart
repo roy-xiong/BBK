@@ -23,8 +23,9 @@ void main() {
               builder: (context, setState) {
                 void onInput(GameInput input) {
                   inputs.add(input);
-                  if (input == GameInput.toggleTroopIcons)
+                  if (input == GameInput.toggleTroopIcons) {
                     setState(() => enabled = !enabled);
+                  }
                 }
 
                 return portrait
