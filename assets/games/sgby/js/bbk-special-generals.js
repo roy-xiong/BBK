@@ -152,6 +152,7 @@
             });
             Object.keys(replacements).forEach(function (old) {
                 var previous = Number(old), successor = replacements[old];
+                context.people[successor - 1].Devotion = 100;
                 each(context.people, function (person) {
                     if (person.Belong === previous) person.Belong = successor;
                     if (person.OldBelong === previous) person.OldBelong = successor;
