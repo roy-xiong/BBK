@@ -60,17 +60,27 @@ jobs:
 
       - name: Build Android release APK
         run: |
-          flutter build apk --release --build-number="$GITHUB_RUN_NUMBER"
+          flutter build apk --release --build-number="$GITHUB_RUN_NUMBER" 2>&1 | tee "$RUNNER_TEMP/bbk-android-build.log"
           mkdir -p build/release
           cp build/app/outputs/flutter-apk/app-release.apk \
             "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
-          apksigner verify --verbose "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
+          bbk_apksigner="$(rg --files "$ANDROID_HOME/build-tools" -g apksigner | sort -V | tail -n 1)"
+          test -x "$bbk_apksigner"
+          "$bbk_apksigner" verify --verbose "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
           sha256sum "build/release/BBK-android-release-${GITHUB_SHA::7}.apk" \
             > "build/release/BBK-android-release-${GITHUB_SHA::7}.apk.sha256"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-android-release
+          path: build/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
       - name: Build debug APK for device runtime verification
         run: |
-          flutter build apk --debug --build-number="$GITHUB_RUN_NUMBER"
+          flutter build apk --debug --build-number="$GITHUB_RUN_NUMBER" 2>&1 | tee "$RUNNER_TEMP/bbk-android-debug-build.log"
           mkdir -p build/runtime-test
           cp build/app/outputs/flutter-apk/app-debug.apk build/runtime-test/BBK-background-runtime-test.apk
 
@@ -83,9 +93,10 @@ jobs:
           retention-days: 7
 
       - uses: actions/upload-artifact@v4
+        if: failure()
         with:
-          name: bbk-android-release
-          path: build/release/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
+          name: bbk-android-diagnostics
+          path: |
+            ${{ runner.temp }}/bbk-android-build.log
+            ${{ runner.temp }}/bbk-android-debug-build.log
+          retention-days: 7
