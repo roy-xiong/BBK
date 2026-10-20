@@ -1,8 +1,235 @@
+diff --git a/src/FgtCount.c b/src/FgtCount.c
+index 0fd964c..9b280f6 100644
+--- a/src/FgtCount.c
++++ b/src/FgtCount.c
+@@ -26,7 +26,7 @@
+ /*本体函数声明*/
+ /*------------------------------------------*/
+ PersonID TransIdxToGen(U8 idx);
+-U16 FgtAllArms(U8 flag);
++U32 FgtAllArms(U8 flag);
+ void CountBaseAttr(U8 i);
+ 
+ /***********************************************************************
+@@ -41,7 +41,7 @@ void CountBaseAttr(U8 i);
+ FAR void FgtCountWon(void)
+ {
+     U8	randv;
+-    U16	arms1,arms2;
++    U32	arms1,arms2;
+     U16	prov1,prov2;
+ 
+ 
+@@ -211,23 +211,24 @@ FAR void CountMoveP(U8 i)
+ static float SubduModu[ARMTYP_NUM][ARMTYP_NUM] = {
+     {1.0,1.2,0.8,1.0,0.7,1.3},{0.8,1.0,1.2,1.0,0.6,1.2},{1.2,0.8,1.0,1.0,1.1,1.2},
+     {1.0,1.0,1.0,1.0,1.0,1.0},{1.1,1.3,0.9,1.0,1.0,1.5},{0.6,0.6,0.6,0.6,0.6,0.6}};
+-FAR U16 CountAtkHurt(void)
++FAR U32 CountAtkHurt(void)
+ {
+-    U16	hurt;
++    U32	hurt = 0;
+ 
+     IF_HAS_HOOK("countAttackHurt") {
+-        BIND_U16(&hurt);
++        BIND_U32(&hurt);
+         
+         if (CALL_HOOK() == 0) {
+-            HOOK_RETURN(hurt);
++            HOOK_RETURN(hurt > PERSON_ARMS_MAX ? PERSON_ARMS_MAX : hurt);
+         }
+     }
+     /* 基本伤害 hurt = (at / df) * arms / 8 */
+-    hurt = (float)(g_GenAtt[0].at) / g_GenAtt[1].df * ((*g_GenAtt[0].arms) >> 3);
++    float value = (float)(g_GenAtt[0].at) / (g_GenAtt[1].df ? g_GenAtt[1].df : 1) * ((*g_GenAtt[0].arms) >> 3);
+     /* 相克加层 hurt *= modu */
+-    hurt *= SubduModu[g_GenAtt[0].armsType][g_GenAtt[1].armsType];
++    value *= SubduModu[g_GenAtt[0].armsType][g_GenAtt[1].armsType];
++    hurt = value > PERSON_ARMS_MAX ? PERSON_ARMS_MAX : (U32)value;
+ 
+-    return (U16)(hurt + 10);	/* +10是为了防止双方兵力<4时，出现的平局状态 */
++    return hurt >= PERSON_ARMS_MAX - 10 ? PERSON_ARMS_MAX : hurt + 10;
+ }
+ /***********************************************************************
+  * 说明:     构造参加战斗的两个将领的数据
+@@ -329,7 +330,8 @@ FAR void BuiltAtkAttr(U8 idx,U8 pIdx)
+ FAR void CountProvUse(void)
+ {
+     U8	i;
+-    U16	arms,*armsp;
++    U32 arms;
++    U16 *armsp;
+     U8 ratio = 3;
+ 
+     if (g_engineConfig.ratioOfFoodToArmsPerDay) {
+@@ -339,7 +341,7 @@ FAR void CountProvUse(void)
+     for(i = 0;i < 2;i += 1)
+     {
+         arms = FgtAllArms(i);
+-        arms = PlcExtract(arms) / ratio;
++        arms = PlcExtractArms(arms) / ratio;
+         if(i)
+             armsp = &g_FgtParam.EProvender;
+         else
+@@ -360,6 +362,23 @@ FAR void CountProvUse(void)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
++/** 扣除实际兵力，返回真实伤亡；不允许16位截断或无符号下溢。 */
++FAR U32 CountArmsSub(U32 *a,U32 value)
++{
++    U32 loss = *a < value ? *a : value;
++    *a -= loss;
++    return loss;
++}
++
++/** 治疗只增加至上限，超出统率上限的原有兵力不因治疗被反向扣减。 */
++FAR U32 CountArmsAdd(U32 *a,U32 value,U32 upper)
++{
++    if (*a >= upper) return 0;
++    U32 addition = upper - *a < value ? upper - *a : value;
++    *a += addition;
++    return addition;
++}
++
+ FAR U16 CountPlusSub(U16 *a,U16 v)
+ {
+     U16	tmp;
+@@ -410,16 +429,16 @@ FAR U16 CountOverAdd(U16 *a,U16 v,U16 up)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-FAR void CountSklHurt(SkillID param, U16 *arms, U16 *prov, U8 origin, U8*state)
++FAR void CountSklHurt(SkillID param, U32 *arms, U16 *prov, U8 origin, U8*state)
+ {
+     U8	i,eTyp;
+     U8	oTer,eTer;
+-    U16	cnt,count[2];
++    U32	cnt,count[2];
+     SKILLEF	*skl;
+ 
+     IF_HAS_HOOK("countSkillHurt") {
+         BIND_U16EX("skillId", &param);
+-        BIND_U16EX("hurt", arms);
++        BIND_U32EX("hurt", arms);
+         BIND_U8EX("origin", &origin);
+         BIND_U8(state);
+         BIND_U16(prov);
+@@ -446,8 +465,8 @@ FAR void CountSklHurt(SkillID param, U16 *arms, U16 *prov, U8 origin, U8*state)
+         cnt *= (float)skl->oland[oTer] / 100;
+         count[i] = cnt;
+     }
+-    *arms = count[0];
+-    *prov = count[1];
++    *arms = count[0] > PERSON_ARMS_MAX ? PERSON_ARMS_MAX : count[0];
++    *prov = count[1] > 65535u ? 65535u : (U16)count[1];
+ }
+ /***********************************************************************
+  * 说明:     获取总兵力
+@@ -458,10 +477,10 @@ FAR void CountSklHurt(SkillID param, U16 *arms, U16 *prov, U8 origin, U8*state)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-U16 FgtAllArms(U8 flag)
++U32 FgtAllArms(U8 flag)
+ {
+     U8	i,idx,start;
+-    U16	rev;
++    U32	rev;
+     PersonID p;
+ 
+     start = flag * FGT_PLAMAX;
+@@ -474,7 +493,7 @@ U16 FgtAllArms(U8 flag)
+         p = TransIdxToGen(idx);
+         rev += g_Persons[p].Arms;
+     }
+-    return (U16) rev;
++    return rev;
+ }
+ /***********************************************************************
+  * 说明:     将将领的控制脚标转换成将领id
 diff --git a/src/FgtPkAi.c b/src/FgtPkAi.c
-index d00492b..91f2366 100644
+index d00492b..3f58621 100644
 --- a/src/FgtPkAi.c
 +++ b/src/FgtPkAi.c
-@@ -777,7 +777,10 @@ FAR void FgtGetCmdRng(U8 type,SkillID sklid,U8 idx)
+@@ -36,7 +36,7 @@ U8 FgtCanUse(SkillID param,U8 idx);
+ bool FgtChkAkRng(U8 x,U8 y);
+ U8 FgtCntInterval(U8 x1,U8 y1,U8 x2,U8 y2);
+ U8 FgtGetGenTer(U8 idx);
+-void FgtGetHurtMax(U16 *h,U8 *a);
++void FgtGetHurtMax(U32 *h,U8 *a);
+ void FgtGetAtkRng(U8 idx,U8 x,U8 y);
+ void FgtGetAimPos(U8 *aimx,U8 *aimy);
+ U8 FgtGetNearGen(void);
+@@ -145,7 +145,7 @@ bool FgtJiNengGetAim(FGTCMD *pcmd, PersonType*per, SkillID skidx, U8 idx)
+     U8 i;
+     JLPOS		*pos;
+     bool	same;
+-    U16	arms;
++    U32	arms;
+     PersonID id;
+ 
+     /* 搜索目标 */
+@@ -196,7 +196,8 @@ bool FgtJiNeng(FGTCMD *pcmd, U8 force)
+ {
+     U8	idx,skidx;
+     SkillID sklbuf[SKILL_NMAX + 1];
+-    U16	arms,ranv;
++    U32 arms;
++    U16 ranv;
+     PersonType	*per;
+     PersonID id;
+     SkillID sklid;
+@@ -217,7 +218,7 @@ bool FgtJiNeng(FGTCMD *pcmd, U8 force)
+         {
+             arms = PlcArmsMax(id);
+             arms += arms >> 1;		/* arms = max * 1.5 */
+-            if(gam_rand() % arms < per->Arms)
++            if(!arms || gam_rand() % arms < per->Arms)
+                 return false;
+         }
+     }
+@@ -266,7 +267,7 @@ bool FgtJiNeng(FGTCMD *pcmd, U8 force)
+ bool FgtAtkCmd(FGTCMD *pcmd)
+ {
+     U8	idx,aidx;
+-    U16	hurt;
++    U32	hurt;
+ 
+     idx = pcmd->sIdx;
+     FgtGetCmdRng(CMD_ATK,SID(0),idx);
+@@ -297,7 +298,7 @@ void FgtCmpMove(U8 idx)
+     U8	min,delta;
+     U8	ax,ay,bx,by;
+     bool	flag;
+-    U16	hurtmax,hurt;
++    U32	hurtmax,hurt;
+ 
+     /* 若当前将领是太守，不进行移动 */
+     if(FgtGetGenTer(idx) == TERRAIN_CITY)
+@@ -601,10 +602,10 @@ U8 FgtGetGenTer(U8 idx)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-void FgtGetHurtMax(U16 *h,U8 *a)
++void FgtGetHurtMax(U32 *h,U8 *a)
+ {
+     U8	i,aidx;
+-    U16	max,hurt;
++    U32	max,hurt;
+     JLPOS	*pos;
+ 
+     aidx = 0xFF;
+@@ -619,7 +620,7 @@ void FgtGetHurtMax(U16 *h,U8 *a)
+         if(i == g_MainGenIdx)
+         {
+             aidx = i;
+-            max = 0xFFFF;
++            max = 0xffffffffu;
+             break;
+         }
+         BuiltAtkAttr(1,i);
+@@ -777,7 +778,10 @@ FAR void FgtGetCmdRng(U8 type,SkillID sklid,U8 idx)
      g_FgtAtkRng[1] = (U8)(g_GenPos[idx].x - (rngb >> 1));
      g_FgtAtkRng[2] = (U8)(g_GenPos[idx].y - (rngb >> 1));
  
@@ -14,31 +241,93 @@ index d00492b..91f2366 100644
  //        convert(g_FgtAtkRng+3, rngb, TOOL_ATT_RANGEUNIT);
  //        rngb = TOOL_ATT_RANGEUNIT;
  //        g_FgtAtkRng[0] = rngb;
+@@ -1038,7 +1042,7 @@ void FgtViewForce(U8 pForce,U8 pSIdx)
+ {
+     U8	i,pPCnt,pGIdx;
+     U8	tmp,tbuf[20];
+-    U16	provender;
++    U32	provender;
+     PersonID p;
+     
+     pGIdx = pForce * FGT_PLAMAX;
 diff --git a/src/Fight.c b/src/Fight.c
-index 7529629..0ffa037 100644
+index 7529629..f8c2fc2 100644
 --- a/src/Fight.c
 +++ b/src/Fight.c
-@@ -1151,6 +1151,15 @@ void FgtDrvState(void)
+@@ -52,7 +52,7 @@ void FgtRPicShowV(U16 id,U8 idx,U8 sx,U8 sy);
+ void FgtDealBout(void);
+ void FgtRefrashMap(void);
+ void FgtDrvState(void);
+-void FgtShowSNum(U8 sym,U8 idx,U16 num);
++void FgtShowSNum(U8 sym,U8 idx,U32 num);
+ void FgtMapUnitShow(U8 tx,U8 ty,U8 flag);
+ void FgtShowGetExp(U8 exp);
+ void FgtShowChgSpe(U8 sfrm,U8 efrm,U8 x,U8 y);
+@@ -1097,7 +1097,7 @@ void FgtAllRight(bool *flag)
+ void FgtDrvState(void)
+ {
+     U8	i,state,usehook = 0;
+-    U16	arms;
++    U32	arms;
+     bool	rec,update;
+     PersonType	*per;
+     PersonID tmp;
+@@ -1151,7 +1151,16 @@ void FgtDrvState(void)
          }
          if(arms != per->Arms)
          {
+-            I32 hurt = per->Arms - arms;
 +            if (per->Arms < arms) {
-+                U16 loss = arms - per->Arms;
++                U32 loss = arms - per->Arms;
 +                IF_HAS_HOOK("battleStatusArmsLost") {
 +                    BIND_U16EX("personIndex", &tmp);
 +                    BIND_U16EX("victimBelong", &per->Belong);
-+                    BIND_U16EX("loss", &loss);
++                    BIND_U32EX("loss", &loss);
 +                    CALL_HOOK_S();
 +                }
 +            }
-             I32 hurt = per->Arms - arms;
++            I32 hurt = (I32)per->Arms - (I32)arms;
              FgtSetFocus(i);
              if (hurt < 0) {
+                 FgtShowSNum('-', i, -hurt);	/* 在地图上显示数字 */
+@@ -1206,7 +1215,7 @@ FAR void FgtSetFocus(U8 foc)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-void FgtShowSNum(U8 sym,U8 idx,U16 num)
++void FgtShowSNum(U8 sym,U8 idx,U32 num)
+ {
+     U8	sx,sy;
+     U8	tbuf[10];
 diff --git a/src/FightSub.c b/src/FightSub.c
-index 09a085d..3ced540 100644
+index 09a085d..ee7a016 100644
 --- a/src/FightSub.c
 +++ b/src/FightSub.c
-@@ -253,6 +253,32 @@ void bind_skill_var(ObjectDef* def)
+@@ -27,18 +27,18 @@
+ /*本体函数声明*/
+ /*------------------------------------------*/
+ /* 其他功能函数 */
+-void FgtAtvShowNum(U8 x,U8 y,U16 number);
+-void FgtFormatStr(U8 *buf,U16 num);
+-U32 FgtGetExp(U16 hurt);
++void FgtAtvShowNum(U8 x,U8 y,U32 number);
++void FgtFormatStr(U8 *buf,U32 num);
++U32 FgtGetExp(U32 hurt);
+ U32 FgtDrvWeiG(U8 aIdx);
+-void FgtShowSNum(U8 sym,U8 idx,U16 num);
++void FgtShowSNum(U8 sym,U8 idx,U32 num);
+ void FgtGetMapDat(U8 x,U8 y);
+ PersonID TransIdxToGen1(U8 idx);
+ U8 FgtAtkAction(U8 aIdx);
+ U8 FgtJNAction(FGTCMD *pcmd);
+ U8 FgtLoadToMem2(U8 idx,U8 *buf);
+ void FgtResumeMp(U8 idx);
+-void FgtShowSNum2(U8 sym,U8 idx,U16 num);
++void FgtShowSNum2(U8 sym,U8 idx,U32 num);
+ 
+ /***********************************************************************
+  * 说明:     驱动战斗命令
+@@ -253,8 +253,35 @@ void bind_skill_var(ObjectDef* def)
  U8 FgtGetGenTer(U8 idx);
  bool FgtChkAkRng(U8 x,U8 y);
  
@@ -49,7 +338,7 @@ index 09a085d..3ced540 100644
 + * @param targetIndex 受伤者的战场槽位。
 + * @param loss 本次实际减少的士兵数量。
 + */
-+static void FgtNotifyArmsLoss(U8 sourceIndex,U8 targetIndex,U16 loss)
++static void FgtNotifyArmsLoss(U8 sourceIndex,U8 targetIndex,U32 loss)
 +{
 +    PersonID sourcePerson,targetPerson,sourceBelong,victimBelong;
 +    if (!loss || sourceIndex >= FGTA_MAX || targetIndex >= FGTA_MAX)
@@ -63,15 +352,19 @@ index 09a085d..3ced540 100644
 +    IF_HAS_HOOK("battleArmsLost") {
 +        BIND_U16EX("sourceBelong", &sourceBelong);
 +        BIND_U16EX("victimBelong", &victimBelong);
-+        BIND_U16EX("loss", &loss);
++        BIND_U32EX("loss", &loss);
 +        CALL_HOOK_S();
 +    }
 +}
 +
  static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx) {
-     U16 arms, prov, up;
+-    U16 arms, prov, up;
++    U32 arms, up;
++    U16 prov;
      U8 bidx, state, buf[25], *ptr;
-@@ -267,6 +293,16 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
+     SKILLEF	*skl = (SKILLEF	*)FgtGetJNPtr(param);
+     U8 stateChanged;
+@@ -267,6 +294,16 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
      CountSklHurt(param, &arms, &prov, originIdx, &state);		/* 计算该技能的兵力和粮草伤害 */
      stateChanged = g_GenPos[aIdx].state != state;
      g_GenPos[aIdx].state = state;
@@ -88,27 +381,189 @@ index 09a085d..3ced540 100644
      if(state == STATE_DS)		/* 定身状态时，设置将领的移动力为1 */
          g_GenPos[aIdx].move = NO_MOV;
      I32 rv = call_hook_a("willShowPKAnimation", NULL);
-@@ -292,6 +328,7 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
+@@ -286,12 +323,13 @@ static U8 _CommonJNAction(SkillID param, U8 aim, U8 sIdx, U8 aIdx, U8 originIdx)
+         {
+             up = PlcArmsMax(TransIdxToGen1(aIdx));
+             bidx = dFgtArmsA;
+-            arms = CountOverAdd(g_GenAtt[1].arms,arms,up);
++            arms = CountArmsAdd(g_GenAtt[1].arms,arms,up);
+         }
+         else
          {
              bidx = dFgtArmsH;
-             arms = CountPlusSub(g_GenAtt[1].arms,arms);
+-            arms = CountPlusSub(g_GenAtt[1].arms,arms);
++            arms = CountArmsSub(g_GenAtt[1].arms,arms);
 +            FgtNotifyArmsLoss(sIdx,aIdx,arms);
          }
          if(g_LookMovie)
          {
-@@ -512,6 +549,7 @@ U8 FgtAtkAction(U8 aIdx)
+@@ -331,7 +369,8 @@ U8 FgtJNAction(FGTCMD *pcmd)
+     U8	sIdx,aIdx;
+     U8	aim,bidx,buf[25];
+     U8	rnd,success = 0xff;
+-    U16	arms,prov = 0,*provp;
++    U32 arms;
++    U16 prov = 0,*provp;
+     SKILLEF	*skl;
+     SkillID param;
+ 
+@@ -508,12 +547,14 @@ U8 FgtAtkAction(U8 aIdx)
+ {
+     U8	sType,dead;
+     U8	sFrm,eFrm;
+-    U16	hurt,speId;
++    U32 hurt;
++    U16 speId;
  
      hurt = CountAtkHurt();
-     speId = CountPlusSub(g_GenAtt[1].arms,hurt);
-+    FgtNotifyArmsLoss(g_GenAtt[0].generalIndex,aIdx,speId);
-     dead = (hurt != speId);			/* dead = true 被攻击将领被击溃 */
-     hurt = speId;
+-    speId = CountPlusSub(g_GenAtt[1].arms,hurt);
+-    dead = (hurt != speId);			/* dead = true 被攻击将领被击溃 */
+-    hurt = speId;
++    U32 actualLoss = CountArmsSub(g_GenAtt[1].arms,hurt);
++    FgtNotifyArmsLoss(g_GenAtt[0].generalIndex,aIdx,actualLoss);
++    dead = (hurt != actualLoss);
++    hurt = actualLoss;
  
+     I32 rv = call_hook_a("willShowPKAnimation", NULL);
+     /* 动画播放 */
+@@ -561,7 +602,7 @@ U8 FgtAtkAction(U8 aIdx)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-void FgtAtvShowNum(U8 x,U8 y,U16 number)
++void FgtAtvShowNum(U8 x,U8 y,U32 number)
+ {
+     U8	pLen,pbuf[10];
+     U8	wid,hgt,idx;
+@@ -596,7 +637,7 @@ void FgtAtvShowNum(U8 x,U8 y,U16 number)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-void FgtFormatStr(U8 *buf,U16 num)
++void FgtFormatStr(U8 *buf,U32 num)
+ {
+     U8	*ptr,tbuf[10];
+     U16	i,len;
+@@ -626,12 +667,12 @@ void FgtFormatStr(U8 *buf,U16 num)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-U32 FgtGetExp(U16 hurt)
++U32 FgtGetExp(U32 hurt)
+ {
+     U32	exp,lec;
+ 
+     lec = *g_GenAtt[0].level - *g_GenAtt[1].level;		/* 等级差 */
+-    exp = PlcExtract(hurt) >> 2;
++    exp = PlcExtractArms(hurt) >> 2;
+     if(lec > 0x80)		/* 攻击者比被攻击者的等级低 */
+         exp -= lec;
+     else
+@@ -890,7 +931,7 @@ void FgtResumeMp(U8 idx)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-void FgtShowSNum2(U8 sym,U8 idx,U16 num)
++void FgtShowSNum2(U8 sym,U8 idx,U32 num)
+ {
+     I16	sx,sy;
+     U8	tbuf[10];
+diff --git a/src/PublicFun.c b/src/PublicFun.c
+index d866d85..c514917 100644
+--- a/src/PublicFun.c
++++ b/src/PublicFun.c
+@@ -640,19 +640,42 @@ FAR void PlcRPicShowEx(U16 id, U16 item, U16 idx,PT x,PT y,U8 flag)
+  *             ------          ----------      -------------
+  *             高国军          2005.5.16       完成基本功能
+  ***********************************************************************/
+-FAR U16 PlcArmsMax(PersonID id) {
++/** 计算兵力平方根时保留16位结果，避免sqrt(200000)被截断到8位。 */
++FAR U16 PlcExtractArms(U32 num)
++{
++    return sqrt32(num);
++}
++
++/** 根据人物当前归属返回允许的兵力上限，不把上限当作征兵数量。 */
++FAR U32 PlcArmsLimit(PersonType *person)
++{
++    U32 limit = PERSON_ARMS_MAX;
++    if (person && person->Belong && person->Belong != PID(0xffff) &&
++        person->Belong != PID(g_PlayerKing + 1) && g_engineConfig.enemyArmsLimitEnabled)
++    {
++        limit = g_engineConfig.enemyArmsLimit;
++        if (limit < 800) limit = 800;
++        if (limit > PERSON_ARMS_MAX) limit = PERSON_ARMS_MAX;
++    }
++    return limit;
++}
++
++FAR U32 PlcArmsMax(PersonID id) {
++    if (id >= PERSON_COUNT)
++        return 0;
+     IF_HAS_HOOK("getMaxArms") {
+         U32 maxArms = 0;
+         BIND_U16EX("personIndex", &id);
+         BIND_U32(&maxArms);
+         if (CALL_HOOK() == 0) {
+-            HOOK_RETURN(maxArms);
++            U32 limit = PlcArmsLimit(&g_Persons[id]);
++            HOOK_RETURN(maxArms > limit ? limit : maxArms);
+         }
+     }
+     return PlcArmsMaxP(&g_Persons[id]);
+ }
+ 
+-FAR U16 PlcArmsMaxP(PersonType* p)
++FAR U32 PlcArmsMaxP(PersonType* p)
+ {
+     U32	armys = 0;
+     if (g_engineConfig.enableCustomRatio) {
+@@ -660,14 +683,13 @@ FAR U16 PlcArmsMaxP(PersonType* p)
+         armys += p->Age * g_engineConfig.ratioOfArmsToAge;
+         armys += p->Force * g_engineConfig.ratioOfArmsToForce;
+         armys += p->IQ * g_engineConfig.ratioOfArmsToIQ;
+-        if (armys > 0xfffe)
+-            armys = 0xfffe;
+     } else {
+         armys += p->Level * 100;
+         armys += p->Force * 10;
+         armys += p->IQ * 10;
+     }
+-    return (U16)armys;
++    U32 limit = PlcArmsLimit(p);
++    return armys > limit ? limit : armys;
+ }
+ /***********************************************************************
+  * 说明:     显示指定字符串到big内small外的区域中
 diff --git a/src/baye/attribute.h b/src/baye/attribute.h
-index 3898b16..e48045f 100644
+index 3898b16..a8c9674 100644
 --- a/src/baye/attribute.h
 +++ b/src/baye/attribute.h
-@@ -238,6 +238,12 @@ typedef struct {
+@@ -8,6 +8,7 @@
+ #define GOODS_MAX		2000	/*最大道具数*/
+ #define PERSON_DEATH_AGE	90	/*武将寿命*/
+ #define PERSON_APPEAR_AGE	16	/*武将出现年龄*/
++#define PERSON_ARMS_MAX 200000u /* 单将兵力的32位安全上限 */
+ 
+ /*------------------------
+   君主性格定义
+@@ -131,11 +132,14 @@ typedef struct Person				/*人才属性 (12 Bytes) */
+ 	U8 Experience;			/*经验*/
+ 	U8 Thew;			/*体力*/
+ 	U8 ArmsType;			/*兵种*/
+-	U16 Arms;			/*兵力*/
++	U32 Arms;			/*兵力：支持超过65535的敌军与战斗结算*/
+ 	ToolID Equip[2];			/*装备*/
+ 	U8 Age;				/*年龄*/
+ }PersonType;
+ 
++/* 原LIB与0x95及更早存档保持19字节布局，仅兵力字段比内存结构少两个字节。 */
++#define LEGACY_PERSON_SIZE (sizeof(PersonType) - sizeof(U32) + sizeof(U16))
++
+ typedef struct City				/*城市属性(30 Bytes)*/
+ {
+ 	U8 State;
+@@ -238,6 +242,16 @@ typedef struct {
      U8 cacheCustomFont;     // 缓存自定义字体
  
      Theme theme; // 主题
@@ -118,11 +573,68 @@ index 3898b16..e48045f 100644
 +    U8 playerAttackAnyCity; // 玩家出征可忽略战略地图城市连接
 +    U8 enemyEscapeRoute;    // 敌方战败逃跑只能沿原势力城市连线移动
 +    U8 playerDiplomacyProtection; // 阻止敌方外交改变我方归属、忠诚或城池
++    U8 enemyArmsLimitEnabled; // 敌将兵力上限开关；不额外补兵
++    U32 enemyArmsLimit;      // 每名敌将上限，范围800~200000
++    U8 autoSaveRequested;   // 当前策略完成后的存档请求，仅在战略地图安全边界消费
++    U8 playerFoodProtection; // 大兵力下仍保持既有的我方缺粮不减兵规则
  } EngineConfig;
  
  extern EngineConfig g_engineConfig;
+diff --git a/src/baye/fight.h b/src/baye/fight.h
+index 0d04504..2bc823b 100644
+--- a/src/baye/fight.h
++++ b/src/baye/fight.h
+@@ -228,7 +228,7 @@ typedef	struct {
+ 	U8	bile;				/* 愤怒值 */
+ 	U8	armsType;			/* 兵种 */
+ 	U8	*exp;				/* 将领的经验值 */
+-	U16	*arms;				/* 兵力 */
++	U32	*arms;				/* 兵力：与PersonType.Arms保持同一宽度 */
+ 	U16	at;				/* 攻击力 */
+ 	U16	df;				/* 防御力 */
+ 	U8	generalIndex;   /* 将领战场序号 (新增) */
+diff --git a/src/baye/fundec.h b/src/baye/fundec.h
+index dd426f5..0d46852 100644
+--- a/src/baye/fundec.h
++++ b/src/baye/fundec.h
+@@ -1,5 +1,7 @@
+ #ifndef	_FUNDEC_H
+ #define	_FUNDEC_H
++
++GamEng bool GamSaveRcd(U8 idx);
+ #include "fight.h"
+ #include "baye/attribute.h"
+ 
+@@ -8,8 +10,10 @@ GamEng U8		GamRecordMan(U8 flag);
+ PublicFun U8		PlcMovie(U16 speid, U16 index,U8 startfrm,U8 endfrm,U8 keyflag,PT x,PT y);
+ PublicFun U16		PlcSplMenu(RECT *pRect,U16 pIdx,U8 *buf);
+ PublicFun U8		PlcExtract(U16 num);
+-PublicFun U16		PlcArmsMax(PersonID id);
+-PublicFun U16		PlcArmsMaxP(PersonType* p);
++PublicFun U32		PlcArmsMax(PersonID id);
++PublicFun U32		PlcArmsMaxP(PersonType* p);
++PublicFun U32        PlcArmsLimit(PersonType* p);
++PublicFun U16        PlcExtractArms(U32 num);
+ PublicFun void		PlcGraMsgBox(U8 *buf,U8 delay,U8 line);
+ PublicFun void		PlcMidShowStr(PT x,PT y,U8 *buf);
+ PublicFun void		PlcStrShowS(RECT *big,RECT *small,U8 *buf);
+@@ -37,10 +41,12 @@ FightSub void		FgtChgWeather(void);
+ FightSub U8		FgtCheckIdx(void);
+ 
+ FgtCount void		CountMoveP(U8 i);
+-FgtCount U16		CountAtkHurt(void);
++FgtCount U32		CountAtkHurt(void);
++FgtCount U32         CountArmsSub(U32 *a,U32 v);
++FgtCount U32         CountArmsAdd(U32 *a,U32 v,U32 up);
+ FgtCount U16		CountPlusSub(U16 *a,U16 v);
+ FgtCount U16		CountOverAdd(U16 *a,U16 v,U16 up);
+-FgtCount void		CountSklHurt(SkillID param,U16 *arms,U16 *prov, U8 origin, U8*state);
++FgtCount void		CountSklHurt(SkillID param,U32 *arms,U16 *prov, U8 origin, U8*state);
+ FgtCount void		FgtCountPath(U8 idx);
+ FgtCount void		BuiltAtkAttr(U8 idx,U8 pIdx);
+ FgtCount void		CountProvUse(void);
 diff --git a/src/baye/sharefun.h b/src/baye/sharefun.h
-index dd475eb..35f41cd 100644
+index dd475eb..26d61c4 100644
 --- a/src/baye/sharefun.h
 +++ b/src/baye/sharefun.h
 @@ -14,6 +14,7 @@ CITYEDIT_C U8 AttackCityRoad(U8 sc,U8 xs,U8 ys,U8 ob,U8 xo,U8 yo);
@@ -133,11 +645,37 @@ index dd475eb..35f41cd 100644
  CITYEDIT_C U32 GetCityOutPersons(U8 city,PersonID *pqueue);
  CITYEDIT_C U32 GetCityCaptives(U8 city,PersonID *pqueue);
  CITYEDIT_C U32 GetEnemyPersons(PersonID king,PersonID *pqueue);
+@@ -27,6 +28,8 @@ CITYEDIT_C U32 GetKingPersons(PersonID king,PersonID *pqueue);
+ CITYEDIT_C U16 GetFood(U16 min,U16 max);
+ CITYEDIT_C U16 GetMoney(U16 min,U16 max);
+ CITYEDIT_C U16 GetArmy(U16 min,U16 max);
++CITYEDIT_C U32 GetArmy32(U32 min,U32 max);
++TACTIC_C U8 *LoadLegacyPerson(PersonType *person,U8 *raw);
+ CITYEDIT_C U8 GetRoundSelfCity(U8 city,U8 *cqueue);
+ 
+ /*CITYCMD_C U8 AppointDrv(OrderType *Order);*/
+@@ -152,6 +155,7 @@ TACTIC_C U32 GetAllKings(PersonID *kings);
+ TACTIC_C void LoadPeriod(U8 period);
+ TACTIC_C U8 FunctionMenu(void);
+ TACTIC_C U32 NumOperate(U32 min,U32 max, U32 donum);
++TACTIC_C U32 NumOperateArms(U32 min,U32 max,U32 donum);
+ TACTIC_C void ShowTacticNote(void);
+ 
+ 
 diff --git a/src/bind-objects.c b/src/bind-objects.c
-index 5dbf5b4..1b4240f 100644
+index 5dbf5b4..f0aa8f3 100644
 --- a/src/bind-objects.c
 +++ b/src/bind-objects.c
-@@ -445,6 +445,12 @@ void bind_init(void) {
+@@ -164,7 +164,7 @@ void bind_init(void) {
+             _FIELD_RW(Experience, U8),
+             _FIELD_RW(Thew, U8),
+             _FIELD_RW(ArmsType, U8),
+-            _FIELD_RW(Arms, U16),
++            _FIELD_RW(Arms, U32),
+             _FIELD("Tool1", _ST, Equip[0], U16),
+             _FIELD("Tool2", _ST, Equip[1], U16),
+             _U16ARR_FIELD(Equip, 2),
+@@ -445,6 +445,16 @@ void bind_init(void) {
              _FIELD_RW(useCustomFont, U8),
              _FIELD_RW(useCustomFontEn, U8),
              _FIELD_RW(cacheCustomFont, U8),
@@ -147,6 +685,10 @@ index 5dbf5b4..1b4240f 100644
 +            _FIELD_RW(playerAttackAnyCity, U8),
 +            _FIELD_RW(enemyEscapeRoute, U8),
 +            _FIELD_RW(playerDiplomacyProtection, U8),
++            _FIELD_RW(enemyArmsLimitEnabled, U8),
++            _FIELD_RW(enemyArmsLimit, U32),
++            _FIELD_RW(autoSaveRequested, U8),
++            _FIELD_RW(playerFoodProtection, U8),
          };
  
          static ObjectDef _obj_def = {
@@ -579,8 +1121,33 @@ index 4c06630..d99f466 100644
      {
  #define _ST OrderType
          static Field _fields[] = {
+diff --git a/src/citycmdc.c b/src/citycmdc.c
+index 0fed2b4..5504ea0 100644
+--- a/src/citycmdc.c
++++ b/src/citycmdc.c
+@@ -1111,6 +1111,7 @@ FAR U8 DistributeMake(U8 city)
+             p = pqptr[pcode];
+             /*武将最大统率兵力*/
+             armys = PlcArmsMax(p);
++            if (armys < g_Persons[p].Arms) armys = g_Persons[p].Arms;
+             /*----------------*/
+             if (armys > (g_Cities[city].MothballArms + g_Persons[p].Arms))
+                 armys = g_Cities[city].MothballArms + g_Persons[p].Arms;
+@@ -1122,8 +1123,10 @@ FAR U8 DistributeMake(U8 city)
+                 continue;
+             }
+             
+-            armys = GetArmy(0,armys);
+-            if (0xffff == armys)
++            U32 total = g_Cities[city].MothballArms + g_Persons[p].Arms;
++            U32 minimum = total > 65535u ? total - 65535u : 0;
++            armys = GetArmy32(minimum,armys);
++            if (0xffffffffu == armys)
+             {
+                 pcount = 0;
+             }
 diff --git a/src/citycmdd.c b/src/citycmdd.c
-index bb23bde..ff57527 100644
+index bb23bde..00c1bed 100644
 --- a/src/citycmdd.c
 +++ b/src/citycmdd.c
 @@ -23,6 +23,48 @@
@@ -780,7 +1347,7 @@ index bb23bde..ff57527 100644
 +        IF_HAS_HOOK("battleGeneralDied") {
 +            BIND_U16EX("personIndex", &person);
 +            BIND_U16EX("belong", &pptr->Belong);
-+            BIND_U16EX("arms", &pptr->Arms);
++            BIND_U32EX("arms", &pptr->Arms);
 +            BIND_U16EX("winnerBelong", &winnerBelong);
 +            CALL_HOOK_S();
 +        }
@@ -1149,11 +1716,38 @@ index bb23bde..ff57527 100644
                  return(1);
              }
          }
+diff --git a/src/citycmde.c b/src/citycmde.c
+index f2c9bfc..3598f95 100644
+--- a/src/citycmde.c
++++ b/src/citycmde.c
+@@ -480,12 +480,12 @@ FAR U8 GetWeekCity(U8 count,U8 *cqueue)
+ {
+     U32 c, i, o, cw = 0;
+     PersonID p;
+-    U16 armst,armsw;
++    U32 armst,armsw;
+     CityType *cptr;
+     OrderType *inode;
+     
+     inode = (OrderType *) ORDERQUEUE;
+-    armsw = 0xffff;
++    armsw = 0xffffffffu;
+     for (c = 0;c < count;c ++)
+     {
+         cptr = &g_Cities[cqueue[c]];
 diff --git a/src/cityedit.c b/src/cityedit.c
-index 1372c6f..c18eb8f 100644
+index 1372c6f..1cbbda8 100644
 --- a/src/cityedit.c
 +++ b/src/cityedit.c
-@@ -578,7 +578,7 @@ FAR U8 GetRoundSelfCity(U8 city,U8 *cqueue)
+@@ -23,6 +23,7 @@
+ #include "baye/enghead.h"
+ #include "touch.h"
+ #include "baye/script.h"
++#include "baye/bind-objects.h"
+ 
+ extern U8 g_engineVersion[32];
+ 
+@@ -578,7 +579,7 @@ FAR U8 GetRoundSelfCity(U8 city,U8 *cqueue)
  
  /******************************************************************************
   * 函数名:GetRoundEnemyCity
@@ -1162,7 +1756,7 @@ index 1372c6f..c18eb8f 100644
   *
   * 入口参数：city -- 指定城池，cqueue -- 周围城池队列指针
   *
-@@ -608,7 +608,7 @@ FAR U8 GetRoundEnemyCity(U8 city,U8 *cqueue)
+@@ -608,7 +609,7 @@ FAR U8 GetRoundEnemyCity(U8 city,U8 *cqueue)
          if (inf[i])
          {
              cp = g_Cities[inf[i] - 1].Belong;
@@ -1171,7 +1765,7 @@ index 1372c6f..c18eb8f 100644
              {
                  if (cqueue) cqueue[count] = inf[i] - 1;
                  count += 1;
-@@ -723,6 +723,25 @@ FAR U32 GetCityPersons(U8 city, PersonID *pqueue)
+@@ -723,6 +724,25 @@ FAR U32 GetCityPersons(U8 city, PersonID *pqueue)
   *		----		----			-----------
   *		陈泽伟		2005-7-4 9:18	基本功能完成
   ******************************************************************************/
@@ -1197,7 +1791,7 @@ index 1372c6f..c18eb8f 100644
  FAR U32 GetCityOutPersons(U8 city,PersonID *pqueue)
  {
      U32 i,count;
-@@ -933,6 +952,9 @@ FAR U8 GetCitySetInner(CitySetType *pos);
+@@ -933,6 +953,9 @@ FAR U8 GetCitySetInner(CitySetType *pos);
  FAR U8 GetCitySet(CitySetType *pos) {
      int prev = SysScrollingTimerOpen(0);
      U8 rv = GetCitySetInner(pos);
@@ -1207,7 +1801,31 @@ index 1372c6f..c18eb8f 100644
      SysScrollingTimerOpen(prev);
      return rv;
  }
-@@ -1032,6 +1054,8 @@ FAR U8 GetCitySetInner(CitySetType *pos)
+@@ -970,6 +993,23 @@ FAR U8 GetCitySetInner(CitySetType *pos)
+             call_hook_a("didShowMainMap", NULL);
+         }
+ 
++        /* 请求只在整轮策略完成后置位。先绘制地图、完成战后脚本，再在原引擎线程
++         * 保存第一档；UI暂挂时保留请求，避免异步导出一个尚在结算中的世界。 */
++        if (g_engineConfig.autoSaveRequested &&
++            call_hook_a("autoSaveOnMainMap", NULL) == 1)
++        {
++            g_engineConfig.autoSaveRequested = 0;
++            U8 success = GamSaveRcd(0);
++            /* 存档提示内部也可能使用单层屏幕备份，保存后直接重绘地图及附加信息。 */
++            city = ShowCityMap(pos);
++            call_hook_a("didShowMainMap", NULL);
++            IF_HAS_HOOK("didAutoSaveGame")
++            {
++                BIND_U8EX("success", &success);
++                CALL_HOOK_S();
++            }
++        }
++
+         GamGetMsg(&Msg);
+     tagHandleMsg:
+         if (VM_CHAR_FUN == Msg.type)
+@@ -1032,6 +1072,8 @@ FAR U8 GetCitySetInner(CitySetType *pos)
                      return(0xff);
                      break;
                  case VK_SEARCH:
@@ -1216,7 +1834,7 @@ index 1372c6f..c18eb8f 100644
                      if (call_hook_a("showMiniMap", NULL) == -1) {
                          gam_clrlcd(WK_SX,WK_SY,WK_EX,WK_EY);
                          gam_drawpic(TACTIC_ICON, 0, WK_SX + (WK_EX - WK_SX - 84) / 2,WK_SY + (WK_EY - WK_SY - 64) / 2, 1);
-@@ -1039,6 +1063,7 @@ FAR U8 GetCitySetInner(CitySetType *pos)
+@@ -1039,6 +1081,7 @@ FAR U8 GetCitySetInner(CitySetType *pos)
                      tpicflag = 1;
                      break;
                  case VK_HELP:
@@ -1224,11 +1842,73 @@ index 1372c6f..c18eb8f 100644
                      if (call_hook_a("showMainHelp", NULL) == -1) {
                          U8 ver[64];
                          sprintf((char*)ver, "Ver %s", g_engineVersion);
+@@ -1364,6 +1407,11 @@ FAR U16 GetMoney(U16 min,U16 max)
+  *		陈泽伟		2005/5/18 11:26AM	基本功能完成
+  ******************************************************************************/
+ FAR U16 GetArmy(U16 min,U16 max)
++{
++    return (U16)GetArmy32(min,max);
++}
++
++FAR U32 GetArmy32(U32 min,U32 max)
+ {
+     U8 str[20];
+     
+@@ -1371,5 +1419,5 @@ FAR U16 GetArmy(U16 min,U16 max)
+     gam_rect((WK_SX + WK_EX - WK_SX  - ASC_WID * 12) / 2 - 1,(WK_SY + WK_EY - WK_SY - ASC_HGT * 3) / 2 - 1,(WK_SX + WK_EX - WK_SX  - ASC_WID * 12) / 2 + ASC_WID * 12 + 1,(WK_SY + WK_EY - WK_SY - ASC_HGT * 3) / 2 + ASC_HGT * 3 + 1);
+     ResLoadToMem(STRING_CONST,ATRR_STR62,str);
+     GamStrShowS((WK_SX + WK_EX - WK_SX  - ASC_WID * 12) / 2,(WK_SY + WK_EY - WK_SY - ASC_HGT * 3) / 2,str);
+-    return(NumOperate(min,max,max));
++    return(NumOperateArms(min,max,max));
+ }
 diff --git a/src/gamEng.c b/src/gamEng.c
-index 824cab5..59ea75d 100644
+index 824cab5..6e485d5 100644
 --- a/src/gamEng.c
 +++ b/src/gamEng.c
-@@ -907,9 +907,45 @@ bool GamLoadRcd(U8 idx)
+@@ -843,6 +843,7 @@ bool GamLoadRcd(U8 idx)
+ #define read_all(buf, size, count, fp) if (gam_fread((U8 *)buf, size, count, fp) != count) { \
+     ResLoadToMem(IFACE_STRID,dErrInf1,tbuf); \
+     GamMsgBox(tbuf,2); \
++    gam_fclose(fp); \
+     return false; \
+ }
+ 
+@@ -857,6 +858,11 @@ bool GamLoadRcd(U8 idx)
+     read_all((U8 *)&version,1,1,fp);
+     read_all((U8 *)&g_PIdx,1,1,fp);
+     read_all((U8 *)&personQueueLen,1,2,fp);
++    if (version > 0x96 || !personQueueLen || personQueueLen > PERSON_MAX)
++    {
++        gam_fclose(fp);
++        return false;
++    }
+     GamSetPersonCount(personQueueLen);
+     read_all((U8 *)&g_PlayerKing,1,2,fp);
+     read_all((U8 *)&g_YearDate,2,1,fp);
+@@ -865,7 +871,21 @@ bool GamLoadRcd(U8 idx)
+     read_all((U8 *)&g_MoveSpeed,1,1,fp);
+     read_all((U8 *)&g_MonthDate,1,1,fp);
+     read_all((U8 *)&g_CityPos,sizeof(CitySetType),1,fp);
+-    read_all((U8 *)g_Persons,sizeof(PersonType),personQueueLen,fp);
++    if (version >= 0x96)
++    {
++        read_all((U8 *)g_Persons,sizeof(PersonType),personQueueLen,fp);
++        for (U32 i = 0;i < personQueueLen;i++)
++            if (g_Persons[i].Arms > PERSON_ARMS_MAX) g_Persons[i].Arms = PERSON_ARMS_MAX;
++    }
++    else
++    {
++        U8 legacyPerson[LEGACY_PERSON_SIZE];
++        for (U32 i = 0;i < personQueueLen;i++)
++        {
++            read_all(legacyPerson,LEGACY_PERSON_SIZE,1,fp);
++            LoadLegacyPerson(&g_Persons[i],legacyPerson);
++        }
++    }
+     read_all((U8 *)g_PersonsQueue,sizeof(PersonID),personQueueLen,fp);
+     read_all((U8 *)g_GoodsQueue,1,goodsQueueLen,fp);
+ 
+@@ -907,9 +927,45 @@ bool GamLoadRcd(U8 idx)
      }
      
      read_all((U8 *)FIGHTERS_IDX,1,FIGHT_ORDER_MAX,fp);
@@ -1275,7 +1955,7 @@ index 824cab5..59ea75d 100644
  
      int seed = 0;
      read_all((U8 *)&seed,sizeof(seed), 1, fp);
-@@ -918,7 +954,10 @@ bool GamLoadRcd(U8 idx)
+@@ -918,7 +974,10 @@ bool GamLoadRcd(U8 idx)
      }
      
      gam_fclose(fp);
@@ -1287,16 +1967,24 @@ index 824cab5..59ea75d 100644
      return true;	
  }
  /***********************************************************************
-@@ -953,7 +992,7 @@ bool GamSaveRcd(U8 idx)
+@@ -953,7 +1012,7 @@ bool GamSaveRcd(U8 idx)
          return false;
      }
      
 -    U8 ver = 0x94;
-+    U8 ver = 0x95;
++    U8 ver = 0x96;
      U16 pcount = GamGetPersonCount();
      gam_fwrite((U8 *)&ver,1,1,fp);
      gam_fwrite((U8 *)&g_PIdx,1,1,fp);
-@@ -997,7 +1036,7 @@ bool GamSaveRcd(U8 idx)
+@@ -976,6 +1035,7 @@ bool GamSaveRcd(U8 idx)
+             if (compress_data(&data, &len, customData, g_engineConfig.compressCustomData) != 0) {
+                 ResLoadToMem(IFACE_STRID,dErrInf,tbuf);
+                 GamMsgBox(tbuf,2);
++                gam_fclose(fp);
+                 return false;
+             }
+             gam_fwrite(data, len, 1, fp);
+@@ -997,7 +1057,7 @@ bool GamSaveRcd(U8 idx)
      }
      
      gam_fwrite((U8 *)FIGHTERS_IDX,1,FIGHT_ORDER_MAX,fp);
@@ -1305,7 +1993,7 @@ index 824cab5..59ea75d 100644
      gam_fwrite((U8 *)ORDERQUEUE,sizeof(OrderType),ORDER_MAX,fp);
      gam_fwrite((U8 *)g_Cities,sizeof(CityType),CITY_MAX,fp);
      {
-@@ -1006,6 +1045,11 @@ bool GamSaveRcd(U8 idx)
+@@ -1006,6 +1066,11 @@ bool GamSaveRcd(U8 idx)
      }
      
      gam_fclose(fp);
@@ -1317,7 +2005,7 @@ index 824cab5..59ea75d 100644
      return true;
  }
  
-@@ -1038,7 +1082,13 @@ EngineConfig g_engineConfig = {
+@@ -1038,7 +1103,13 @@ EngineConfig g_engineConfig = {
      .promptCityDisaster = 1, // 提示城池灾害
      .showStartMovie = 1, // 显示开场动画
      .compressCustomData = 0,
@@ -1331,6 +2019,32 @@ index 824cab5..59ea75d 100644
      .theme = {
          .landMapColor = 0xcf,
          .ownedCityColor = 0xff,
+diff --git a/src/infdeal.c b/src/infdeal.c
+index edb82b1..2bdf885 100644
+--- a/src/infdeal.c
++++ b/src/infdeal.c
+@@ -43,7 +43,8 @@ FAR U8 CitiesUpDataDate(void)
+ {
+     U32 i,j,s,rnd;
+     PersonID *pqptr;
+-    U16 df,as,*food;
++    U32 df,as;
++    U16 *food;
+     U32 *Population;
+     CityType *cptr;
+     U32 c;
+@@ -119,6 +120,11 @@ FAR U8 CitiesUpDataDate(void)
+             {
+                 *food -= df;
+             }
++            else if (g_engineConfig.playerFoodProtection && cptr->Belong == g_PlayerKing + 1)
++            {
++                /* 缺粮保护只免除减兵与饥荒，不凭空增加粮草；兼容32位城池总兵力。 */
++                *food = 0;
++            }
+             else
+             {
+                 for (j = 0;j < c;j ++)
 diff --git a/src/platform/js/timer.c b/src/platform/js/timer.c
 index edfa7af..8f3c8d4 100644
 --- a/src/platform/js/timer.c
@@ -1391,7 +2105,7 @@ index edfa7af..8f3c8d4 100644
 +    timer2_handle = emscripten_set_interval(_timer2_cb,milliseconds,&timer2);
 +}
 diff --git a/src/tactic.c b/src/tactic.c
-index 1c792f8..9d06d47 100644
+index 1c792f8..4ce9c6e 100644
 --- a/src/tactic.c
 +++ b/src/tactic.c
 @@ -23,6 +23,9 @@
@@ -1924,3 +2638,85 @@ index 1c792f8..9d06d47 100644
          if (IsLoss())
          {
              /*提示玩家全军覆没*/
+@@ -973,7 +1310,8 @@ U8* loadCities(CityType*cities, U8*raw)
+     return raw;
+ }
+ 
+-U8* loadPerson(PersonType*person, U8*raw)
++/* LIB与0x95及更早存档中的兵力固定为U16，不能按新的内存结构宽度读取。 */
++U8* LoadLegacyPerson(PersonType*person, U8*raw)
+ {
+     gam_memcpy(&person->OldBelong, raw, sizeof(person->OldBelong));
+     raw += sizeof(person->OldBelong);
+@@ -995,8 +1333,10 @@ U8* loadPerson(PersonType*person, U8*raw)
+     raw += sizeof(person->Thew);
+     gam_memcpy(&person->ArmsType, raw, sizeof(person->ArmsType));
+     raw += sizeof(person->ArmsType);
+-    gam_memcpy(&person->Arms, raw, sizeof(person->Arms));
+-    raw += sizeof(person->Arms);
++    U16 legacyArms;
++    gam_memcpy(&legacyArms, raw, sizeof(legacyArms));
++    person->Arms = legacyArms;
++    raw += sizeof(legacyArms);
+     gam_memcpy(&person->Equip, raw, sizeof(person->Equip));
+     raw += sizeof(person->Equip);
+     gam_memcpy(&person->Age, raw, sizeof(person->Age));
+@@ -1007,9 +1347,10 @@ U8* loadPerson(PersonType*person, U8*raw)
+ U8* loadPersons(PersonType*person, U8*raw, U16 length)
+ {
+     int i;
+-    U16 pcount = length/sizeof(PersonType);
++    U16 pcount = length/LEGACY_PERSON_SIZE;
++    if (pcount > PERSON_MAX) pcount = PERSON_MAX;
+     for (i = 0; i < pcount; i++) {
+-        raw = loadPerson(person+i, raw);
++        raw = LoadLegacyPerson(person+i, raw);
+     }
+     return raw;
+ }
+@@ -1024,7 +1365,8 @@ void LoadPeriod(U8 period)
+     g_YearDate = *((U16 *) ptr);
+     
+     U32 length = ResGetItemLen(GENERAL_RESID, period);
+-    U16 pcount = length / sizeof(PersonType);
++    U16 pcount = length / LEGACY_PERSON_SIZE;
++    if (pcount > PERSON_MAX) pcount = PERSON_MAX;
+     GamSetPersonCount(pcount);
+     ptr = ResLoadToCon(GENERAL_RESID,period,g_CBnkPtr);
+     loadPersons(g_Persons, ptr, length);
+@@ -1156,14 +1498,23 @@ U8 FunctionMenu(void)
+  *		----		----			-----------
+  *		陈泽伟		2005-6-23 11:43	基本功能完成
+  ******************************************************************************/
+-FAR U32 NumOperateInner(U32 min,U32 max, U32 donum);
++FAR U32 NumOperateInner(U32 min,U32 max,U32 donum,U8 wideArms);
+ FAR U32 NumOperate(U32 min,U32 max, U32 donum) {
+     int prev = SysScrollingTimerOpen(0);
+-    U32 rv = NumOperateInner(min, max,  donum);
++    U32 rv = NumOperateInner(min,max,donum,0);
+     SysScrollingTimerOpen(prev);
+     return rv;
+ }
+-FAR U32 NumOperateInner(U32 min,U32 max, U32 donum)
++/** 32位兵力输入把取消标记留在UINT32_MAX，65535必须仍是合法兵力。 */
++FAR U32 NumOperateArms(U32 min,U32 max,U32 donum)
++{
++    int previous = SysScrollingTimerOpen(0);
++    U32 value = NumOperateInner(min,max,donum,1);
++    SysScrollingTimerOpen(previous);
++    return value;
++}
++
++FAR U32 NumOperateInner(U32 min,U32 max,U32 donum,U8 wideArms)
+ {
+     U8 str[32];
+     U8 showflag,i,bit,maxbit;
+@@ -1310,7 +1661,7 @@ FAR U32 NumOperateInner(U32 min,U32 max, U32 donum)
+                         return donum;
+                     }
+                     if (touchIsPointInRect(x, y, cancelButton)) {
+-                        return 0xffff;
++                        return wideArms ? 0xffffffffu : 0xffff;
+                     }
+                     if (touchIsPointInRect(x, y, maxButton)) {
+                         donum = donum == max ? min : max;

@@ -214,6 +214,10 @@ function createHarness(storage = new Map(), options = {}) {
       playerAttackAnyCity: 0,
       enemyEscapeRoute: 0,
       playerDiplomacyProtection: 0,
+      enemyArmsLimitEnabled: 0,
+      enemyArmsLimit: 200000,
+      autoSaveRequested: 0,
+      playerFoodProtection: 0,
     },
     g_FgtParam: {
       Mode: 1,
@@ -488,7 +492,7 @@ for (const [scale, fontId, fontSize] of [[2, 1, 24], [4, 5, 48]]) {
 
   const hurtContext = {hurt: 0};
   assert.equal(hooks.countAttackHurt(hurtContext), 0);
-  assert.equal(hurtContext.hurt, 65535);
+  assert.equal(hurtContext.hurt, 200000);
   assert.equal(people[5].Arms, 0);
   assert.equal(people[7].Arms, 0);
   assert.equal(data.g_GenPos[11].state, 0);
@@ -2122,6 +2126,73 @@ function apply(api, action) {
   assert.equal(received[0].pic, 21, '模组绘制接收到原兵种与原朝向、原动画帧');
   assert.equal(drawing.pic, 29);
   assert.equal(data.g_paintColor, 0xff);
+}
+
+{
+  const storage = new Map();
+  const {api, hooks, data, people} = createHarness(storage);
+  assert.equal(JSON.parse(api.getCheatState()).autoSaveAfterTurn, true);
+  assert.equal(JSON.parse(api.getCheatState()).enemyArmsLimitEnabled, false);
+  people[0].Arms = 200000;
+  people[4].Arms = 200000;
+  people[5].Arms = 700;
+  people[2].Arms = 100000;
+  assert.equal(JSON.parse(api.applyCheat('sgby_enemy_arms_limit_value', {value: 800})).ok, true);
+  assert.equal(people[4].Arms, 200000, '关闭时只保存滑块值，不修改兵力');
+  assert.equal(JSON.parse(api.applyCheat('sgby_enemy_arms_limit')).ok, true);
+  assert.equal(people[4].Arms, 800);
+  assert.equal(people[5].Arms, 700, '低于上限的敌将不得补兵');
+  assert.equal(people[0].Arms, 200000, '不能压低我方兵力');
+  assert.equal(people[2].Arms, 100000, '不能压低在野兵力');
+  for (const invalid of [799, 200001, 800.5, '800', null]) {
+    assert.equal(JSON.parse(api.applyCheat('sgby_enemy_arms_limit_value', {value: invalid})).ok, false);
+  }
+  for (const value of [65535, 65536, 200000]) {
+    const before = people[4].Arms;
+    assert.equal(JSON.parse(api.applyCheat('sgby_enemy_arms_limit_value', {value})).ok, true);
+    assert.equal(people[4].Arms, before, '提高上限不补兵');
+    people[4].Arms = 250000;
+    hooks.tacticStage3({});
+    assert.equal(people[4].Arms, value);
+  }
+  assert.equal(data.g_engineConfig.enemyArmsLimit, 200000);
+  const restored = createHarness(storage);
+  assert.equal(JSON.parse(restored.api.getCheatState()).enemyArmsLimitEnabled, true);
+  assert.equal(JSON.parse(restored.api.getCheatState()).enemyArmsLimit, 200000);
+  api.applyCheat('sgby_enemy_arms_limit');
+  people[4].Arms = 200000;
+  hooks.tacticStage3({});
+  assert.equal(people[4].Arms, 200000);
+}
+
+{
+  const {api, hooks, data, saveMessages} = createHarness();
+  data.g_FgtOver = 1;
+  hooks.didOpenNewGame({});
+  hooks.didShowMainMap({});
+  assert.equal(hooks.autoSaveOnMainMap({}), 0, '开局不能覆盖第一档');
+  hooks.tacticStage5({});
+  assert.equal(data.g_engineConfig.autoSaveRequested, 1);
+  hooks.didLeaveMainMap({});
+  assert.equal(hooks.autoSaveOnMainMap({}), 0, '非战略地图不能保存');
+  hooks.didShowMainMap({});
+  api.beginUiPause();
+  assert.equal(hooks.autoSaveOnMainMap({}), 0, '作弊编辑期间延迟存档');
+  api.endUiPause();
+  assert.equal(hooks.autoSaveOnMainMap({}), 1);
+  assert.equal(hooks.autoSaveOnMainMap({}), 0, '同轮只消费一次');
+  hooks.didSaveGame({slotIndex: 0});
+  hooks.didAutoSaveGame({success: 1});
+  assert.ok(saveMessages.some(message => message.entries['baye/bbkSgbyBattleStatistics/slot-0']));
+  hooks.tacticStage5({});
+  api.applyCheat('sgby_auto_save_after_turn');
+  assert.equal(data.g_engineConfig.autoSaveRequested, 0);
+  assert.equal(hooks.autoSaveOnMainMap({}), 0);
+  api.applyCheat('sgby_auto_save_after_turn');
+  assert.equal(hooks.autoSaveOnMainMap({}), 0, '重新开启不重放旧轮次');
+  hooks.tacticStage5({});
+  hooks.didLoadGame({slotIndex: 1});
+  assert.equal(data.g_engineConfig.autoSaveRequested, 0, '读档清理之前世界的待保存请求');
 }
 
 console.log('三国霸业增强回归测试通过');

@@ -47,6 +47,7 @@ jobs:
         run: |
           node tool/test_sgby_ai_strategy.mjs build/sgby-engine
           node tool/test_sgby_order_rules.mjs build/sgby-engine
+          node tool/test_sgby_large_armies.mjs build/sgby-engine
           node tool/test_sgby_attack_range.mjs build/sgby-engine
           node tool/test_sgby_core_timing.mjs build/sgby-engine
           node tool/test_sgby_enhancements.mjs

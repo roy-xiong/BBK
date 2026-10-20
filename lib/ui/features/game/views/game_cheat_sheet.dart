@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../domain/models/game_definition.dart';
 import '../view_models/game_view_model.dart';
+import 'sgby_enemy_arms_limit_slider.dart';
 
 /// 单个作弊选项的 UI 定义。
 class _CheatOption {
@@ -186,6 +187,20 @@ Future<void> _showGameCheatSheetContent(
 }) async {
   final options = switch (game.id) {
     GameId.sgby => const <_CheatOption>[
+      _CheatOption(
+        action: 'sgby_auto_save_after_turn',
+        title: '策略结束自动存档',
+        description: '默认开启，本轮策略和战后处理结束后自动覆盖第一个档位',
+        icon: Icons.save,
+        stateKey: 'autoSaveAfterTurn',
+      ),
+      _CheatOption(
+        action: 'sgby_enemy_arms_limit',
+        title: '敌军兵力上限',
+        description: '按每名敌将封顶，只压低超过上限的兵力，不额外补兵',
+        icon: Icons.groups_2,
+        stateKey: 'enemyArmsLimitEnabled',
+      ),
       _CheatOption(
         action: 'sgby_max_all',
         title: '自动拉满与搜索',
@@ -418,6 +433,9 @@ Future<void> _showGameCheatSheetContent(
   };
 
   var cheatState = await viewModel.getCheatState();
+  int? enemyArmsLimit = game.id == GameId.sgby
+      ? await viewModel.getSgbyEnemyArmsLimit()
+      : null;
   var postBattleCaptiveAction = _postBattleCaptiveActionFromState(cheatState);
   var searchOutcome = _searchOutcomeFromState(cheatState);
   var battleLoserOutcome = _battleLoserOutcomeFromState(cheatState);
@@ -432,6 +450,23 @@ Future<void> _showGameCheatSheetContent(
       String? runningAction;
       return StatefulBuilder(
         builder: (sheetContext, setSheetState) {
+          Future<void> setEnemyArmsLimit(int value) async {
+            if (runningAction != null) return;
+            setSheetState(() => runningAction = 'sgby_enemy_arms_limit_value');
+            final result = await viewModel.applyCheat(
+              'sgby_enemy_arms_limit_value',
+              parameters: <String, Object?>{'value': value},
+            );
+            if (!sheetContext.mounted) return;
+            setSheetState(() {
+              runningAction = null;
+              if (result.isSuccess) enemyArmsLimit = value;
+            });
+            if (!result.isSuccess && hostContext.mounted) {
+              showCheatToast(hostContext, result);
+            }
+          }
+
           Future<void> setPostBattleCaptiveAction(
             _PostBattleCaptiveAction action,
           ) async {
@@ -766,6 +801,21 @@ Future<void> _showGameCheatSheetContent(
                           enabled: runningAction == null,
                           onTap: runOption,
                         );
+                        if (option.action == 'sgby_enemy_arms_limit') {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              optionTile,
+                              SgbyEnemyArmsLimitSlider(
+                                value: enemyArmsLimit,
+                                enabled: stateEnabled,
+                                busy: runningAction != null,
+                                onSubmitted: (value) =>
+                                    unawaited(setEnemyArmsLimit(value)),
+                              ),
+                            ],
+                          );
+                        }
                         if (option.action != 'sgby_post_battle_automation') {
                           return optionTile;
                         }

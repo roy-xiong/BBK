@@ -45,6 +45,8 @@
     var DEFAULT_WORLD_ACTIVITY = 50;
     var MIN_WORLD_ACTIVITY = 0;
     var MAX_WORLD_ACTIVITY = 100;
+    var MIN_ENEMY_ARMS_LIMIT = 800;
+    var MAX_ENEMY_ARMS_LIMIT = 200000;
     var GENERAL_CON_RESOURCE_ID = 63;
     var RESOURCE_HEADER_SIZE = 14;
     var RESOURCE_INDEX_SIZE = 8;
@@ -111,6 +113,10 @@
         diplomacyProtection: persistedCheatState.diplomacyProtection === true,
         hideSpecialGenerals: persistedCheatState.hideSpecialGenerals === true,
         showTroopIcons: persistedCheatState.showTroopIcons === true,
+        autoSaveAfterTurn: persistedCheatState.autoSaveAfterTurn !== false,
+        autoSaveAfterTurnPending: false,
+        enemyArmsLimitEnabled: persistedCheatState.enemyArmsLimitEnabled === true,
+        enemyArmsLimit: normalizeEnemyArmsLimit(persistedCheatState.enemyArmsLimit),
         animationsDisabled: persistedCheatState.animationsDisabled === true,
         battleSpeedMultiplier: persistedBattleSpeed,
         postBattleAutomation: persistedCheatState.postBattleAutomation === true,
@@ -312,6 +318,38 @@
      * 字段检测允许新版增强脚本配合旧 WASM 启动；此时只是不启用核心作弊，不会写入
      * 未知内存。自动守城与自动战斗共用一个持久开关，关闭后立即恢复手动选择守将。
      */
+    /** 旧配置没有上限值时不额外压低敌军；损坏的配置不能写入引擎字段。 */
+    function normalizeEnemyArmsLimit(value) {
+        return Number.isInteger(value) && value >= MIN_ENEMY_ARMS_LIMIT && value <= MAX_ENEMY_ARMS_LIMIT
+            ? value : MAX_ENEMY_ARMS_LIMIT;
+    }
+
+    /** 只压低有势力敌将的超额兵力，不改我方、在野或俘虏，也不计算为战斗伤亡。 */
+    function applyEnemyArmsLimit() {
+        if (!cheatState.enemyArmsLimitEnabled) return 0;
+        var context = gameContext();
+        if (!context) return 0;
+        var count = gamePersonCount(context), changed = 0;
+        for (var index = 0; index < count; index++) {
+            var person = context.people[index];
+            if (person && person.Belong > 0 && person.Belong !== CAPTIVE_BELONG &&
+                person.Belong !== context.ruler && person.Arms > cheatState.enemyArmsLimit) {
+                person.Arms = cheatState.enemyArmsLimit;
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /** 新局、读档和关闭开关都丢弃上一轮的请求，不能意外覆盖第一档。 */
+    function resetTurnAutoSave() {
+        cheatState.autoSaveAfterTurnPending = false;
+        if (global.baye && baye.data && baye.data.g_engineConfig &&
+            typeof baye.data.g_engineConfig.autoSaveRequested !== 'undefined') {
+            baye.data.g_engineConfig.autoSaveRequested = 0;
+        }
+    }
+
     function syncEngineCheatSettings() {
         if (!global.baye || !baye.data || !baye.data.g_engineConfig) return;
         var config = baye.data.g_engineConfig;
@@ -326,6 +364,13 @@
         }
         if (typeof config.playerDiplomacyProtection !== 'undefined') {
             config.playerDiplomacyProtection = cheatState.diplomacyProtection ? 1 : 0;
+        }
+        if (typeof config.enemyArmsLimitEnabled !== 'undefined') {
+            config.enemyArmsLimitEnabled = cheatState.enemyArmsLimitEnabled ? 1 : 0;
+            config.enemyArmsLimit = cheatState.enemyArmsLimit;
+        }
+        if (typeof config.playerFoodProtection !== 'undefined') {
+            config.playerFoodProtection = cheatState.foodProtection || cheatState.autoMaxCities ? 1 : 0;
         }
         if (typeof config.battleLoserOutcome !== 'undefined') {
             var values = {};
@@ -342,7 +387,7 @@
     function savePersistentCheatState() {
         try {
             global.localStorage.setItem(CHEAT_STATE_STORAGE_KEY, JSON.stringify({
-                version: 8,
+                version: 9,
                 invincible: cheatState.invincible,
                 oneHitKill: cheatState.oneHitKill,
                 wideGroupAttack: cheatState.wideGroupAttack,
@@ -357,6 +402,9 @@
                 diplomacyProtection: cheatState.diplomacyProtection,
                 hideSpecialGenerals: cheatState.hideSpecialGenerals,
                 showTroopIcons: cheatState.showTroopIcons,
+                autoSaveAfterTurn: cheatState.autoSaveAfterTurn,
+                enemyArmsLimitEnabled: cheatState.enemyArmsLimitEnabled,
+                enemyArmsLimit: cheatState.enemyArmsLimit,
                 animationsDisabled: cheatState.animationsDisabled,
                 battleSpeedMultiplier: cheatState.battleSpeedMultiplier,
                 battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
@@ -1538,6 +1586,7 @@
     function applyPersistentGeneralEffects() {
         syncEngineCheatSettings();
         applyAnimationSetting();
+        applyEnemyArmsLimit();
         if (!cheatState.autoMaxGenerals) return;
         var context = gameContext();
         if (!context) return;
@@ -2032,7 +2081,7 @@
             } else if (city.State === 4) {
                 arms = Math.floor(arms / 2);
             }
-            totalArms = (totalArms + arms) & 0xffff;
+            totalArms += arms;
         }
         return Math.floor(totalArms / ratio);
     }
@@ -2107,7 +2156,7 @@
             attacker < PLAYER_GENERAL_LIMIT &&
             defender >= PLAYER_GENERAL_LIMIT
         ) {
-            context.hurt = 65535;
+            context.hurt = MAX_ENEMY_ARMS_LIMIT;
             return true;
         }
         return false;
@@ -2148,7 +2197,7 @@
         if (typeof modifier !== 'number') return null;
         var baseHurt = Math.floor(attack.at / defence.df * (attacker.Arms >> 3));
         var hurt = Math.floor(baseHurt * modifier) + 10;
-        return Math.max(0, Math.min(65535, hurt));
+        return Math.max(0, Math.min(MAX_ENEMY_ARMS_LIMIT, hurt));
     }
 
     /**
@@ -2239,7 +2288,7 @@
                     }
                     var originalHandled = false;
                     if (cheatState.oneHitKill) {
-                        context.hurt = 65535;
+                        context.hurt = MAX_ENEMY_ARMS_LIMIT;
                     } else if (original) {
                         originalHandled = original(context) === 0;
                     }
@@ -4214,16 +4263,47 @@
             snapshotCityFoodConsumption();
         });
         installObserverHook(hooks, 'tacticStage5', restoreCityFoodConsumption);
+        installObserverHook(hooks, 'tacticStage1', applyEnemyArmsLimit);
+        installObserverHook(hooks, 'tacticStage3', applyEnemyArmsLimit);
+        installObserverHook(hooks, 'battleStage5', applyEnemyArmsLimit);
+        installObserverHook(hooks, 'tacticStage5', function () {
+            applyEnemyArmsLimit();
+            if (cheatState.autoSaveAfterTurn) {
+                cheatState.autoSaveAfterTurnPending = true;
+                if (typeof baye.data.g_engineConfig.autoSaveRequested !== 'undefined') {
+                    baye.data.g_engineConfig.autoSaveRequested = 1;
+                }
+            }
+        });
+        // 原生线程在地图已显示、战后处理已完成时询问；不开菜单、不注入选档按键。
+        hooks.autoSaveOnMainMap = function () {
+            var game = gameContext();
+            if (!cheatState.autoSaveAfterTurn || !cheatState.autoSaveAfterTurnPending ||
+                !cheatState.mainMapOverlayVisible || cheatState.uiPauseDepth > 0 ||
+                cheatState.quickSavePending || !game || isBattleActive(game.data)) return 0;
+            cheatState.autoSaveAfterTurnPending = false;
+            cheatState.quickSavePending = true;
+            return 1;
+        };
+        installObserverHook(hooks, 'didAutoSaveGame', function (context) {
+            cheatState.quickSavePending = false;
+            if (!context || Number(context.success) !== 1) {
+                postSystemNotice(false, '策略结束自动存档失败，请手动保存');
+            }
+            if (cheatState.autoEndTurn) scheduleAutoEndTurnResume();
+        });
         installObserverHook(hooks, 'tacticStage2', function () {
             runAutoCityMaintenance('策略结束自动', true);
         });
         installObserverHook(hooks, 'didOpenNewGame', function () {
+            resetTurnAutoSave();
             resetBattleStatistics(true);
             resetAutoEndTurnMapState();
             if (specialGenerals) specialGenerals.newGame();
             applyPersistentGeneralEffects();
         });
         installObserverHook(hooks, 'didLoadGame', function (context) {
+            resetTurnAutoSave();
             loadBattleStatistics(context);
             resetAutoEndTurnMapState();
             repairLoadedGameState();
@@ -4238,6 +4318,7 @@
             }
         });
         installObserverHook(hooks, 'enterBattle', function () {
+            applyEnemyArmsLimit();
             battleStatusSources = {};
             // 保留自动策略开关，但下一次玩家阶段必须先重绘战略地图；只有收到
             // didShowMainMap后才允许恢复自动推进，避免停在战斗结果画面继续下一轮。
@@ -4496,6 +4577,7 @@
         try {
             if (action === 'sgby_max_all') {
                 cheatState.autoMaxCities = !cheatState.autoMaxCities;
+                syncEngineCheatSettings();
                 if (!cheatState.autoMaxCities) {
                     cheatState.cityFoodConsumptionSnapshot = null;
                 }
@@ -4557,6 +4639,7 @@
             }
             if (action === 'sgby_food_protection') {
                 cheatState.foodProtection = !cheatState.foodProtection;
+                syncEngineCheatSettings();
                 cheatState.battleFoodSnapshot = null;
                 savePersistentCheatState();
                 return result(
@@ -4576,6 +4659,34 @@
                         ? '任意攻城已开启：我方出征可忽略城市连线'
                         : '任意攻城已关闭：恢复原版相邻路线限制'
                 );
+            }
+            if (action === 'sgby_auto_save_after_turn') {
+                cheatState.autoSaveAfterTurn = !cheatState.autoSaveAfterTurn;
+                if (!cheatState.autoSaveAfterTurn) resetTurnAutoSave();
+                savePersistentCheatState();
+                return result(true, cheatState.autoSaveAfterTurn
+                    ? '自动存档已开启：每次策略结束后覆盖第一个档位'
+                    : '策略结束自动存档已关闭');
+            }
+            if (action === 'sgby_enemy_arms_limit' || action === 'sgby_enemy_arms_limit_value') {
+                if (typeof context.data.g_engineConfig.enemyArmsLimit === 'undefined') {
+                    return result(false, '请使用支持20万兵力的新版本内核');
+                }
+                if (action === 'sgby_enemy_arms_limit_value') {
+                    var limit = parameters.value;
+                    if (!Number.isInteger(limit) || limit < MIN_ENEMY_ARMS_LIMIT || limit > MAX_ENEMY_ARMS_LIMIT) {
+                        return result(false, '敌将兵力上限必须为800至200000的整数');
+                    }
+                    cheatState.enemyArmsLimit = limit;
+                } else {
+                    cheatState.enemyArmsLimitEnabled = !cheatState.enemyArmsLimitEnabled;
+                }
+                syncEngineCheatSettings();
+                applyEnemyArmsLimit();
+                savePersistentCheatState();
+                return result(true, cheatState.enemyArmsLimitEnabled
+                    ? '每名敌将兵力上限已设为' + cheatState.enemyArmsLimit + '，只封顶、不补兵'
+                    : '敌军兵力上限已关闭');
             }
             if (action === 'sgby_diplomacy_protection') {
                 cheatState.diplomacyProtection = !cheatState.diplomacyProtection;
@@ -4867,6 +4978,9 @@
             diplomacyProtection: cheatState.diplomacyProtection,
             hideSpecialGenerals: cheatState.hideSpecialGenerals,
             showTroopIcons: cheatState.showTroopIcons,
+            autoSaveAfterTurn: cheatState.autoSaveAfterTurn,
+            enemyArmsLimitEnabled: cheatState.enemyArmsLimitEnabled,
+            enemyArmsLimit: cheatState.enemyArmsLimit,
             animationsDisabled: cheatState.animationsDisabled,
             battleSpeed2x: cheatState.battleSpeedMultiplier === 2,
             battleSpeed3x: cheatState.battleSpeedMultiplier === 3,

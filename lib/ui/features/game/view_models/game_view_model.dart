@@ -1068,6 +1068,28 @@ class GameViewModel extends ChangeNotifier {
     return const <String, bool>{};
   }
 
+  /// 数值配置单独读取，保持现有布尔开关协议不变；不合法或旧内核返回null。
+  Future<int?> getSgbyEnemyArmsLimit() async {
+    final controller = _webViewController;
+    if (game.id != GameId.sgby ||
+        !_isReady ||
+        controller == null ||
+        _disposed) {
+      return null;
+    }
+    try {
+      final raw = await controller.runJavaScriptReturningResult(
+        'window.bbkGetCheatState ? window.bbkGetCheatState() : "{}";',
+      );
+      if (_disposed) return null;
+      final decoded = _decodeJavaScriptResult(raw);
+      final value = decoded is Map ? decoded['enemyArmsLimit'] : null;
+      return value is int && value >= 800 && value <= 200000 ? value : null;
+    } on Object {
+      return null;
+    }
+  }
+
   /// 读取或切换伏魔记逻辑视野，使用网页实际持久化状态校准按钮。
   ///
   /// 切换不重建引擎、不开地图、不改存档；收到页面 ready 后会读取其保存的显示设置。

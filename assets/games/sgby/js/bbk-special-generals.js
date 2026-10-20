@@ -242,7 +242,7 @@
                             context.people[person.index].Belong === ABSENT && occupied[person.index] == null &&
                             Number.isInteger(person.belong) && person.belong >= 0 && person.belong <= ABSENT &&
                             Number.isInteger(person.oldBelong) && person.oldBelong >= 0 && person.oldBelong <= ABSENT &&
-                            Number.isInteger(person.arms) && person.arms >= 0 && person.arms <= 65535 &&
+                            Number.isInteger(person.arms) && person.arms >= 0 && person.arms <= 200000 &&
                             Number.isInteger(person.city) && person.city >= -1 && person.city < context.cities.length;
                     });
                 }
