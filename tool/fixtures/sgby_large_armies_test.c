@@ -30,7 +30,7 @@ typedef U16 ToolID;
 #define BIND_U8EX(name,pointer) ((void)0)
 #define BIND_U32(pointer) ((void)0)
 #define CALL_HOOK() 1
-#define CALL_HOOK_A() 1
+#define CALL_HOOK_A() fixtureHookA()
 #define CALL_HOOK_S() ((void)0)
 #define HOOK_RETURN(value) return (value)
 #define IFACE_STRID 1
@@ -42,6 +42,8 @@ typedef U16 ToolID;
 /* ENGINE_TYPES */
 
 static U16 personCount = PERSON_MAX;
+typedef struct {U8 x,y,setx,sety;} CitySetType;
+static int fixtureHookA(void) {return 1;}
 static PersonType g_Persons[PERSON_MAX];
 static PersonID g_PersonsQueue[PERSON_MAX];
 static ToolID g_GoodsQueue[GOODS_MAX];
@@ -49,7 +51,7 @@ static CityType g_Cities[CITY_MAX];
 static PersonID g_PlayerKing;
 static U8 g_PIdx,g_MonthDate,g_LookEnemy,g_LookMovie,g_MoveSpeed;
 static U16 g_YearDate;
-static struct {U8 x,y,setx,sety;} g_CityPos;
+static CitySetType g_CityPos;
 static struct {
     U8 enemyArmsLimitEnabled,enableCustomRatio,compressCustomData,disableSL;
     U32 enemyArmsLimit;
