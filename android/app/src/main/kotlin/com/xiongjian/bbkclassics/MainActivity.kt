@@ -9,6 +9,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.webviewflutter.WebViewFlutterAndroidExternalApi
 import kotlin.math.abs
 
 /**
@@ -22,28 +23,47 @@ class MainActivity : FlutterActivity() {
     private var windowMethodChannel: MethodChannel? = null
     private var keepScreenOnRequested = false
     private var activityResumed = false
+    private var activityStopped = false
+    private var backgroundExecution: GameBackgroundExecution? = null
     private val lastEmissionTime = mutableMapOf<String, Long>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        backgroundExecution?.close()
+        backgroundExecution = GameBackgroundExecution(applicationContext)
         windowMethodChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             WINDOW_METHOD_CHANNEL,
         ).also { channel ->
             // Flutter 平台通道在 Android 主线程分发，窗口标志也只在主线程修改。
             channel.setMethodCallHandler { call, result ->
-                if (call.method != "setKeepScreenOn") {
-                    result.notImplemented()
-                    return@setMethodCallHandler
+                when (call.method) {
+                    "setKeepScreenOn" -> {
+                        val enabled = call.argument<Boolean>("enabled")
+                        if (enabled == null) result.error("invalid_argument", "enabled 必须为布尔值", null)
+                        else {
+                            keepScreenOnRequested = enabled
+                            applyKeepScreenOn()
+                            result.success(null)
+                        }
+                    }
+                    "attachBackgroundGame" -> {
+                        val id = call.argument<Number>("webViewId")?.toLong()
+                        if (id == null) result.error("invalid_argument", "缺少游戏视图", null)
+                        else {
+                            @Suppress("DEPRECATION")
+                            val view = WebViewFlutterAndroidExternalApi.getWebView(flutterEngine, id)
+                            val attached = backgroundExecution?.attach(view, id, call.argument<String>("title")) == true
+                            backgroundExecution?.setBackground(activityStopped)
+                            result.success(attached)
+                        }
+                    }
+                    "detachBackgroundGame" -> {
+                        backgroundExecution?.detach(call.argument<Number>("webViewId")?.toLong())
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
                 }
-                val enabled = call.argument<Boolean>("enabled")
-                if (enabled == null) {
-                    result.error("invalid_argument", "enabled 必须为布尔值", null)
-                    return@setMethodCallHandler
-                }
-                keepScreenOnRequested = enabled
-                applyKeepScreenOn()
-                result.success(null)
             }
         }
         EventChannel(
@@ -98,6 +118,8 @@ class MainActivity : FlutterActivity() {
      */
     override fun onResume() {
         super.onResume()
+        activityStopped = false
+        backgroundExecution?.setBackground(false)
         activityResumed = true
         applyKeepScreenOn()
     }
@@ -109,6 +131,13 @@ class MainActivity : FlutterActivity() {
         activityResumed = false
         applyKeepScreenOn()
         super.onPause()
+    }
+
+    /** Activity真正不可见时继续游戏；通知栏等短暂遮挡不切换计时来源。 */
+    override fun onStop() {
+        activityStopped = true
+        backgroundExecution?.setBackground(true)
+        super.onStop()
     }
 
     /**
@@ -128,6 +157,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        backgroundExecution?.close()
+        backgroundExecution = null
         keepScreenOnRequested = false
         activityResumed = false
         applyKeepScreenOn()

@@ -7,6 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../data/repositories/game_save_repository.dart';
 import '../../../../data/services/game_controller_service.dart';
+import '../../../../data/services/game_background_execution_service.dart';
 import '../../../../data/services/local_game_server.dart';
 import '../../../../data/services/windows_webview_platform.dart';
 import '../../../../domain/models/app_settings.dart';
@@ -552,6 +553,11 @@ class GameViewModel extends ChangeNotifier {
       );
       if (_disposed) return;
       _webViewController = controller;
+      await GameBackgroundExecutionService.attach(controller, game.title);
+      if (_disposed) {
+        await GameBackgroundExecutionService.detach(controller);
+        return;
+      }
       _controllerService.start(sendInput);
       notifyListeners();
       await controller.loadRequest(_localGameServer.entryUri(game));
@@ -1516,6 +1522,7 @@ class GameViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    unawaited(GameBackgroundExecutionService.detach(_webViewController));
     final platform = _webViewController?.platform;
     if (platform is WindowsGameWebViewController) unawaited(platform.dispose());
     _sgbyBattleStatistics.dispose();

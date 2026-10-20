@@ -54,6 +54,7 @@ jobs:
         run: |
           flutter pub get
           node tool/test_sgby_enhancements.mjs
+          node tool/test_background_runtime.mjs
           flutter analyze --no-pub
           flutter test --no-pub
 
@@ -66,6 +67,20 @@ jobs:
           apksigner verify --verbose "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
           sha256sum "build/release/BBK-android-release-${GITHUB_SHA::7}.apk" \
             > "build/release/BBK-android-release-${GITHUB_SHA::7}.apk.sha256"
+
+      - name: Build debug APK for device runtime verification
+        run: |
+          flutter build apk --debug --build-number="$GITHUB_RUN_NUMBER"
+          mkdir -p build/runtime-test
+          cp build/app/outputs/flutter-apk/app-debug.apk build/runtime-test/BBK-background-runtime-test.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-android-runtime-test
+          path: build/runtime-test/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         with:
