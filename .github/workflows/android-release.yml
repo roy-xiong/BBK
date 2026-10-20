@@ -64,7 +64,8 @@ jobs:
           mkdir -p build/release
           cp build/app/outputs/flutter-apk/app-release.apk \
             "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
-          bbk_apksigner="$(rg --files "$ANDROID_HOME/build-tools" -g apksigner | sort -V | tail -n 1)"
+          bbk_apksigner="$(find -L "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          echo "Android APK signature verifier: $bbk_apksigner"
           test -x "$bbk_apksigner"
           "$bbk_apksigner" verify --verbose "build/release/BBK-android-release-${GITHUB_SHA::7}.apk"
           sha256sum "build/release/BBK-android-release-${GITHUB_SHA::7}.apk" \
@@ -99,4 +100,5 @@ jobs:
           path: |
             ${{ runner.temp }}/bbk-android-build.log
             ${{ runner.temp }}/bbk-android-debug-build.log
+            build/release/
           retention-days: 7
