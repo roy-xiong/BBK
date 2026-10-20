@@ -26,10 +26,11 @@ typedef U16 ToolID;
 #define gam_memset memset
 #define gam_memcpy memcpy
 #define gam_free free
-#define IF_HAS_HOOK(name) if (0)
+#define IF_HAS_HOOK(name) if (fixtureHookEnabled && !strcmp(name,"getMaxArms"))
 #define BIND_U8EX(name,pointer) ((void)0)
-#define BIND_U32(pointer) ((void)0)
-#define CALL_HOOK() 1
+#define BIND_U16EX(name,pointer) ((void)0)
+#define BIND_U32(pointer) (*(pointer) = fixtureMaxArms)
+#define CALL_HOOK() (fixtureHookCalls++,fixtureHookResult)
 #define CALL_HOOK_A() fixtureHookA()
 #define CALL_HOOK_S() ((void)0)
 #define HOOK_RETURN(value) return (value)
@@ -42,6 +43,9 @@ typedef U16 ToolID;
 /* ENGINE_TYPES */
 
 static U16 personCount = PERSON_MAX;
+static U8 fixtureHookEnabled;
+static U32 fixtureMaxArms,fixtureHookCalls;
+static int fixtureHookResult = 1;
 typedef struct {U8 x,y,setx,sety;} CitySetType;
 static int fixtureHookA(void) {return 1;}
 static PersonType g_Persons[PERSON_MAX];
@@ -145,18 +149,45 @@ static void makeLegacySave(unsigned slot,U8 version) {
 
 int main(void) {
     assert(sizeof(PersonType) == 21 && LEGACY_PERSON_SIZE == 19);
+    /* 关闭时保留原版公式及自定义公式的65534硬上限，不因32位存储扩容而改变。 */
     g_engineConfig.enableCustomRatio = 1;
     g_engineConfig.ratioOfArmsToLevel = 65535;
     g_Persons[0].Belong = 1;g_Persons[0].Level = 4;
     g_Persons[1].Belong = 2;g_Persons[1].Level = 4;g_Persons[1].Arms = 100;
-    assert(PlcArmsMaxP(&g_Persons[1]) == 200000);
+    assert(PlcArmsMaxP(&g_Persons[1]) == 65534 && PlcArmsMax(1) == 65534);
     g_engineConfig.enemyArmsLimitEnabled = 1;
     g_engineConfig.enemyArmsLimit = 800;
     assert(PlcArmsMaxP(&g_Persons[1]) == 800 && g_Persons[1].Arms == 100);
-    assert(PlcArmsMaxP(&g_Persons[0]) == 200000);
+    assert(PlcArmsMaxP(&g_Persons[0]) == 65534);
     g_engineConfig.enemyArmsLimit = 65536;
-    assert(PlcArmsMaxP(&g_Persons[1]) == 65536);
+    assert(PlcArmsMaxP(&g_Persons[1]) == 65536 && PlcArmsMax(1) == 65536);
+    /* 原版低属性武将仅能带900兵；开启后必须直接使用新上限，而非min(900,上限)。 */
+    g_engineConfig.enableCustomRatio = 0;
+    g_Persons[1].Force = 30;g_Persons[1].IQ = 20;
+    for (U32 limit = 800;limit <= 200000;limit++) {
+        g_engineConfig.enemyArmsLimit = limit;
+        assert(PlcArmsMaxP(&g_Persons[1]) == limit && PlcArmsMax(1) == limit);
+        assert(g_Persons[1].Arms == 100);
+    }
+    g_engineConfig.enemyArmsLimit = 0;
+    assert(PlcArmsMax(1) == 800);
+    g_engineConfig.enemyArmsLimit = UINT32_MAX;
+    assert(PlcArmsMax(1) == 200000);
+    g_Persons[2].Belong = 0;g_Persons[2].Level = 4;
+    g_Persons[3].Belong = 0xffff;g_Persons[3].Level = 4;
+    assert(PlcArmsMax(0) == 400 && PlcArmsMax(2) == 400 && PlcArmsMax(3) == 400);
+    assert(PlcArmsMax(PERSON_COUNT) == 0 && PlcArmsMaxP(NULL) == 0);
+    /* 精修版脚本上限也须被覆盖；关闭后重新执行脚本，失败时回落到原版公式。 */
+    fixtureHookEnabled = 1;fixtureHookResult = 0;fixtureMaxArms = 1234;
+    assert(PlcArmsMax(1) == 200000 && fixtureHookCalls == 0);
+    assert(PlcArmsMax(0) == 1234 && fixtureHookCalls == 1);
     g_engineConfig.enemyArmsLimitEnabled = 0;
+    assert(PlcArmsMax(1) == 1234 && fixtureHookCalls == 2);
+    fixtureMaxArms = 65536 + 1234;
+    assert(PlcArmsMax(1) == 1234);
+    fixtureHookResult = 1;
+    assert(PlcArmsMax(1) == 900 && PlcArmsMaxP(&g_Persons[1]) == 900);
+    fixtureHookEnabled = 0;
 
     U32 arms = 200000;
     assert(CountArmsSub(&arms,65536) == 65536 && arms == 134464);

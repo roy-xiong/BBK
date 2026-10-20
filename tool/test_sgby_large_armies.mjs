@@ -29,7 +29,7 @@ const coefficients = count.slice(count.indexOf('static float SubduModu'), count.
 assert.ok(coefficients.length > 0);
 const core = [
   extract(read('tactic.c'), 'LoadLegacyPerson'),
-  ...['PlcArmsLimit', 'PlcArmsMaxP'].map(name => extract(read('PublicFun.c'), name)),
+  ...['PlcArmsLimit', 'PlcArmsMaxP', 'PlcArmsMax'].map(name => extract(read('PublicFun.c'), name)),
   coefficients,
   ...['CountArmsSub', 'CountArmsAdd', 'CountAtkHurt', 'FgtAllArms'].map(name => extract(count, name)),
   extract(read('gamEng.c'), 'GamSaveRcd'),

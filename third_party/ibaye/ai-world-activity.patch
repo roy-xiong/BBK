@@ -469,10 +469,10 @@ index 09a085d..ee7a016 100644
      I16	sx,sy;
      U8	tbuf[10];
 diff --git a/src/PublicFun.c b/src/PublicFun.c
-index d866d85..c514917 100644
+index d866d85..af449ff 100644
 --- a/src/PublicFun.c
 +++ b/src/PublicFun.c
-@@ -640,19 +640,42 @@ FAR void PlcRPicShowEx(U16 id, U16 item, U16 idx,PT x,PT y,U8 flag)
+@@ -640,26 +640,64 @@ FAR void PlcRPicShowEx(U16 id, U16 item, U16 idx,PT x,PT y,U8 flag)
   *             ------          ----------      -------------
   *             高国军          2005.5.16       完成基本功能
   ***********************************************************************/
@@ -483,31 +483,40 @@ index d866d85..c514917 100644
 +    return sqrt32(num);
 +}
 +
-+/** 根据人物当前归属返回允许的兵力上限，不把上限当作征兵数量。 */
++/**
++ * 获取敌将的带兵上限覆盖值。开关关闭、我方、在野和俘虏均沿用原版计算。
++ * 这里只查询上限，不修改现有兵力；后续征兵和分配通过PlcArmsMax使用该值。
++ * @param person 当前武将，允许为空。
++ * @return 开启作弊时返回800~200000；返回0表示没有覆盖原版算法。
++ */
 +FAR U32 PlcArmsLimit(PersonType *person)
 +{
-+    U32 limit = PERSON_ARMS_MAX;
 +    if (person && person->Belong && person->Belong != PID(0xffff) &&
 +        person->Belong != PID(g_PlayerKing + 1) && g_engineConfig.enemyArmsLimitEnabled)
 +    {
-+        limit = g_engineConfig.enemyArmsLimit;
++        U32 limit = g_engineConfig.enemyArmsLimit;
 +        if (limit < 800) limit = 800;
 +        if (limit > PERSON_ARMS_MAX) limit = PERSON_ARMS_MAX;
++        return limit;
 +    }
-+    return limit;
++    return 0;
 +}
 +
 +FAR U32 PlcArmsMax(PersonID id) {
 +    if (id >= PERSON_COUNT)
 +        return 0;
++    /* 覆盖值必须先于资源脚本处理，防止精修版getMaxArms仍把敌将锁在原版上限。 */
++    U32 limit = PlcArmsLimit(&g_Persons[id]);
++    if (limit)
++        return limit;
      IF_HAS_HOOK("getMaxArms") {
          U32 maxArms = 0;
          BIND_U16EX("personIndex", &id);
          BIND_U32(&maxArms);
          if (CALL_HOOK() == 0) {
 -            HOOK_RETURN(maxArms);
-+            U32 limit = PlcArmsLimit(&g_Persons[id]);
-+            HOOK_RETURN(maxArms > limit ? limit : maxArms);
++            /* 未开启覆盖时保留原版函数的16位返回语义。 */
++            HOOK_RETURN((U16)maxArms);
          }
      }
      return PlcArmsMaxP(&g_Persons[id]);
@@ -516,27 +525,23 @@ index d866d85..c514917 100644
 -FAR U16 PlcArmsMaxP(PersonType* p)
 +FAR U32 PlcArmsMaxP(PersonType* p)
  {
++    if (!p)
++        return 0;
++    U32 limit = PlcArmsLimit(p);
++    if (limit)
++        return limit;
      U32	armys = 0;
      if (g_engineConfig.enableCustomRatio) {
-@@ -660,14 +683,13 @@ FAR U16 PlcArmsMaxP(PersonType* p)
+         armys += p->Level * g_engineConfig.ratioOfArmsToLevel;
          armys += p->Age * g_engineConfig.ratioOfArmsToAge;
          armys += p->Force * g_engineConfig.ratioOfArmsToForce;
          armys += p->IQ * g_engineConfig.ratioOfArmsToIQ;
--        if (armys > 0xfffe)
--            armys = 0xfffe;
++        /* 关闭作弊后完整恢复原版自定义公式的65534上限。 */
+         if (armys > 0xfffe)
+             armys = 0xfffe;
      } else {
-         armys += p->Level * 100;
-         armys += p->Force * 10;
-         armys += p->IQ * 10;
-     }
--    return (U16)armys;
-+    U32 limit = PlcArmsLimit(p);
-+    return armys > limit ? limit : armys;
- }
- /***********************************************************************
-  * 说明:     显示指定字符串到big内small外的区域中
 diff --git a/src/baye/attribute.h b/src/baye/attribute.h
-index 3898b16..a8c9674 100644
+index 3898b16..35b64ce 100644
 --- a/src/baye/attribute.h
 +++ b/src/baye/attribute.h
 @@ -8,6 +8,7 @@
@@ -573,8 +578,8 @@ index 3898b16..a8c9674 100644
 +    U8 playerAttackAnyCity; // 玩家出征可忽略战略地图城市连接
 +    U8 enemyEscapeRoute;    // 敌方战败逃跑只能沿原势力城市连线移动
 +    U8 playerDiplomacyProtection; // 阻止敌方外交改变我方归属、忠诚或城池
-+    U8 enemyArmsLimitEnabled; // 敌将兵力上限开关；不额外补兵
-+    U32 enemyArmsLimit;      // 每名敌将上限，范围800~200000
++    U8 enemyArmsLimitEnabled; // 开启后覆盖敌将原版带兵上限；切换不额外补兵
++    U32 enemyArmsLimit;      // 每名敌将的新上限，范围800~200000，可高于或低于原版
 +    U8 autoSaveRequested;   // 当前策略完成后的存档请求，仅在战略地图安全边界消费
 +    U8 playerFoodProtection; // 大兵力下仍保持既有的我方缺粮不减兵规则
  } EngineConfig;

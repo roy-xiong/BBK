@@ -318,7 +318,7 @@
      * 字段检测允许新版增强脚本配合旧 WASM 启动；此时只是不启用核心作弊，不会写入
      * 未知内存。自动守城与自动战斗共用一个持久开关，关闭后立即恢复手动选择守将。
      */
-    /** 旧配置没有上限值时不额外压低敌军；损坏的配置不能写入引擎字段。 */
+    /** 未配置时预设20万；开关默认关闭，只有开启才覆盖原版带兵算法。 */
     function normalizeEnemyArmsLimit(value) {
         return Number.isInteger(value) && value >= MIN_ENEMY_ARMS_LIMIT && value <= MAX_ENEMY_ARMS_LIMIT
             ? value : MAX_ENEMY_ARMS_LIMIT;
@@ -4685,8 +4685,8 @@
                 applyEnemyArmsLimit();
                 savePersistentCheatState();
                 return result(true, cheatState.enemyArmsLimitEnabled
-                    ? '每名敌将兵力上限已设为' + cheatState.enemyArmsLimit + '，只封顶、不补兵'
-                    : '敌军兵力上限已关闭');
+                    ? '每名敌将带兵上限已替换为' + cheatState.enemyArmsLimit + '，后续征兵使用新上限，不立即补兵'
+                    : '敌军带兵上限已恢复原版算法');
             }
             if (action === 'sgby_diplomacy_protection') {
                 cheatState.diplomacyProtection = !cheatState.diplomacyProtection;

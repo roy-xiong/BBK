@@ -197,7 +197,7 @@ Future<void> _showGameCheatSheetContent(
       _CheatOption(
         action: 'sgby_enemy_arms_limit',
         title: '敌军兵力上限',
-        description: '按每名敌将封顶，只压低超过上限的兵力，不额外补兵',
+        description: '关闭沿用原版算法；开启用滑块替代每名敌将带兵上限，可调高或调低，不立即补兵',
         icon: Icons.groups_2,
         stateKey: 'enemyArmsLimitEnabled',
       ),
