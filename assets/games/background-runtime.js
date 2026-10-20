@@ -5,7 +5,8 @@
     var browserTimeout = global.setTimeout.bind(global);
     var browserClear = global.clearTimeout.bind(global);
     var tasks = new Map();
-    var nextId = -1, background = false, ticking = false;
+    // Emscripten把句柄存为有符号int并用-1表示关闭；虚拟句柄也必须为正数。
+    var nextId = 1000000000, background = false, ticking = false;
     var now = function () { return global.performance.now(); };
 
     /** 后台只请求最近一次到期时间；一批回调只跨一次原生桥，避免高倍速下频繁通信。 */
@@ -40,8 +41,11 @@
     function add(callback, delay, repeat, args) {
         delay = Number(delay);
         if (!Number.isFinite(delay) || delay < 0 || delay > 2147483647) delay = 0;
+        while (tasks.has(nextId)) nextId = nextId === 2147483647 ? 1000000000 : nextId + 1;
+        var id = nextId;
+        nextId = nextId === 2147483647 ? 1000000000 : nextId + 1;
         var task = {
-            id: nextId--,
+            id: id,
             callback: typeof callback === 'function' ? callback : function () { global.eval(String(callback)); },
             delay: delay, repeat: repeat, args: args, due: now() + delay, browserId: null
         };
@@ -50,11 +54,11 @@
         return task.id;
     }
 
-    /** 负数ID属于本适配层，浏览器及其他库已有的正数ID仍交回原生浏览器清理。 */
+    /** 先查适配层句柄；其他库已有的浏览器句柄仍交回浏览器清理。 */
     function clear(id) {
-        var task = tasks.get(id);
+        var task = tasks.get(Number(id));
         if (!task) { browserClear(id); return; }
-        tasks.delete(id);
+        tasks.delete(task.id);
         if (task.browserId !== null) browserClear(task.browserId);
         schedule();
     }

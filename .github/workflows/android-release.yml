@@ -50,7 +50,7 @@ jobs:
             echo "BBK_RELEASE_STORE_FILE=$RUNNER_TEMP/bbk-release.jks"
           } >> "$GITHUB_ENV"
 
-      - name: Validate Flutter and 三国霸业 enhancements
+      - name: Validate Flutter and game runtime
         run: |
           flutter pub get
           node tool/test_sgby_enhancements.mjs

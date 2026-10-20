@@ -53,6 +53,17 @@ function harness({native = true, initiallyBackground = false} = {}) {
 }
 {
   const h = harness(), w = h.window;
+  // 真实LCD定时器以handle >= 0判断是否可以清理，必须兼容这个C/JS边界。
+  let handle=-1, count=0;
+  function open(){if(handle>=0)w.clearInterval(handle);handle=w.setInterval(()=>count++,10)}
+  open();assert.ok(handle>0 && handle<=2147483647);
+  h.advance(20);assert.equal(count,2);
+  open();h.advance(20);assert.equal(count,4,'重复打开LCD刷新定时器不能残留旧任务');
+  if(handle>=0)w.clearInterval(String(handle));
+  h.advance(20);assert.equal(count,4);
+}
+{
+  const h = harness(), w = h.window;
   let count = 0;
   const timer = w.setInterval(() => count++, 100);
   h.advance(4000);
