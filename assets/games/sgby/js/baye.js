@@ -630,19 +630,19 @@ var tempI64;
 // === Body ===
 
 var ASM_CONSTS = {
-  2658192: () => { if (window.bayeStart) bayeStart(); },  
- 2658231: () => { if (window.bayeExit) bayeExit(); },  
- 2658268: ($0) => { bayeFlushLcdBuffer($0); },  
- 2658296: ($0) => { if (window.lcdSetDotSize) { window.lcdSetDotSize($0) } },  
- 2658355: ($0) => { var key = UTF8ToString($0); var value = ""; var filename = "baye/" + key; if (window.bayeLoadFileContent) { value = window.bayeLoadFileContent(filename); } else { value = window.localStorage[filename]; } if (value) { var buffer = Module._bayeAlloc(value.length+1); Module.stringToUTF8(value, buffer, value.length+1); return buffer; } return 0; },  
- 2658703: ($0, $1) => { var key = UTF8ToString($0); var value = UTF8ToString($1); var filename = "baye/" + key; if (window.bayeSaveFileContent) { window.bayeSaveFileContent(filename, value); } else { window.localStorage[filename] = value; } },  
- 2658924: () => { if (window.baye == undefined) { window.baye = {}; } if (window.baye.hooks == undefined) { window.baye.hooks = {}; } window.baye.data = baye_bridge_value(_bayeGetGlobal()); },  
- 2659100: ($0) => { if (window.baye.preScriptInit) { window.baye.preScriptInit(); } var script = UTF8ToString($0); eval(script); },  
- 2659213: ($0, $1) => { var name = UTF8ToString($0); var rv = 0; if (window.baye == undefined || window.baye.hooks == undefined || window.baye.hooks[name] == undefined) { rv = -1; } else { var cContext = $1; if (cContext != 0) { var jsContext = baye_bridge_value(cContext); rv = baye.callHook(name, jsContext); } else { rv = baye.callHook(name, undefined); } } return rv; },  
- 2659565: ($0) => { var name = UTF8ToString($0); if (window.baye && window.baye.hooks && window.baye.hooks[name]) { return 1; } else { return 0; } },  
- 2659696: ($0) => { var scr = UTF8ToString($0); eval(scr); },  
- 2659739: ($0) => { return baye.callCallback($0); },  
- 2659773: () => { var now = new Date(); return now.getTime(); }
+  2658384: () => { if (window.bayeStart) bayeStart(); },  
+ 2658423: () => { if (window.bayeExit) bayeExit(); },  
+ 2658460: ($0) => { bayeFlushLcdBuffer($0); },  
+ 2658488: ($0) => { if (window.lcdSetDotSize) { window.lcdSetDotSize($0) } },  
+ 2658547: ($0) => { var key = UTF8ToString($0); var value = ""; var filename = "baye/" + key; if (window.bayeLoadFileContent) { value = window.bayeLoadFileContent(filename); } else { value = window.localStorage[filename]; } if (value) { var buffer = Module._bayeAlloc(value.length+1); Module.stringToUTF8(value, buffer, value.length+1); return buffer; } return 0; },  
+ 2658895: ($0, $1) => { var key = UTF8ToString($0); var value = UTF8ToString($1); var filename = "baye/" + key; if (window.bayeSaveFileContent) { window.bayeSaveFileContent(filename, value); } else { window.localStorage[filename] = value; } },  
+ 2659116: () => { if (window.baye == undefined) { window.baye = {}; } if (window.baye.hooks == undefined) { window.baye.hooks = {}; } window.baye.data = baye_bridge_value(_bayeGetGlobal()); },  
+ 2659292: ($0) => { if (window.baye.preScriptInit) { window.baye.preScriptInit(); } var script = UTF8ToString($0); eval(script); },  
+ 2659405: ($0, $1) => { var name = UTF8ToString($0); var rv = 0; if (window.baye == undefined || window.baye.hooks == undefined || window.baye.hooks[name] == undefined) { rv = -1; } else { var cContext = $1; if (cContext != 0) { var jsContext = baye_bridge_value(cContext); rv = baye.callHook(name, jsContext); } else { rv = baye.callHook(name, undefined); } } return rv; },  
+ 2659757: ($0) => { var name = UTF8ToString($0); if (window.baye && window.baye.hooks && window.baye.hooks[name]) { return 1; } else { return 0; } },  
+ 2659888: ($0) => { var scr = UTF8ToString($0); eval(scr); },  
+ 2659931: ($0) => { return baye.callCallback($0); },  
+ 2659965: () => { var now = new Date(); return now.getTime(); }
 };
 function gam_sem_create() { if (!Module.sems) { Module.sems = [] } for (var i = 0;; i++) { if (Module.sems[i] == undefined) { Module.sems[i] = { cnt: 0, }; return i; } } }
 function gam_sem_delete(semid) { Module.sems[semid] = undefined; }
@@ -4797,8 +4797,8 @@ var _asyncify_start_unwind = (a0) => (_asyncify_start_unwind = wasmExports['asyn
 var _asyncify_stop_unwind = () => (_asyncify_stop_unwind = wasmExports['asyncify_stop_unwind'])();
 var _asyncify_start_rewind = (a0) => (_asyncify_start_rewind = wasmExports['asyncify_start_rewind'])(a0);
 var _asyncify_stop_rewind = () => (_asyncify_stop_rewind = wasmExports['asyncify_stop_rewind'])();
-var ___start_em_js = Module['___start_em_js'] = 2659821;
-var ___stop_em_js = Module['___stop_em_js'] = 2660373;
+var ___start_em_js = Module['___start_em_js'] = 2660013;
+var ___stop_em_js = Module['___stop_em_js'] = 2660565;
 
 // include: postamble.js
 // === Auto-generated postamble setup entry stuff ===
