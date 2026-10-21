@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ios-unsigned-${{ github.ref }}
@@ -47,6 +47,31 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tag="ios-unsigned"
+          # Release 里放一个更友好的文件名
+          cp build/ipa/bbk-unsigned.ipa build/ipa/BBK-iOS-unsigned.ipa
+          cp build/ipa/bbk-unsigned.ipa.sha256 build/ipa/BBK-iOS-unsigned.ipa.sha256
+          if ! gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "BBK iOS unsigned · Build $GITHUB_RUN_NUMBER" \
+              --notes "自动构建的未签名 IPA。下载后可自行重签名（如用 AltStore / Sideloadly / 自签证书）安装到设备。"
+          else
+            gh release edit "$release_tag" \
+              --target "$GITHUB_SHA" \
+              --title "BBK iOS unsigned · Build $GITHUB_RUN_NUMBER"
+          fi
+          gh release upload "$release_tag" \
+            build/ipa/BBK-iOS-unsigned.ipa \
+            build/ipa/BBK-iOS-unsigned.ipa.sha256 \
+            --clobber
+          echo "Release 地址: https://github.com/$GITHUB_REPOSITORY/releases/tag/$release_tag"
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
