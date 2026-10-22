@@ -249,7 +249,7 @@ jobs:
           {
           flutter build macos --release --no-pub --build-number=${{ needs.validate.outputs.build_number }}
           codesign --verify --deep --strict build/macos/Build/Products/Release/步步高经典游戏.app
-          lipo -verify_arch x86_64 arm64 build/macos/Build/Products/Release/步步高经典游戏.app/Contents/MacOS/步步高经典游戏
+          lipo build/macos/Build/Products/Release/步步高经典游戏.app/Contents/MacOS/步步高经典游戏 -verify_arch x86_64 arm64
           bash tool/package_macos_beta.sh
           hdiutil verify build/beta/BBK-macos-beta.dmg
           mkdir -p dist
