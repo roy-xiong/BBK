@@ -2050,6 +2050,96 @@ index edb82b1..2bdf885 100644
              else
              {
                  for (j = 0;j < c;j ++)
+diff --git a/src/platform/js/sem.c b/src/platform/js/sem.c
+index 7efdfa6..aa5b65e 100644
+--- a/src/platform/js/sem.c
++++ b/src/platform/js/sem.c
+@@ -20,6 +20,8 @@ EM_JS(GAM_SEM, gam_sem_create, (), {
+     if (Module.sems[i] == undefined) {
+       Module.sems[i] = {
+         cnt: 0,
++        syncReads: 0,
++        resumedAt: 0,
+       };
+       return i;
+     }
+@@ -35,22 +37,70 @@ EM_JS(void, gam_sem_signal, (GAM_SEM semid), {
+   var sem = Module.sems[semid];
+   sem.cnt += 1;
+   if (sem.signal) {
+-    sem.signal();
++    var signal = sem.signal;
+     sem.signal = null;
++    signal();
+   }
+ });
+ 
++/**
++ * 等待一条游戏消息，并在积压时有限批量消费。
++ *
++ * 原实现连已经入队的消息也会展开 Asyncify 栈，再等待一次 setTimeout(0)。高倍速下
++ * 两个逻辑定时器可能快于这个消费速度，最终填满 gui.c 的 100 条消息池并丢失按键。
++ * 已入队消息在 handleSleep 的同步回调内完成，不展开栈；每批最多八条、四毫秒，
++ * 然后主动让出事件循环，避免批量绘制阻塞输入。必须始终经过 handleSleep，保证
++ * Asyncify 回卷时仍能正确结束恢复，不能在它外部直接根据 cnt 提前返回。
++ *
++ * 等待中的栈通过单个复用的 MessageChannel 恢复，避免嵌套 timer 的最小延迟。
++ * gam_sem_signal 可能从 WASM 内部调用，因此不能在那里同步恢复已挂起的栈；
++ * 不支持 MessageChannel 的环境回退到 setTimeout，同时保留批量消费能力。
++ *
++ * @param semid 游戏消息队列所持有的信号量序号。
++ */
+ EM_JS(void, gam_sem_wait, (GAM_SEM semid), {
+   return Asyncify.handleSleep(function (wakeUp) {
+     var sem = Module.sems[semid];
+-    function signal() {
+-        sem.cnt -= 1;
+-        setTimeout(wakeUp, 0);
++    function resume() {
++      sem.syncReads = 0;
++      sem.resumedAt = performance.now();
++      wakeUp();
++    }
++    function deferResume() {
++      if (!Module.bbkMessageTask) {
++        Module.bbkMessageTask = function (callback) { setTimeout(callback, 0); };
++        if (typeof MessageChannel === 'function') {
++          try {
++            var channel = new MessageChannel();
++            var pending = [];
++            channel.port1.onmessage = function () {
++              var callback = pending.shift();
++              if (callback) callback();
++            };
++            Module.bbkMessageTask = function (callback) {
++              pending.push(callback);
++              channel.port2.postMessage(0);
++            };
++          } catch (_) {
++            // WebView 未提供可用的消息端口时继续使用 timer 恢复。
++          }
++        }
++      }
++      Module.bbkMessageTask(resume);
+     }
+     if (sem.cnt > 0) {
+-        signal();
++      sem.cnt -= 1;
++      if (sem.syncReads < 8 && performance.now() - sem.resumedAt < 4) {
++        sem.syncReads += 1;
++        wakeUp();
++      } else {
++        deferResume();
++      }
+     } else {
+-        sem.signal = signal;
++      sem.signal = function () {
++        sem.cnt -= 1;
++        deferResume();
++      };
+     }
+   });
+ });
 diff --git a/src/platform/js/timer.c b/src/platform/js/timer.c
 index edfa7af..8f3c8d4 100644
 --- a/src/platform/js/timer.c

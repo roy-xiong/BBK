@@ -74,6 +74,7 @@ jobs:
           node tool/test_sgby_large_armies.mjs build/sgby-engine
           node tool/test_sgby_attack_range.mjs build/sgby-engine
           node tool/test_sgby_core_timing.mjs build/sgby-engine
+          node tool/test_sgby_message_queue.mjs build/sgby-engine
           node tool/test_sgby_enhancements.mjs
           node tool/test_background_runtime.mjs
           node tool/test_sgby_4x_assets.mjs
