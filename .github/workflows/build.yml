@@ -242,7 +242,11 @@ jobs:
           cache: true
       - run: flutter pub get --enforce-lockfile
       - name: Build and package universal macOS app
+        shell: bash
         run: |
+          mkdir -p build/ci-logs
+          # 将编译、签名和封装的完整错误作为附件保存，避免仅有退出码无法定位。
+          {
           flutter build macos --release --no-pub --build-number=${{ needs.validate.outputs.build_number }}
           codesign --verify --deep --strict build/macos/Build/Products/Release/步步高经典游戏.app
           lipo -verify_arch x86_64 arm64 build/macos/Build/Products/Release/步步高经典游戏.app/Contents/MacOS/步步高经典游戏
@@ -252,6 +256,7 @@ jobs:
           cp build/beta/BBK-macos-beta.dmg dist/BBK-macOS-universal.dmg
           cp build/beta/BBK-macos-beta.zip dist/BBK-macOS-universal.zip
           (cd dist && shasum -a 256 BBK-macOS-universal.dmg BBK-macOS-universal.zip > BBK-macOS.sha256)
+          } 2>&1 | tee build/ci-logs/macos.log
       - uses: actions/upload-artifact@v4
         with:
           name: bbk-macos
@@ -259,6 +264,13 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bbk-macos-diagnostics
+          path: build/ci-logs/
+          if-no-files-found: ignore
+          retention-days: 7
   ios:
     needs: validate
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'ios' }}
