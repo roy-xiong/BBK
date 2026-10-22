@@ -19,9 +19,11 @@ $betaVs = & "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.
 $betaCrt = Get-ChildItem (Join-Path $betaVs 'VC/Redist/MSVC/*/x64/Microsoft.VC143.CRT') -Directory | Sort-Object FullName -Descending | Select-Object -First 1
 if (!$betaCrt) { throw '未找到 VC++ 可再分发 DLL' }
 Copy-Item (Join-Path $betaCrt.FullName '*.dll') $betaRelease -Force
+# 编译目标保留ASCII名称以兼容Flutter工具；交付给用户的EXE与应用显示名一致。
+Rename-Item (Join-Path $betaRelease 'bbk_classics.exe') '步步高经典游戏.exe' -Force
 $betaReadme = @'
-BBK Beta · Windows 绿色版
-解压整个目录，双击 bbk_classics.exe 即可运行，无需安装。
+步步高经典游戏 · Windows 绿色版
+解压整个目录，双击 步步高经典游戏.exe 即可运行，无需安装。
 DLL、data、WebView2 必须与 EXE 保持相对位置，不能单独复制 EXE。
 在游戏面板点“键盘映射”可自行绑定按键，设置自动保存，鼠标按键也可使用。
 存档和按键设置位于当前用户的应用数据目录，移动程序目录不会清除进度。

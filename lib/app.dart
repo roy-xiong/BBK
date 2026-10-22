@@ -1,13 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'data/repositories/game_save_repository.dart';
 import 'data/repositories/fmj_world_map_repository.dart';
 import 'data/repositories/settings_repository.dart';
 import 'data/services/app_file_store.dart';
 import 'data/services/local_game_server.dart';
+import 'data/services/application_support_directory.dart';
 import 'ui/core/app_theme.dart';
 import 'ui/features/launcher/views/launcher_page.dart';
 
@@ -80,7 +80,7 @@ class AppDependencies {
   final LocalGameServer localGameServer;
 
   static Future<AppDependencies> create() async {
-    final supportDirectory = await getApplicationSupportDirectory();
+    final supportDirectory = await getBbkApplicationSupportDirectory();
     final fileStore = AppFileStore(rootDirectory: supportDirectory);
     final settingsRepository = SettingsRepository(fileStore: fileStore);
     final gameSaveRepository = GameSaveRepository(fileStore: fileStore);

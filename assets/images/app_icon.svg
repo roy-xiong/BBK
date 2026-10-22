@@ -1,5 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
+    <clipPath id="icon-mask"><rect width="1024" height="1024" rx="208"/></clipPath>
     <radialGradient id="sky" cx="30%" cy="18%" r="95%"><stop stop-color="#27465b"/><stop offset=".62" stop-color="#132638"/><stop offset="1" stop-color="#0a1527"/></radialGradient>
     <linearGradient id="shell" x2=".6" y2="1"><stop stop-color="#f7ecd3"/><stop offset=".6" stop-color="#ded8c6"/><stop offset="1" stop-color="#b8c8c2"/></linearGradient>
     <linearGradient id="edge" x2="0" y2="1"><stop stop-color="#9babaf"/><stop offset="1" stop-color="#607b8b"/></linearGradient>
@@ -8,6 +9,7 @@
     <filter id="shadow" x="-40%" y="-30%" width="180%" height="180%"><feGaussianBlur stdDeviation="24"/></filter>
     <filter id="small" x="-30%" y="-30%" width="160%" height="180%"><feGaussianBlur stdDeviation="5"/></filter>
   </defs>
+  <g clip-path="url(#icon-mask)">
   <g id="background"><rect width="1024" height="1024" rx="208" fill="url(#sky)"/><circle cx="260" cy="240" r="160" fill="#62b9a2" opacity=".07"/><circle cx="850" cy="832" r="210" fill="#e4b367" opacity=".035"/><path d="M145 755h35v35h-35zM822 201h24v24h-24z" fill="#e8c67a" opacity=".45"/><path d="M146 260h20v20h-20zM841 649h16v16h-16z" fill="#85d8c7" opacity=".45"/></g>
   <g id="device" transform="rotate(-9 512 512)">
     <rect x="281" y="193" width="508" height="700" rx="93" fill="#000" opacity=".38" filter="url(#shadow)"/>
@@ -33,5 +35,6 @@
     <path d="M611 626a22 22 0 0 1 29-1M629 565a22 22 0 0 1 28 0" stroke="#ffe8b0" stroke-width="5" opacity=".6" stroke-linecap="round" fill="none"/>
     <rect x="431" y="754" width="60" height="13" rx="6.5" fill="#6a7f84"/><rect x="513" y="754" width="60" height="13" rx="6.5" fill="#6a7f84"/>
     <g stroke="#8ba09f" stroke-width="7" stroke-linecap="round"><path d="M633 748v29M653 743v29M673 738v29"/></g>
+  </g>
   </g>
 </svg>

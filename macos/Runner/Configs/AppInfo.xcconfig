@@ -5,7 +5,9 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = BBK
+PRODUCT_NAME = 步步高经典游戏
+// 显示名使用中文，Swift模块名保持可用的ASCII标识符。
+PRODUCT_MODULE_NAME = bbk_classics
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.xiongjian.bbkclassics

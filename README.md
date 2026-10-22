@@ -7,6 +7,7 @@ Flutter Android 应用，离线内置《伏魔记》《金庸群侠传》和《�
 ## 功能
 
 - 启动页选择《伏魔记》《金庸群侠传》或《三国霸业》
+- 各端应用名称统一为“步步高经典游戏”；桌面图标采用透明圆角与标准外边距，iOS由系统裁切外形
 - 三国霸业内置词典原版、原版精修和平衡版 2.1
 - 原游戏存档同步备份到 Flutter 应用支持目录
 - Android 手柄方向键、摇杆、A/B、LB/RB、X/Y 映射
@@ -39,6 +40,29 @@ Flutter Android 应用，离线内置《伏魔记》《金庸群侠传》和《�
 - 金庸原版在四大城镇禁用存档，进入野外/门派再开放；快捷存档按钮保留此规则
 - 金庸独立地图入口为 `assets/games/jyqxz/atlas.html`，`node tool/generate_jyqxz_assets.mjs --export` 可从固定 ROM 重建并导出 Downloads 下的单文件地图
 - 金庸验证入口：`node tool/test_jyqxz.mjs`。浏览器验证不等同于 Android WebView 真机验证或全剧情通关
+
+## GitHub 云端打包与下载
+
+[打包流水线 Build BBK](https://github.com/roy-xiong/BBK/actions/workflows/build.yml) · [四端测试版下载](https://github.com/roy-xiong/BBK/releases/tag/preview)
+
+main 的代码、资源、测试或构建脚本变更会自动运行：重建三国霸业 WASM 内核并验证游戏规则 → Flutter 格式检查、静态分析和测试 → 四端并行构建 → 所选平台全部成功后发布 GitHub Release。仅修改说明文档不触发打包。
+
+手动打包：打开 Actions → **Build BBK** → **Run workflow**，选择 `all`、`macos-android`、`android`、`macos`、`windows` 或 `ios`。需要 Android 真机调试包时勾选 `runtime_test`。原有 Android Release、iOS unsigned 和 four-platform beta 入口继续可用，内部复用同一套构建。
+
+| 选择的平台 | Release 下载入口 | 安装包 |
+|---|---|---|
+| all / main 自动构建 | `preview` | 四端安装包 |
+| macos-android | `preview-macos-android` | APK、DMG |
+| android | `preview-android` | `BBK-Android.apk` |
+| macos | `preview-macos` | `BBK-macOS-universal.dmg` |
+| windows | `preview-windows` | `BBK-Windows-x64-portable.zip` |
+| ios | `preview-ios` | `BBK-iOS-unsigned.ipa` |
+
+旧 `iOS unsigned IPA` 入口继续更新已有的 [ios-unsigned 下载页](https://github.com/roy-xiong/BBK/releases/tag/ios-unsigned)。各包附有 SHA-256 校验文件，流水线附件保留 14 天，Release 下载不依赖附件有效期。
+
+工具链固定为 Flutter 3.44.4、Java 17、Android SDK 36 和 NDK 27.2.12479018；无需本机安装 Xcode 或新增平台 SDK。macOS 支持 Intel/Apple Silicon，使用 ad-hoc 签名；Windows 是附带 WebView2 的绿色 ZIP；iOS IPA 未签名，下载后自行签名安装。
+
+Android 默认使用云端专用测试签名，缓存清理后可能变化，不能覆盖其他证书签名的旧版本。需要稳定的正式签名时，在仓库 Settings → Secrets and variables → Actions 配置 `BBK_RELEASE_KEYSTORE_BASE64`、`BBK_RELEASE_KEY_ALIAS`、`BBK_RELEASE_KEY_PASSWORD`、`BBK_RELEASE_STORE_PASSWORD`。正式密钥只解码到临时目录，不写入仓库或构建缓存；本机原有签名文件继续由本机保管。
 
 ## 手柄映射
 

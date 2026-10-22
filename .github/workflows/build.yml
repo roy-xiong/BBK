@@ -1,0 +1,359 @@
+name: Build BBK
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'android/**'
+      - 'ios/**'
+      - 'macos/**'
+      - 'windows/**'
+      - 'lib/**'
+      - 'test/**'
+      - 'assets/**'
+      - 'pubspec.*'
+      - 'analysis_options.yaml'
+      - 'tool/**'
+      - 'third_party/ibaye/**'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 构建平台（all 为全部四端）
+        type: choice
+        default: all
+        options: [all, macos-android, android, macos, windows, ios]
+      runtime_test:
+        description: 额外构建 Android Debug 验证包
+        type: boolean
+        default: false
+  # 原有手动入口复用同一套构建，避免分别维护编译和发布代码。
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      runtime_test:
+        type: boolean
+        default: false
+      release_tag:
+        type: string
+        default: ''
+    secrets:
+      BBK_RELEASE_KEYSTORE_BASE64:
+        required: false
+      BBK_RELEASE_KEY_ALIAS:
+        required: false
+      BBK_RELEASE_KEY_PASSWORD:
+        required: false
+      BBK_RELEASE_STORE_PASSWORD:
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: bbk-build-${{ github.ref }}-${{ inputs.platform || 'all' }}
+  cancel-in-progress: true
+env:
+  PUB_HOSTED_URL: https://pub.dev
+  FLUTTER_VERSION: '3.44.4'
+jobs:
+  sgby-engine:
+    runs-on: ubuntu-24.04
+    container: emscripten/emsdk:3.1.51
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare pinned game engine
+        run: bash tool/prepare_sgby_engine.sh
+      - name: Verify original game rules
+        run: |
+          node tool/test_sgby_ai_strategy.mjs build/sgby-engine
+          node tool/test_sgby_order_rules.mjs build/sgby-engine
+          node tool/test_sgby_large_armies.mjs build/sgby-engine
+          node tool/test_sgby_attack_range.mjs build/sgby-engine
+          node tool/test_sgby_core_timing.mjs build/sgby-engine
+          node tool/test_sgby_enhancements.mjs
+          node tool/test_background_runtime.mjs
+          node tool/test_sgby_4x_assets.mjs
+      - name: Build WebAssembly from checked-out source
+        run: |
+          mkdir -p build/sgby-tools
+          ln -s "$(command -v python3)" build/sgby-tools/python
+          export PATH="$PWD/build/sgby-tools:$PATH"
+          emcmake cmake -S build/sgby-engine -B build/sgby-wasm
+          cmake --build build/sgby-wasm --target baye -j 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: |
+            build/sgby-wasm/src/baye.js
+            build/sgby-wasm/src/baye.wasm
+          if-no-files-found: error
+          retention-days: 14
+  validate:
+    needs: sgby-engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      build_number: ${{ steps.metadata.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Validate platform and generate shared build number
+        id: metadata
+        env:
+          BBK_PLATFORM: ${{ inputs.platform || 'all' }}
+        run: |
+          case "$BBK_PLATFORM" in
+            all|macos-android|android|macos|windows|ios) ;;
+            *) echo 'Unsupported build platform'; exit 1 ;;
+          esac
+          # 所有入口按提交数生成同一个递增编号；同时满足Windows资源版本的16位限制。
+          bbk_build_number=$((1000 + $(git rev-list --count HEAD)))
+          test "$bbk_build_number" -le 65535
+          echo "build_number=$bbk_build_number" >> "$GITHUB_OUTPUT"
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze --no-pub
+      - run: flutter test --no-pub --reporter expanded
+  android:
+    needs: validate
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos-android' || inputs.platform == 'android' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Prepare pinned Android SDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"'
+      - uses: actions/cache@v4
+        with:
+          # 仅缓存专用测试证书，正式签名不进入构建缓存。
+          path: ~/.bbk-ci/test-release.jks
+          key: bbk-ci-test-signing-v1
+      - name: Configure Android signing
+        env:
+          BBK_KEYSTORE_BASE64: ${{ secrets.BBK_RELEASE_KEYSTORE_BASE64 }}
+          BBK_KEY_ALIAS: ${{ secrets.BBK_RELEASE_KEY_ALIAS }}
+          BBK_KEY_PASSWORD: ${{ secrets.BBK_RELEASE_KEY_PASSWORD }}
+          BBK_STORE_PASSWORD: ${{ secrets.BBK_RELEASE_STORE_PASSWORD }}
+        run: |
+          if [ -n "$BBK_KEYSTORE_BASE64" ]; then
+            test -n "$BBK_KEY_ALIAS" && test -n "$BBK_KEY_PASSWORD" && test -n "$BBK_STORE_PASSWORD"
+            bbk_keystore="$RUNNER_TEMP/bbk-release.jks"
+            printf '%s' "$BBK_KEYSTORE_BASE64" | base64 --decode > "$bbk_keystore"
+          else
+            # 正式配置缺少JKS时不能悄悄降级到测试签名。
+            test -z "$BBK_KEY_ALIAS$BBK_KEY_PASSWORD$BBK_STORE_PASSWORD"
+            bbk_keystore="$HOME/.bbk-ci/test-release.jks"
+            BBK_KEY_ALIAS=bbk-ci-test
+            BBK_KEY_PASSWORD=bbk-ci-test-only
+            BBK_STORE_PASSWORD=bbk-ci-test-only
+            mkdir -p "$HOME/.bbk-ci"
+            if [ ! -f "$bbk_keystore" ]; then
+              keytool -genkeypair -keystore "$bbk_keystore" -storepass "$BBK_STORE_PASSWORD" \
+                -keypass "$BBK_KEY_PASSWORD" -alias "$BBK_KEY_ALIAS" -keyalg RSA -keysize 2048 \
+                -validity 3650 -dname 'CN=BBK CI Test, O=BBK, C=CN'
+            fi
+            echo 'Android使用云端测试签名；覆盖原签名版本前需配置仓库签名Secrets。' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            printf 'BBK_RELEASE_STORE_FILE=%s\n' "$bbk_keystore"
+            printf 'BBK_RELEASE_KEY_ALIAS=%s\n' "$BBK_KEY_ALIAS"
+            printf 'BBK_RELEASE_KEY_PASSWORD=%s\n' "$BBK_KEY_PASSWORD"
+            printf 'BBK_RELEASE_STORE_PASSWORD=%s\n' "$BBK_STORE_PASSWORD"
+          } >> "$GITHUB_ENV"
+      - run: flutter pub get --enforce-lockfile
+      - name: Build Android Release APK
+        run: |
+          mkdir -p build/ci-logs
+          flutter build apk --release --no-pub --build-number=${{ needs.validate.outputs.build_number }} 2>&1 | tee build/ci-logs/android.log
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/BBK-Android.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose dist/BBK-Android.apk
+          (cd dist && sha256sum BBK-Android.apk > BBK-Android.apk.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-android
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - name: Optional Debug APK for device verification
+        if: ${{ inputs.runtime_test == true }}
+        run: |
+          flutter build apk --debug --no-pub --build-number=${{ needs.validate.outputs.build_number }}
+          mkdir -p build/runtime-test
+          cp build/app/outputs/flutter-apk/app-debug.apk build/runtime-test/BBK-runtime-test.apk
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.runtime_test == true }}
+        with:
+          name: bbk-android-runtime-test
+          path: build/runtime-test/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bbk-android-diagnostics
+          path: build/ci-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+  macos:
+    needs: validate
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos-android' || inputs.platform == 'macos' }}
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build and package universal macOS app
+        run: |
+          flutter build macos --release --no-pub --build-number=${{ needs.validate.outputs.build_number }}
+          codesign --verify --deep --strict build/macos/Build/Products/Release/步步高经典游戏.app
+          lipo -verify_arch x86_64 arm64 build/macos/Build/Products/Release/步步高经典游戏.app/Contents/MacOS/步步高经典游戏
+          bash tool/package_macos_beta.sh
+          hdiutil verify build/beta/BBK-macos-beta.dmg
+          mkdir -p dist
+          cp build/beta/BBK-macos-beta.dmg dist/BBK-macOS-universal.dmg
+          cp build/beta/BBK-macos-beta.zip dist/BBK-macOS-universal.zip
+          (cd dist && shasum -a 256 BBK-macOS-universal.dmg BBK-macOS-universal.zip > BBK-macOS.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-macos
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  ios:
+    needs: validate
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'ios' }}
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build and package unsigned iOS app
+        run: |
+          mkdir -p build/ci-logs
+          flutter build ios --release --no-codesign --no-pub --build-number=${{ needs.validate.outputs.build_number }} 2>&1 | tee build/ci-logs/ios.log
+          bash tool/package_ios_unsigned.sh
+          mkdir -p dist
+          cp build/ipa/bbk-unsigned.ipa dist/BBK-iOS-unsigned.ipa
+          (cd dist && shasum -a 256 BBK-iOS-unsigned.ipa > BBK-iOS-unsigned.ipa.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-ios
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: bbk-ios-diagnostics
+          path: build/ci-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+  windows:
+    needs: validate
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbk-sgby-engine
+          path: assets/games/sgby/js
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter build windows --release --no-pub --build-number=${{ needs.validate.outputs.build_number }}
+      - name: Package Windows portable app
+        shell: pwsh
+        run: |
+          ./tool/package_windows_beta.ps1
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/beta/BBK-windows-x64-portable-beta.zip dist/BBK-Windows-x64-portable.zip
+          $bbkHash = (Get-FileHash dist/BBK-Windows-x64-portable.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$bbkHash  BBK-Windows-x64-portable.zip" | Set-Content dist/BBK-Windows-x64-portable.zip.sha256 -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbk-windows
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  release:
+    needs: [validate, android, macos, ios, windows]
+    if: >-
+      ${{ always() && !cancelled() && needs.validate.result == 'success' &&
+          contains(fromJSON('["success","skipped"]'), needs.android.result) &&
+          contains(fromJSON('["success","skipped"]'), needs.macos.result) &&
+          contains(fromJSON('["success","skipped"]'), needs.ios.result) &&
+          contains(fromJSON('["success","skipped"]'), needs.windows.result) &&
+          (needs.android.result == 'success' || needs.macos.result == 'success' ||
+           needs.ios.result == 'success' || needs.windows.result == 'success') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bbk-*
+          path: artifacts
+      - name: Publish installable preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BBK_PLATFORM: ${{ inputs.platform || 'all' }}
+          BBK_RELEASE_TAG: ${{ inputs.release_tag }}
+          BBK_BUILD_NUMBER: ${{ needs.validate.outputs.build_number }}
+        run: bash tool/publish_preview.sh

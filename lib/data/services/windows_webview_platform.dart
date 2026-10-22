@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 import 'package:webview_windows/webview_windows.dart' as windows;
+
+import 'application_support_directory.dart';
 
 /// Windows WebView2 对既有 WebViewController 接口的适配。
 ///
@@ -14,7 +15,7 @@ import 'package:webview_windows/webview_windows.dart' as windows;
 class WindowsGameWebViewPlatform extends WebViewPlatform {
   static Future<void> register() async {
     if (!Platform.isWindows) return;
-    final support = await getApplicationSupportDirectory();
+    final support = await getBbkApplicationSupportDirectory();
     final runtime = Directory(
       '${File(Platform.resolvedExecutable).parent.path}/WebView2',
     );
