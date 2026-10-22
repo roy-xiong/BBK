@@ -1,0 +1,712 @@
+{
+  "slots": 116,
+  "resources": 88,
+  "graphics": 56,
+  "pictures": 1202,
+  "items": [
+    {
+      "id": 1,
+      "offset": 464,
+      "length": 1893,
+      "items": 70,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 2,
+      "offset": 2357,
+      "length": 1168,
+      "items": 16,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 3,
+      "offset": 3525,
+      "length": 178786,
+      "items": 1,
+      "itemLength": 178772,
+      "key": 0
+    },
+    {
+      "id": 4,
+      "offset": 182311,
+      "length": 23573,
+      "items": 1,
+      "itemLength": 23559,
+      "key": 0
+    },
+    {
+      "id": 5,
+      "offset": 205884,
+      "length": 32789,
+      "items": 1,
+      "itemLength": 32775,
+      "key": 0
+    },
+    {
+      "id": 6,
+      "offset": 238673,
+      "length": 31227,
+      "items": 1,
+      "itemLength": 31213,
+      "key": 0
+    },
+    {
+      "id": 7,
+      "offset": 269900,
+      "length": 6165,
+      "items": 1,
+      "itemLength": 6151,
+      "key": 0
+    },
+    {
+      "id": 8,
+      "offset": 276065,
+      "length": 5141,
+      "items": 1,
+      "itemLength": 5127,
+      "key": 0
+    },
+    {
+      "id": 9,
+      "offset": 281206,
+      "length": 1461,
+      "items": 1,
+      "itemLength": 1447,
+      "key": 0
+    },
+    {
+      "id": 10,
+      "offset": 282667,
+      "length": 1034,
+      "items": 1,
+      "itemLength": 1020,
+      "key": 0
+    },
+    {
+      "id": 11,
+      "offset": 283701,
+      "length": 186,
+      "items": 43,
+      "itemLength": 4,
+      "key": 0
+    },
+    {
+      "id": 12,
+      "offset": 283887,
+      "length": 1564,
+      "items": 31,
+      "itemLength": 50,
+      "key": 0
+    },
+    {
+      "id": 13,
+      "offset": 285451,
+      "length": 2444,
+      "items": 1,
+      "itemLength": 2430,
+      "key": 0
+    },
+    {
+      "id": 14,
+      "offset": 287895,
+      "length": 1614,
+      "items": 4,
+      "itemLength": 400,
+      "key": 0
+    },
+    {
+      "id": 15,
+      "offset": 289509,
+      "length": 3861,
+      "items": 1,
+      "itemLength": 3847,
+      "key": 0
+    },
+    {
+      "id": 16,
+      "offset": 293370,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 19,
+      "offset": 310031,
+      "length": 82595,
+      "items": 1,
+      "itemLength": 82581,
+      "key": 0
+    },
+    {
+      "id": 20,
+      "offset": 392626,
+      "length": 67550,
+      "items": 1,
+      "itemLength": 67536,
+      "key": 0
+    },
+    {
+      "id": 21,
+      "offset": 460176,
+      "length": 62096,
+      "items": 1,
+      "itemLength": 62082,
+      "key": 0
+    },
+    {
+      "id": 22,
+      "offset": 522272,
+      "length": 66542,
+      "items": 1,
+      "itemLength": 66528,
+      "key": 0
+    },
+    {
+      "id": 23,
+      "offset": 588814,
+      "length": 95495,
+      "items": 1,
+      "itemLength": 95481,
+      "key": 0
+    },
+    {
+      "id": 24,
+      "offset": 684309,
+      "length": 68494,
+      "items": 1,
+      "itemLength": 68480,
+      "key": 0
+    },
+    {
+      "id": 25,
+      "offset": 752803,
+      "length": 9226,
+      "items": 1,
+      "itemLength": 9212,
+      "key": 0
+    },
+    {
+      "id": 26,
+      "offset": 762029,
+      "length": 5781,
+      "items": 1,
+      "itemLength": 5767,
+      "key": 0
+    },
+    {
+      "id": 27,
+      "offset": 767810,
+      "length": 9389,
+      "items": 1,
+      "itemLength": 9375,
+      "key": 0
+    },
+    {
+      "id": 28,
+      "offset": 777199,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 29,
+      "offset": 793860,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 30,
+      "offset": 810521,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 31,
+      "offset": 827182,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 32,
+      "offset": 843843,
+      "length": 16661,
+      "items": 1,
+      "itemLength": 16647,
+      "key": 0
+    },
+    {
+      "id": 33,
+      "offset": 860504,
+      "length": 1869,
+      "items": 1,
+      "itemLength": 1855,
+      "key": 0
+    },
+    {
+      "id": 34,
+      "offset": 862373,
+      "length": 6165,
+      "items": 1,
+      "itemLength": 6151,
+      "key": 0
+    },
+    {
+      "id": 35,
+      "offset": 868538,
+      "length": 16970,
+      "items": 1,
+      "itemLength": 16956,
+      "key": 0
+    },
+    {
+      "id": 36,
+      "offset": 885508,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 37,
+      "offset": 901966,
+      "length": 16714,
+      "items": 1,
+      "itemLength": 16700,
+      "key": 0
+    },
+    {
+      "id": 38,
+      "offset": 918680,
+      "length": 18059,
+      "items": 1,
+      "itemLength": 18045,
+      "key": 0
+    },
+    {
+      "id": 39,
+      "offset": 936739,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 40,
+      "offset": 953197,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 41,
+      "offset": 969655,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 42,
+      "offset": 986113,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 43,
+      "offset": 1002571,
+      "length": 16458,
+      "items": 1,
+      "itemLength": 16444,
+      "key": 0
+    },
+    {
+      "id": 44,
+      "offset": 1019029,
+      "length": 30741,
+      "items": 1,
+      "itemLength": 30727,
+      "key": 0
+    },
+    {
+      "id": 45,
+      "offset": 1049770,
+      "length": 30741,
+      "items": 1,
+      "itemLength": 30727,
+      "key": 0
+    },
+    {
+      "id": 46,
+      "offset": 1080511,
+      "length": 30741,
+      "items": 1,
+      "itemLength": 30727,
+      "key": 0
+    },
+    {
+      "id": 47,
+      "offset": 1111252,
+      "length": 10773,
+      "items": 1,
+      "itemLength": 10759,
+      "key": 0
+    },
+    {
+      "id": 48,
+      "offset": 1122025,
+      "length": 230421,
+      "items": 1,
+      "itemLength": 230407,
+      "key": 0
+    },
+    {
+      "id": 49,
+      "offset": 1352446,
+      "length": 230421,
+      "items": 1,
+      "itemLength": 230407,
+      "key": 0
+    },
+    {
+      "id": 50,
+      "offset": 1582867,
+      "length": 230421,
+      "items": 1,
+      "itemLength": 230407,
+      "key": 0
+    },
+    {
+      "id": 51,
+      "offset": 1813288,
+      "length": 230421,
+      "items": 1,
+      "itemLength": 230407,
+      "key": 0
+    },
+    {
+      "id": 54,
+      "offset": 2043709,
+      "length": 55317,
+      "items": 1,
+      "itemLength": 55303,
+      "key": 0
+    },
+    {
+      "id": 55,
+      "offset": 2099026,
+      "length": 1301,
+      "items": 1,
+      "itemLength": 1287,
+      "key": 0
+    },
+    {
+      "id": 56,
+      "offset": 2100327,
+      "length": 277,
+      "items": 1,
+      "itemLength": 263,
+      "key": 0
+    },
+    {
+      "id": 57,
+      "offset": 2100604,
+      "length": 5646,
+      "items": 4,
+      "itemLength": 1408,
+      "key": 0
+    },
+    {
+      "id": 58,
+      "offset": 2106250,
+      "length": 466,
+      "items": 38,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 59,
+      "offset": 2106716,
+      "length": 622,
+      "items": 1,
+      "itemLength": 608,
+      "key": 0
+    },
+    {
+      "id": 60,
+      "offset": 2107338,
+      "length": 622,
+      "items": 1,
+      "itemLength": 608,
+      "key": 0
+    },
+    {
+      "id": 61,
+      "offset": 2107960,
+      "length": 15214,
+      "items": 4,
+      "itemLength": 3800,
+      "key": 0
+    },
+    {
+      "id": 62,
+      "offset": 2123174,
+      "length": 2392,
+      "items": 200,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 63,
+      "offset": 2125566,
+      "length": 3214,
+      "items": 4,
+      "itemLength": 800,
+      "key": 0
+    },
+    {
+      "id": 64,
+      "offset": 2128780,
+      "length": 3568,
+      "items": 163,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 65,
+      "offset": 2132348,
+      "length": 1400,
+      "items": 4,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 66,
+      "offset": 2133748,
+      "length": 2456,
+      "items": 1,
+      "itemLength": 2442,
+      "key": 0
+    },
+    {
+      "id": 67,
+      "offset": 2136204,
+      "length": 606,
+      "items": 4,
+      "itemLength": 148,
+      "key": 0
+    },
+    {
+      "id": 68,
+      "offset": 2136810,
+      "length": 291,
+      "items": 5,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 69,
+      "offset": 2137101,
+      "length": 309,
+      "items": 1,
+      "itemLength": 295,
+      "key": 0
+    },
+    {
+      "id": 70,
+      "offset": 2137410,
+      "length": 2382,
+      "items": 200,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 71,
+      "offset": 2139792,
+      "length": 2410,
+      "items": 200,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 72,
+      "offset": 2142202,
+      "length": 2382,
+      "items": 200,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 73,
+      "offset": 2144584,
+      "length": 534,
+      "items": 37,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 74,
+      "offset": 2145118,
+      "length": 310,
+      "items": 37,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 75,
+      "offset": 2145428,
+      "length": 10773,
+      "items": 1,
+      "itemLength": 10759,
+      "key": 0
+    },
+    {
+      "id": 76,
+      "offset": 2156201,
+      "length": 43029,
+      "items": 1,
+      "itemLength": 43015,
+      "key": 0
+    },
+    {
+      "id": 77,
+      "offset": 2199230,
+      "length": 35646,
+      "items": 0,
+      "itemLength": 0,
+      "key": 0
+    },
+    {
+      "id": 100,
+      "offset": 2234876,
+      "length": 2692,
+      "items": 1,
+      "itemLength": 2678,
+      "key": 0
+    },
+    {
+      "id": 101,
+      "offset": 2237568,
+      "length": 2692,
+      "items": 1,
+      "itemLength": 2678,
+      "key": 0
+    },
+    {
+      "id": 102,
+      "offset": 2240260,
+      "length": 2692,
+      "items": 1,
+      "itemLength": 2678,
+      "key": 0
+    },
+    {
+      "id": 103,
+      "offset": 2242952,
+      "length": 2692,
+      "items": 1,
+      "itemLength": 2678,
+      "key": 0
+    },
+    {
+      "id": 104,
+      "offset": 2245644,
+      "length": 5185,
+      "items": 1,
+      "itemLength": 5171,
+      "key": 0
+    },
+    {
+      "id": 105,
+      "offset": 2250829,
+      "length": 5185,
+      "items": 1,
+      "itemLength": 5171,
+      "key": 0
+    },
+    {
+      "id": 106,
+      "offset": 2256014,
+      "length": 5185,
+      "items": 1,
+      "itemLength": 5171,
+      "key": 0
+    },
+    {
+      "id": 107,
+      "offset": 2261199,
+      "length": 5185,
+      "items": 1,
+      "itemLength": 5171,
+      "key": 0
+    },
+    {
+      "id": 110,
+      "offset": 2266384,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 111,
+      "offset": 2267438,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 112,
+      "offset": 2268492,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 113,
+      "offset": 2269546,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 114,
+      "offset": 2270600,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 115,
+      "offset": 2271654,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    },
+    {
+      "id": 116,
+      "offset": 2272708,
+      "length": 1054,
+      "items": 1,
+      "itemLength": 1040,
+      "key": 0
+    }
+  ]
+}

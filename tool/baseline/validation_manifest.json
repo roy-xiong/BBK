@@ -1,0 +1,336 @@
+{
+  "date": "2026-10-22",
+  "tests": {
+    "passed": 217,
+    "command": "flutter test --no-pub --reporter expanded"
+  },
+  "analysis": {
+    "command": "dart analyze",
+    "result": "No issues found!"
+  },
+  "app_build_run": false,
+  "new_app_device_verified": false,
+  "reference_device_font_verified": true,
+  "source_commit": "15287490a3123667eceb22a561b3723c6dec038e",
+  "font_sha256": "400b5178b6fb4ed48a99c0a865ead4a32851c2d701ad25d9032e8a5c9d95caa0",
+  "scenes": [
+    {
+      "group": "battle",
+      "name": "battle_animation_menu",
+      "sha256": "8139c6425d34f19301738814c20b72b371780894b1e0ed4292511daa478f81e0",
+      "different_pixels": 0
+    },
+    {
+      "group": "battle",
+      "name": "battle_information",
+      "sha256": "2197c1c7656476a3472749e00e982cceab9fb2a4eb52955bc9c999f5f73bc5f0",
+      "different_pixels": 0
+    },
+    {
+      "group": "battle",
+      "name": "battle_main_menu",
+      "sha256": "bc104db5ca1026cb485da507f5ce5516622ae9f6896de3f42a3750edc85b3a49",
+      "different_pixels": 0
+    },
+    {
+      "group": "battle",
+      "name": "battle_map",
+      "sha256": "1f426ea82cea70dc8d68e0f760ac38fef60cae7aba3a80ccfaf552ae0499f37e",
+      "different_pixels": 0
+    },
+    {
+      "group": "battle",
+      "name": "battle_situation_enemy",
+      "sha256": "c904a6a15e9048ca13b8000d6577e115d745a8515abfcd5b74f838b0272a9e33",
+      "different_pixels": 0
+    },
+    {
+      "group": "battle",
+      "name": "battle_situation_player",
+      "sha256": "6a8221d716874f298efebe7d47ee3ef9ae4410666cccf4cd05774c3ed1c6e8f4",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "city_details",
+      "sha256": "fb69b78763e92bcf77ee48ccf1b6714d084ec9b2fe5914fe6b57d4b433a13fef",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "city_menu",
+      "sha256": "09e9fe66f1af1a49c150d6452c00ad3f6712a23015af4aea73dd9eda1a2ed2bf",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_general_report",
+      "sha256": "3a2307a73ac87d6a799f7d352b3dec57fc78d4bab05b3e8c73cb200a14fe3a94",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_goods_selection",
+      "sha256": "2fe92be8f431516acefb0e0387bf950b7b5779caf64d5e5c0394188ba28fa2f7",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_cities",
+      "sha256": "711496cf3b94f97871316ea1956a1ce88d7c9cd545697053dadce91525241bc3",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_city_hidden",
+      "sha256": "1f3a285281a304d5d2c622bae6d918b6c2ec5b9e8a2272568b6bc2abfe542315",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_heroes",
+      "sha256": "30999fbccb46f6f9c831c2817f49479b7614c186380b45d51b235f4cb3606c2b",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_heroes_1",
+      "sha256": "e1bd2fb3cd37690d10ec1d9f34a01896156e4017101a8aa6e286de98ac25e12b",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_menu",
+      "sha256": "d71b4caf1b82a0802f395ffd5ef7b22ffd3c59b4c61d65f9c886cfbea3385623",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_help_tools",
+      "sha256": "561b2c10c6518647cfa3f09dcd38b67b34693ca202522009937c7a02da410830",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_no_goods_report",
+      "sha256": "90b57ab79c76aea4f44c87b674be38f05691c3c67e649a0ee59c331b3ea8975e",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_people_selection",
+      "sha256": "f6751cb93904158c06d1cfcddb8d3cf99e40c761c5f8fd53b5c01cff8b4148d0",
+      "different_pixels": 0
+    },
+    {
+      "group": "extended",
+      "name": "extended_save_menu",
+      "sha256": "c46240cd158738bdf355b709a10e04bf1d250af847474a3195028b22cd55faa8",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "main_menu",
+      "sha256": "4846ffd196d92fd20d404217588293198ae2deb481d809bfa8a7826f90ef3a23",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "period_menu",
+      "sha256": "385ff655abf645e70b3a3910e7ba6f43f73087a93e5c83b6f1815ecc990869fa",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "rulers",
+      "sha256": "a83977686592e1dd278267b03579714b0b49dec37eb641f5b34af6255e35e769",
+      "different_pixels": 0
+    },
+    {
+      "group": "base",
+      "name": "strategy",
+      "sha256": "b7825176575567968ec0fcd1abc8f59fb558de4e52877972379d90c78d8d4271",
+      "different_pixels": 0
+    }
+  ],
+  "feature_count": 53,
+  "legacy_binary_save_import": false,
+  "reference_fixtures": [
+    {
+      "path": "test/fixtures/pixels_battle_animation_menu.rgba.gz",
+      "sha256": "f3442f332c054e937156b3598bad73283eb6b381d783f3b175b62648c010fa35"
+    },
+    {
+      "path": "test/fixtures/pixels_battle_information.rgba.gz",
+      "sha256": "c8306453b00e09503e122a808901b4f64c803afcaede2d7804ae9ce0669b8276"
+    },
+    {
+      "path": "test/fixtures/pixels_battle_main_menu.rgba.gz",
+      "sha256": "23985a0b51bfb0a58144dc2b830a66ae2f0737fbdd90ccb6afbd58bd1d1a9f49"
+    },
+    {
+      "path": "test/fixtures/pixels_battle_map.rgba.gz",
+      "sha256": "0eaa5574c27afa654b3309dd091840471623fd6b3eaad814a6c7400b180b5767"
+    },
+    {
+      "path": "test/fixtures/pixels_battle_situation_enemy.rgba.gz",
+      "sha256": "a66faf27f2e3f37dba082f8ccff72cf018fb8a6294586fc221be96471e3a66a0"
+    },
+    {
+      "path": "test/fixtures/pixels_battle_situation_player.rgba.gz",
+      "sha256": "54a6415718326d4eb72a781d1c9c22069475929c178633088c845c91693ae635"
+    },
+    {
+      "path": "test/fixtures/pixels_city_details.rgba.gz",
+      "sha256": "1e2f2d31793bd5214275ffba56417e47102c80e7c37aa8960572acc419badf97"
+    },
+    {
+      "path": "test/fixtures/pixels_city_menu.rgba.gz",
+      "sha256": "66c32974d8708866e6ffebc5862d177aaef8e5d938e004192b31bc34445d50c2"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_city_details.rgba.gz",
+      "sha256": "1e2f2d31793bd5214275ffba56417e47102c80e7c37aa8960572acc419badf97"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_city_menu.rgba.gz",
+      "sha256": "66c32974d8708866e6ffebc5862d177aaef8e5d938e004192b31bc34445d50c2"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_general_report.rgba.gz",
+      "sha256": "44eda85682d41a532dded23288c4504922e6417145e9378c0a813f8fde444f81"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_goods_selection.rgba.gz",
+      "sha256": "d9fef85a3669a18a08350679a52d8e796aa0944b60b101b175d8785198c44351"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_cities.rgba.gz",
+      "sha256": "e8fa625a2630b80e63361855af2494aa8d88b189de5f72fbb5b9127140d2384c"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_city_hidden.rgba.gz",
+      "sha256": "1528e778f7459ba302fb4c296e5442dfa00293aa000feb6b3cf72ed71877d65b"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_heroes.rgba.gz",
+      "sha256": "10c12526edccd8f69c8c4fd8650f76496f23ca2431ce2fa9415726139da1d11a"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_heroes_1.rgba.gz",
+      "sha256": "fc577ca66b2f6bb366d268f912a3a9251b1806b5329bd36099190eaf40c62b10"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_menu.rgba.gz",
+      "sha256": "ea9332de3077778fed702546976443899b8288a3fccd5c942ccb5f73458bf985"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_help_tools.rgba.gz",
+      "sha256": "6be182259cc21ad91e4c586b6c7c2c7ba1d4fbafed638a97fa7ab3dc1e46eaf1"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_main_menu.rgba.gz",
+      "sha256": "da5fb8468cdd47e630d2bc192f38d131f604c4bc7dfb658b1be9c7ccf9a7ab61"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_no_goods_report.rgba.gz",
+      "sha256": "aac1a9608953968e15e5bba3fa1f7b2294457678102467ac05970b85350a2480"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_people_selection.rgba.gz",
+      "sha256": "07022bed96d8d4836730307c44c59c2f78d5d5d059f19e2d4f8a129f0cd80a4c"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_period_menu.rgba.gz",
+      "sha256": "4f4bcf03f37039e020aef01a8cbc5172b5efa5c2d206e5601aa36c027befb6c0"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_rulers.rgba.gz",
+      "sha256": "9a08d9e5da213e0952a4a4acc357132f1964cbbe92bcf98ea1cd02cbc3c3b877"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_save_menu.rgba.gz",
+      "sha256": "04c60579dc3f9b91fe7a6dc056087c4b96226ec3cae7c42c30888befad2d9c3e"
+    },
+    {
+      "path": "test/fixtures/pixels_ext_strategy.rgba.gz",
+      "sha256": "18c7e0d7b69fac92886f4e608589a40fe7648003d3f3437af5f4504ae2ecc5f6"
+    },
+    {
+      "path": "test/fixtures/pixels_main_menu.rgba.gz",
+      "sha256": "da5fb8468cdd47e630d2bc192f38d131f604c4bc7dfb658b1be9c7ccf9a7ab61"
+    },
+    {
+      "path": "test/fixtures/pixels_period_menu.rgba.gz",
+      "sha256": "4f4bcf03f37039e020aef01a8cbc5172b5efa5c2d206e5601aa36c027befb6c0"
+    },
+    {
+      "path": "test/fixtures/pixels_rulers.rgba.gz",
+      "sha256": "70de45cba206c1a22250e10118cbd8758d82165df3d1dcb6ec744a1eb4596cfe"
+    },
+    {
+      "path": "test/fixtures/pixels_strategy.rgba.gz",
+      "sha256": "18c7e0d7b69fac92886f4e608589a40fe7648003d3f3437af5f4504ae2ecc5f6"
+    },
+    {
+      "path": "test/fixtures/reference_ai.json",
+      "sha256": "fb95de3cfeedb7fef3ffe63684b376576c9b9e7cb4aa8d98432374dfa270ca56"
+    },
+    {
+      "path": "test/fixtures/reference_attack.json",
+      "sha256": "5e8963f21787f62dd56cc6ddd69e991292d5dfcd0830d8a299134e79cb3155d9"
+    },
+    {
+      "path": "test/fixtures/reference_battle_enemy.json",
+      "sha256": "ad51c19fb0a101a1464fe40a3cd1eeaf5a863af60d14a4e4fd6133c4370a1de5"
+    },
+    {
+      "path": "test/fixtures/reference_battle_init.json",
+      "sha256": "c6fa4e8b9d6dca35a01b5bbf1f250e789e446bf7c6bbd2b468cbd23a006146f5"
+    },
+    {
+      "path": "test/fixtures/reference_battle_resolution.json",
+      "sha256": "03859e57ea1157a674b8f1e0eb0a6ec58d077d1d0c7742fc567a8ce857530c2c"
+    },
+    {
+      "path": "test/fixtures/reference_calendar.json",
+      "sha256": "8a5693c201e994df9433025c5b0b49392318860c4633d925181a0b9e86f7e675"
+    },
+    {
+      "path": "test/fixtures/reference_cheats.json",
+      "sha256": "8985f4628c610f7374039dffa1792bb2b9bb206763d71c76f455d8f8459b5da4"
+    },
+    {
+      "path": "test/fixtures/reference_config.json",
+      "sha256": "f31833756a1de1b8cbc3188dc69b8398fef18f35e2d4253a30026b2dede9d090"
+    },
+    {
+      "path": "test/fixtures/reference_errors.json",
+      "sha256": "632acbbce5e6c01ac0bba295bf49a98da28de62883b01a229e8347050ea113f2"
+    },
+    {
+      "path": "test/fixtures/reference_orders.json",
+      "sha256": "0f45b1860f5d14ba258568c2c457c694b4d923b510aa57a42376064655b4c10b"
+    },
+    {
+      "path": "test/fixtures/reference_periods.json",
+      "sha256": "f3aa1d99fe81f2dbcf5bac95a1875559f3c4669b16858ce17b6d627dcc5cc389"
+    },
+    {
+      "path": "test/fixtures/reference_pixels.json",
+      "sha256": "85219148942401a221d61892481274a7a71fb7b92b1acd7f331359a3f44e7081"
+    },
+    {
+      "path": "test/fixtures/reference_pixels_battle.json",
+      "sha256": "b2f63fb49af4b7d4fe7108c861254c103c5f47f1ee3270cdcad1b9e5e938d66e"
+    },
+    {
+      "path": "test/fixtures/reference_pixels_extended.json",
+      "sha256": "6d032a5e38ae03fc1407847143dfa121b0f163eeb07c13b0c2e7d2633fe095dd"
+    },
+    {
+      "path": "test/fixtures/reference_skills.json",
+      "sha256": "59df40ca6bd6e9c5fa96e77e7255ec896106387f1c79aa93573258bd92605114"
+    }
+  ]
+}

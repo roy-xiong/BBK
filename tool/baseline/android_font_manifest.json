@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-22",
+  "device": "User-selected Android reference device",
+  "scale": 4,
+  "width": 240,
+  "height": 144,
+  "lib": "libs/SGBY-Reset-4X.lib",
+  "userAgent": "Mozilla/5.0 (Linux; Android 12; DCO-AL00 Build/HUAWEIDCO-AL00; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/114.0.5735.196 Mobile Safari/537.36",
+  "font": "function",
+  "count": 22049,
+  "bytes": 6445550,
+  "sha256": "400b5178b6fb4ed48a99c0a865ead4a32851c2d701ad25d9032e8a5c9d95caa0",
+  "source": "read-only invocation of the installed game fontImageForChar hook",
+  "supplementalCodes": [
+    "A2FD",
+    "A2FE"
+  ]
+}

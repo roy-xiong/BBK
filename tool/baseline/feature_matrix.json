@@ -1,0 +1,720 @@
+[
+  {
+    "id": "sgby_max_all",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_resources",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_development",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_generals",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_free_movement",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/battle_engine.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入",
+      "test/engine/native_flow_test.dart：自动战斗完整结束"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_food_protection",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/battle_engine.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入",
+      "test/engine/native_flow_test.dart：自动战斗完整结束"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_attack_any_city",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_enemy_escape_route",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/resolve_battle.dart"
+    ],
+    "validation": [
+      "test/engine/battle_resolution_parity_test.dart：五种结局与逃生路线20组通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_disable_animations",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_search_city",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_search_world_generals",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_execute_wild_generals",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_search_outcome",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_recruit_captives",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_post_battle_automation",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_post_battle_captive_action",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_battle_loser_outcome",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/resolve_battle.dart"
+    ],
+    "validation": [
+      "test/engine/battle_resolution_parity_test.dart：五种结局与逃生路线20组通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_execute_captives",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "test/engine/enhancement_parity_test.dart：独立旧内核快照逐字段通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_invincible",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/battle_engine.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入",
+      "test/engine/native_flow_test.dart：自动战斗完整结束"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_one_hit_kill",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/battle_engine.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入",
+      "test/engine/native_flow_test.dart：自动战斗完整结束"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_wide_group_attack",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/domain/use_cases/battle_engine.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入",
+      "test/engine/native_flow_test.dart：自动战斗完整结束"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_faction_colors",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart",
+      "lib/engine/rendering/game_display_enhancements.dart"
+    ],
+    "validation": [
+      "test/engine/pixel_parity_test.dart：战略整帧通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_force_win",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/domain/models/game_options.dart"
+    ],
+    "validation": [
+      "领域规则与原生菜单已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_all",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_force",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_iq",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_thew",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_devotion",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_level",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_arms",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_arm_type",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_move",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "sgby_general_restore",
+    "status": "implemented_native",
+    "reference": "assets/games/sgby/js/bbk-enhancements.js",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/domain/use_cases/build_general_roster.dart"
+    ],
+    "validation": [
+      "属性修改与可操作武将过滤逻辑已接入；设备交互待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "autoBattle",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/battle_flow.dart",
+      "lib/engine/core/strategy_turn_flow.dart",
+      "lib/ui/features/game/view_models/game_view_model.dart"
+    ],
+    "validation": [
+      "test/engine/native_flow_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "autoEndTurn",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/strategy_command_flow.dart",
+      "lib/engine/core/strategy_turn_flow.dart",
+      "lib/ui/features/game/view_models/game_view_model.dart"
+    ],
+    "validation": [
+      "策略及出征流程已接入；自动连续操作仍需真机回归"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "quickExpedition",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/strategy_command_flow.dart",
+      "lib/engine/core/strategy_turn_flow.dart",
+      "lib/ui/features/game/view_models/game_view_model.dart"
+    ],
+    "validation": [
+      "策略及出征流程已接入；自动连续操作仍需真机回归"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "endTurn",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/battle_flow.dart",
+      "lib/engine/core/strategy_turn_flow.dart",
+      "lib/ui/features/game/view_models/game_view_model.dart"
+    ],
+    "validation": [
+      "test/engine/native_flow_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "battleInfo",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/battle_flow.dart",
+      "lib/engine/core/strategy_turn_flow.dart",
+      "lib/ui/features/game/view_models/game_view_model.dart"
+    ],
+    "validation": [
+      "test/engine/native_flow_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "toggleBattleSpeed",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/ui/features/game/views/game_page.dart"
+    ],
+    "validation": [
+      "原生宿主接入完成；设备交互未运行"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "generalRoster",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/domain/use_cases/build_general_roster.dart",
+      "lib/ui/features/game/views/game_general_roster_sheet.dart"
+    ],
+    "validation": [
+      "test/game_general_roster_filter_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "searchHistory",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/domain/use_cases/game_enhancements.dart",
+      "lib/ui/features/game/views/game_search_history_sheet.dart"
+    ],
+    "validation": [
+      "50条有界历史与损坏记录隔离；原生面板已接入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "enemyCityLongPress",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/core/native_game_session.dart",
+      "lib/ui/features/game/views/game_enemy_city_sheet.dart"
+    ],
+    "validation": [
+      "敌方城市600毫秒长按与原生武将面板已接入；设备手势待验"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "cityConnections",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/rendering/game_display_enhancements.dart",
+      "lib/engine/rendering/battle_scene_renderer.dart"
+    ],
+    "validation": [
+      "test/engine/pixel_parity_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "cityGeneralCounts",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/rendering/game_display_enhancements.dart",
+      "lib/engine/rendering/battle_scene_renderer.dart"
+    ],
+    "validation": [
+      "test/engine/pixel_parity_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "playerBattleUnitColors",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/rendering/game_display_enhancements.dart",
+      "lib/engine/rendering/battle_scene_renderer.dart"
+    ],
+    "validation": [
+      "test/engine/pixel_parity_test.dart",
+      "test/engine/battle_pixel_parity_test.dart"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "battleStatistics",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/domain/models/battle_record.dart",
+      "lib/ui/features/game/views/sgby_battle_statistics_text.dart"
+    ],
+    "validation": [
+      "伤亡按实际损失统计、去重与存档持久化；战斗流程测试通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "orientationToggle",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/ui/features/game/views/game_page.dart"
+    ],
+    "validation": [
+      "原生宿主接入完成；设备交互未运行"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "controllerInput",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/ui/features/game/views/game_page.dart",
+      "lib/data/services/game_platform_service.dart",
+      "android/app/src/main/kotlin/com/xiongjian/sgby_flutter/MainActivity.kt"
+    ],
+    "validation": [
+      "原生宿主接入完成；设备交互未运行"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "haptics",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/ui/features/game/views/game_page.dart"
+    ],
+    "validation": [
+      "原生宿主接入完成；设备交互未运行"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "screenAwake",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/ui/features/game/view_models/game_view_model.dart",
+      "lib/ui/features/game/views/game_page.dart",
+      "lib/data/services/game_platform_service.dart",
+      "android/app/src/main/kotlin/com/xiongjian/sgby_flutter/MainActivity.kt"
+    ],
+    "validation": [
+      "原生宿主接入完成；设备交互未运行"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "saveBackupRestore",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/data/repositories/game_save_repository.dart",
+      "lib/data/services/game_save_codec.dart"
+    ],
+    "validation": [
+      "test/data/save_repository_test.dart：原生JSON主文件、备份恢复及写入串行验证；不包含旧C二进制存档导入"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "fontImageForChar",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/engine/resources/bitmap_font.dart",
+      "lib/engine/resources/gbk_codec.dart",
+      "assets/game/android_font48.bin"
+    ],
+    "validation": [
+      "22,049个手机字模；23场景整帧逐像素通过"
+    ],
+    "device_verified": false
+  },
+  {
+    "id": "worldActivity",
+    "status": "implemented_native",
+    "reference": "bbk runtime and Flutter host",
+    "implementation": [
+      "lib/domain/use_cases/computer_strategy.dart",
+      "lib/domain/use_cases/execute_strategy_order.dart"
+    ],
+    "validation": [
+      "test/engine/computer_strategy_parity_test.dart：5档活跃度、4种随机种子20组通过"
+    ],
+    "device_verified": false
+  }
+]

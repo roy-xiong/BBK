@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-21",
+  "source_repository": "../bbk",
+  "source_commit": "15287490a3123667eceb22a561b3723c6dec038e",
+  "engine_commit": "62241e294f3ba3d4589d6e1205e6deb486a6c2d9",
+  "edition": "原版精修 4X",
+  "logic_size": [
+    240,
+    144
+  ],
+  "resource_scale": 4,
+  "framebuffer_size": [
+    960,
+    576
+  ],
+  "rules_reference": "current_workspace",
+  "font_reference": "User-selected Android reference device",
+  "runtime": "Dart and Flutter only",
+  "files": [
+    {
+      "path": "assets/games/sgby/js/baye.wasm",
+      "bytes": 2828416,
+      "sha256": "5836e6dde6128702de254e97fe300f7fbff3a0014093140e67dc6e998ceb2567"
+    },
+    {
+      "path": "assets/games/sgby/js/baye.js",
+      "bytes": 189011,
+      "sha256": "c2f40b5f16972bc350910329a67d24d94e34c90e71f078886fb3fdc4dbfea5f9"
+    },
+    {
+      "path": "assets/games/sgby/js/bbk-enhancements.js",
+      "bytes": 211865,
+      "sha256": "8f4dfb9bbcdd3aa18259ceb2c02be0a250085f39636a8c49ef12eeddf7bd5fcb"
+    },
+    {
+      "path": "assets/games/sgby/js/bridge.js",
+      "bytes": 25086,
+      "sha256": "16f7a891108f84079c17f9aab9eece523e09351c8840c718ca7a782240a4abbb"
+    },
+    {
+      "path": "assets/games/sgby/js/lcd.js",
+      "bytes": 20171,
+      "sha256": "0abee31ff86e8df5d51972dbafbe2d490425cca5fd2a6d2abf79ab4242bd1d03"
+    },
+    {
+      "path": "assets/games/sgby/libs/SGBY-Reset-4X.lib",
+      "bytes": 2273762,
+      "sha256": "a60cdf33e697bf39e26dce82e2390dbc8c0683dce06b8fee6de791ba569a7c8d"
+    },
+    {
+      "path": "third_party/ibaye/ai-world-activity.patch",
+      "bytes": 59528,
+      "sha256": "f62b4f1f7fb3d0151c26ae4bdc7953986b3daea50bede954d49fd203b95645d3"
+    }
+  ]
+}
