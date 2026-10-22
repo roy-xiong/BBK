@@ -2,6 +2,105 @@ var lcdWidth = 16*10;
 var lcdHeight = 16*6;
 var dotSize = 4;
 
+/**
+ * iOS画面提交与屏幕刷新对齐，游戏计时仍由原引擎独立推进。
+ *
+ * ProMotion可能给出120Hz回调，而词典LCD只按20ms检查脏帧。直接在任意计时器中
+ * putImageData会与Flutter/WKWebView合成争抢时隙。这里只保留最近一帧，最多60次/秒；
+ * 不缓存旧像素副本、不重放历史页面，也不创建持续空转的requestAnimationFrame循环。
+ */
+var lcdPresentation = (function () {
+    var navigatorInfo = window.navigator || {};
+    var isIOS = /iPhone|iPad|iPod/.test(navigatorInfo.userAgent || '') ||
+        (navigatorInfo.platform === 'MacIntel' && navigatorInfo.maxTouchPoints > 1);
+    var paced = isIOS && typeof window.requestAnimationFrame === 'function';
+    var pending = null;
+    var animationFrame = null;
+    var lastPresentation = -Infinity;
+    var cachedCanvas = null;
+    var cachedContext = null;
+    var cachedImage = null;
+    var cachedMemory = null;
+    var cachedPointer = -1;
+    var minimumFrameInterval = 1000 / 60;
+
+    /** WASM内存增长会使旧TypedArray失效，尺寸或地址变化也必须重建ImageData。 */
+    function draw(frame) {
+        if (typeof wasmMemory === 'undefined') return;
+        var memory = wasmMemory.buffer;
+        var canvas = document.getElementById('lcd');
+        if (!canvas || canvas.width !== frame.width || canvas.height !== frame.height) return;
+        if (canvas !== cachedCanvas) {
+            cachedCanvas = canvas;
+            cachedContext = canvas.getContext('2d');
+        }
+        if (!cachedContext) return;
+        if (!cachedImage || cachedMemory !== memory || cachedPointer !== frame.pointer ||
+            cachedImage.width !== frame.width || cachedImage.height !== frame.height) {
+            var pixels = new Uint8ClampedArray(memory, frame.pointer, frame.width * frame.height * 4);
+            cachedImage = new ImageData(pixels, frame.width, frame.height);
+            cachedMemory = memory;
+            cachedPointer = frame.pointer;
+        }
+        cachedContext.putImageData(cachedImage, 0, 0);
+    }
+
+    function schedule() {
+        if (pending && animationFrame === null && !document.hidden) {
+            animationFrame = window.requestAnimationFrame(present);
+        }
+    }
+
+    function present(timestamp) {
+        animationFrame = null;
+        if (!pending || document.hidden) return;
+        // 120Hz屏幕跳过相邻半帧；不追赶补绘积压帧，防止卡顿后短时间重复上传。
+        if (timestamp - lastPresentation + 0.1 < minimumFrameInterval) {
+            schedule();
+            return;
+        }
+        var frame = pending;
+        pending = null;
+        lastPresentation = timestamp;
+        draw(frame);
+    }
+
+    function reset() {
+        if (animationFrame !== null && typeof window.cancelAnimationFrame === 'function') {
+            window.cancelAnimationFrame(animationFrame);
+        }
+        animationFrame = null;
+        pending = null;
+        cachedImage = null;
+        cachedMemory = null;
+        cachedContext = null;
+        cachedCanvas = null;
+        lastPresentation = -Infinity;
+    }
+
+    if (paced) {
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) {
+                if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+                animationFrame = null;
+            } else {
+                lastPresentation = -Infinity;
+                schedule();
+            }
+        });
+        window.addEventListener('pagehide', reset);
+    }
+    return {
+        reset: reset,
+        submit: function (pointer) {
+            var frame = {pointer: pointer, width: lcdWidth * dotSize, height: lcdHeight * dotSize};
+            if (!paced) { draw(frame); return; }
+            pending = frame;
+            schedule();
+        }
+    };
+})();
+
 function getLCD() {
     var canvas = document.getElementById('lcd');
     if (canvas.getContext === undefined) {
@@ -49,6 +148,7 @@ function lcdInit()
 }
 
 function bayeResizeScreen(width, height) {
+    lcdPresentation.reset();
     lcdWidth = width;
     lcdHeight = height;
     var canvas = document.getElementById('lcd');
@@ -73,6 +173,7 @@ function imageDot(img, x, y, lineSize)
 
 function lcdSetDotSize(s)
 {
+    lcdPresentation.reset();
     var canvas = document.getElementById('lcd');
     dotSize = s;
     canvas.width = lcdWidth * dotSize;
@@ -80,13 +181,7 @@ function lcdSetDotSize(s)
 }
 
 function lcdFlushBuffer(buffer) {
-    var lcd = getLCD();
-    var w = lcdWidth*dotSize;
-    var h = lcdHeight*dotSize
-
-    var buffer_wrp = new Uint8ClampedArray(wasmMemory.buffer, buffer, w*h*4);
-    var img = new ImageData(buffer_wrp, w, h);
-    lcd.putImageData(img, 0, 0);
+    lcdPresentation.submit(buffer);
 }
 
 function sendKey(key) {
